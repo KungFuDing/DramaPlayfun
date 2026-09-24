@@ -1,0 +1,71 @@
+import SwiftUI
+
+struct DramaDetailView: View {
+    let drama: Drama
+    @Environment(AppContainer.self) private var app
+    @Environment(AppRouter.self) private var router
+    @State private var episodes: [Episode] = []
+    @State private var errorMessage: String?
+    @State private var isLoading = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(alignment: .top, spacing: 20) {
+                    DramaPoster(drama: drama).frame(width: 130)
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(drama.title).font(.title2.bold())
+                        Text("\(drama.category.rawValue) · 全\(drama.episodeCount)集").foregroundStyle(.secondary)
+                        Button { app.library.toggleFavorite(drama.id) } label: {
+                            Label(app.library.favoriteIDs.contains(drama.id) ? "已收藏" : "收藏", systemImage: app.library.favoriteIDs.contains(drama.id) ? "heart.fill" : "heart")
+                        }.buttonStyle(.bordered)
+                    }
+                }
+                Text(drama.summary).foregroundStyle(.secondary)
+                if isLoading { ProgressView("加载选集…") }
+                if let errorMessage {
+                    Text(errorMessage).foregroundStyle(.secondary)
+                    Button("重试") { Task { await load() } }
+                }
+                if let first = episodes.first {
+                    Button { play(resumeEpisode ?? first) } label: {
+                        Label(resumeEpisode == nil ? "立即播放" : "继续观看", systemImage: "play.fill").frame(maxWidth: .infinity).padding(8)
+                    }.buttonStyle(.borderedProminent).foregroundStyle(.black)
+                }
+                Text("选集").font(.title3.bold())
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 64))], spacing: 12) {
+                    ForEach(episodes) { episode in
+                        Button { play(episode) } label: {
+                            HStack(spacing: 4) {
+                                Text("\(episode.number)")
+                                if episode.requiresMembership { Image(systemName: "lock.fill").font(.caption2) }
+                            }.frame(maxWidth: .infinity).padding(.vertical, 14)
+                                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 10))
+                        }.accessibilityLabel("第\(episode.number)集\(episode.requiresMembership ? "，会员专享" : "")")
+                    }
+                }
+            }.padding()
+        }.screenBackground().navigationTitle("剧集详情").navigationBarTitleDisplayMode(.inline)
+            .task { await load() }
+    }
+
+    private var resumeEpisode: Episode? {
+        episodes.first { $0.id == app.library.progress[drama.id]?.episodeID }
+    }
+
+    private func play(_ episode: Episode) {
+        if episode.requiresMembership && !app.membership.isActive {
+            router.membershipPresented = true
+        } else {
+            router.playback = PlaybackRequest(drama: drama, episode: episode)
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do { episodes = try await app.repository.fetchEpisodes(dramaID: drama.id) }
+        catch is CancellationError {} catch { errorMessage = error.localizedDescription }
+    }
+}

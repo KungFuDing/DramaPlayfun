@@ -48,7 +48,7 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertGreaterThan(header.frame.height, 120, "分类栏应出现在固定顶部：\(header.value ?? "无状态")")
         XCTAssertTrue(app.buttons["真人剧"].exists)
 
-        for _ in 0..<4 where header.frame.height >= 110 {
+        for _ in 0..<4 where (header.value as? String)?.hasPrefix("0%") != true {
             end.press(forDuration: 0.05, thenDragTo: start)
         }
         let clear = NSPredicate(format: "value BEGINSWITH %@", "0%")
@@ -56,6 +56,61 @@ final class DramaPlayfunUITests: XCTestCase {
         waitForExpectations(timeout: 5)
         XCTAssertLessThan(header.frame.height, 110, "下滑回顶部后分类栏应回到内容流")
         // https://developer.apple.com/documentation/xcuiautomation
+    }
+
+    @MainActor
+    func testHomeCategoryPagesAndButtonsStayInSync() throws {
+        let app = XCUIApplication()
+        app.launch()
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        start.press(forDuration: 0.05, thenDragTo: end)
+        let live = app.buttons["真人剧"].firstMatch
+        XCTAssertTrue(live.waitForExistence(timeout: 5))
+        live.tap()
+        let pages = app.scrollViews["home-category-pages"]
+        expectation(for: NSPredicate(format: "value == %@", "真人剧"), evaluatedWith: pages)
+        waitForExpectations(timeout: 5)
+        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        let left = app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
+        right.press(forDuration: 0.05, thenDragTo: left)
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: app.buttons["剧情"].firstMatch)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(pages.value as? String, "剧情")
+        app.buttons["古装"].firstMatch.tap()
+        expectation(for: NSPredicate(format: "value == %@", "古装"), evaluatedWith: pages)
+        waitForExpectations(timeout: 5)
+        left.press(forDuration: 0.05, thenDragTo: right)
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: app.buttons["剧情"].firstMatch)
+        waitForExpectations(timeout: 5)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "首页分类双向联动"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
+    func testFeaturedSwipeSelectsLiveAction() throws {
+        let app = XCUIApplication()
+        app.launch()
+        let heading = app.staticTexts["热播剧集"].firstMatch
+        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        for _ in 0..<5 {
+            if heading.isHittable && heading.frame.maxY < 400 { break }
+            bottom.press(forDuration: 0.05, thenDragTo: top)
+        }
+        XCTAssertTrue(heading.isHittable)
+        XCTAssertTrue(app.buttons["精选"].firstMatch.isSelected)
+        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.65))
+        let left = app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.65))
+        right.press(forDuration: 0.05, thenDragTo: left)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "精选左滑到真人剧"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: app.buttons["真人剧"].firstMatch)
+        waitForExpectations(timeout: 5)
     }
 
     @MainActor

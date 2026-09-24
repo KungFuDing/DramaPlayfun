@@ -84,25 +84,31 @@ struct DramaGrid: View {
 struct CategoryPicker: View {
     @Binding var selection: DramaCategory
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(DramaCategory.allCases) { category in
-                    Button { selection = category } label: {
-                        HStack(spacing: 5) {
-                            if category == .all {
-                                Image("HomeFeatured")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 18, height: 18)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(DramaCategory.allCases) { category in
+                        Button { withAnimation(.easeInOut(duration: 0.25)) { selection = category } } label: {
+                            HStack(spacing: 5) {
+                                if category == .all {
+                                    Image("HomeFeatured")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 18, height: 18)
+                                }
+                                Text(category.rawValue)
                             }
-                            Text(category.rawValue)
-                        }
-                            .font(.subheadline.weight(.medium)).padding(.horizontal, 16).padding(.vertical, 10)
-                            .background(selection == category ? Theme.accent : Theme.surface)
-                            .foregroundStyle(selection == category ? Color.black : Color.secondary)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }.accessibilityAddTraits(selection == category ? .isSelected : [])
+                                .font(.subheadline.weight(.medium)).padding(.horizontal, 16).padding(.vertical, 10)
+                                .background(selection == category ? Theme.accent : Theme.surface)
+                                .foregroundStyle(selection == category ? Color.black : Color.secondary)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }.accessibilityAddTraits(selection == category ? .isSelected : [])
+                        .id(category)
+                    }
                 }
+            }
+            .onChange(of: selection, initial: true) { _, category in
+                withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(category, anchor: .center) }
             }
         }
     }

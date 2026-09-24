@@ -6,6 +6,7 @@ struct HomeView: View {
     @State private var category: DramaCategory = .all
     @State private var query = ""
     @State private var scrollOffset: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 700
     @State private var categoryContentY: CGFloat = .greatestFiniteMagnitude
     @FocusState private var isSearchFocused: Bool
 
@@ -34,7 +35,8 @@ struct HomeView: View {
                                 categoryContentY = newY
                             }
                             .opacity(isCategoryPinned ? 0 : 1)
-                        catalogContent
+                        HomeCategoryPager(selection: $category, query: query,
+                                          minimumHeight: max(1, viewportHeight - HomeTopControls.pinnedCategoryTop))
                     }
                     .padding(.top, 22)
                     .padding(.horizontal, Theme.spacing)
@@ -62,6 +64,7 @@ struct HomeView: View {
                 router.membershipPresented = true
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
         .screenBackground()
         .scrollDismissesKeyboard(.interactively)
         .toolbar(.hidden, for: .navigationBar)
@@ -69,16 +72,69 @@ struct HomeView: View {
         .refreshable { await app.catalog.reload() }
     }
 
-    @ViewBuilder private var catalogContent: some View {
-        let dramas = app.catalog.filtered(category: category, query: query)
+}
 
-        if category == .all && query.isEmpty {
-            HomeDramaShelf(title: "最新发布", dramas: app.catalog.dramas)
-            HomeDramaShelf(title: "独家播出", dramas: app.catalog.dramas.filter { $0.category == .costume || $0.category == .drama })
-            HomeSectionTitle(title: "热播剧集") { router.selectedTab = .rankings }
-            HomeWaterfallGrid(dramas: dramas)
-        } else {
-            HomeWaterfallGrid(dramas: dramas)
+/// Each category owns its content height; short pages still fill the space below the pinned tabs.
+private struct HomeCategoryPager: View {
+    @Binding var selection: DramaCategory
+    let query: String
+    let minimumHeight: CGFloat
+    @State private var pageHeights: [DramaCategory: CGFloat] = [:]
+
+    private var pageHeight: CGFloat {
+        max(minimumHeight, pageHeights[selection] ?? minimumHeight)
+    }
+
+    private var pagePosition: Binding<DramaCategory?> {
+        Binding(get: { selection }, set: { if let category = $0 { selection = category } })
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(DramaCategory.allCases) { category in
+                        HomeCategoryContent(category: category, query: query)
+                            .frame(width: geometry.size.width, alignment: .topLeading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                pageHeights[category] = height
+                            }
+                            // Equal target bounds keep short categories detectable when Featured is scrolled down.
+                            .frame(height: pageHeight, alignment: .top)
+                            .contentShape(Rectangle())
+                            .id(category)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: pagePosition, anchor: .leading)
+            .accessibilityIdentifier("home-category-pages")
+            .accessibilityValue(selection.rawValue)
+        }
+        .frame(height: pageHeight)
+    }
+}
+
+private struct HomeCategoryContent: View {
+    let category: DramaCategory
+    let query: String
+    @Environment(AppContainer.self) private var app
+    @Environment(AppRouter.self) private var router
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            let dramas = app.catalog.filtered(category: category, query: query)
+            if category == .all && query.isEmpty {
+                HomeDramaShelf(title: "最新发布", dramas: app.catalog.dramas)
+                HomeDramaShelf(title: "独家播出", dramas: app.catalog.dramas.filter { $0.category == .costume || $0.category == .drama })
+                HomeSectionTitle(title: "热播剧集") { router.selectedTab = .rankings }
+                HomeWaterfallGrid(dramas: dramas)
+            } else {
+                HomeWaterfallGrid(dramas: dramas)
+            }
         }
     }
 }

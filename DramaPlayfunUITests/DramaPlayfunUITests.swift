@@ -59,6 +59,34 @@ final class DramaPlayfunUITests: XCTestCase {
     }
 
     @MainActor
+    func testTheaterPagesVerticallyAndOpensEpisodes() throws {
+        let app = XCUIApplication()
+        app.launch()
+        app.tabBars.buttons["剧场"].tap()
+        let first = app.buttons["更多剧集，重生之我逆袭做校花"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(first.isHittable)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.8))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.15))
+        start.press(forDuration: 0.05, thenDragTo: end)
+        let second = app.buttons["更多剧集，全家抢我神笔许愿，全玩脱了"]
+        expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: second)
+        waitForExpectations(timeout: 5)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "剧场上滑切换后"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        second.tap()
+        XCTAssertTrue(app.navigationBars["选集"].waitForExistence(timeout: 5))
+        app.buttons["第1集"].tap()
+        XCTAssertTrue(app.buttons["关闭播放"].waitForExistence(timeout: 5))
+        app.buttons["关闭播放"].tap()
+        end.press(forDuration: 0.05, thenDragTo: start)
+        expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: first)
+        waitForExpectations(timeout: 5)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

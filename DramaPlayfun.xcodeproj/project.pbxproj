@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		1C74623AF565FA664A321A21 /* CleanJSON in Frameworks */ = {isa = PBXBuildFile; productRef = 3E9FFA2E16D56CDC4A0D976B /* CleanJSON */; };
+		A0DD4A65496F73A7B2D3D95A /* Moya in Frameworks */ = {isa = PBXBuildFile; productRef = CFA84987DFEB08F1E259EF09 /* Moya */; };
+		E29B6A4CEA9F88F39E9C0908 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = FCB07EA01592760EB484AE91 /* Kingfisher */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		89037BB7305FEF5F004927E0 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,6 +30,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		528E91F952BABA9AD4915DE7 /* 接口文档 */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "接口文档"; sourceTree = "<group>"; };
 		89037BA9305FEF5D004927E0 /* DramaPlayfun.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DramaPlayfun.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		89037BB6305FEF5F004927E0 /* DramaPlayfunTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DramaPlayfunTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		89037BC0305FEF5F004927E0 /* DramaPlayfunUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DramaPlayfunUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -52,6 +59,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0DD4A65496F73A7B2D3D95A /* Moya in Frameworks */,
+				1C74623AF565FA664A321A21 /* CleanJSON in Frameworks */,
+				E29B6A4CEA9F88F39E9C0908 /* Kingfisher in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,6 +85,7 @@
 		89037BA0305FEF5D004927E0 = {
 			isa = PBXGroup;
 			children = (
+				528E91F952BABA9AD4915DE7 /* 接口文档 */,
 				89037BAB305FEF5D004927E0 /* DramaPlayfun */,
 				89037BB9305FEF5F004927E0 /* DramaPlayfunTests */,
 				89037BC3305FEF5F004927E0 /* DramaPlayfunUITests */,
@@ -112,6 +123,9 @@
 			);
 			name = DramaPlayfun;
 			packageProductDependencies = (
+				CFA84987DFEB08F1E259EF09 /* Moya */,
+				3E9FFA2E16D56CDC4A0D976B /* CleanJSON */,
+				FCB07EA01592760EB484AE91 /* Kingfisher */,
 			);
 			productName = DramaPlayfun;
 			productReference = 89037BA9305FEF5D004927E0 /* DramaPlayfun.app */;
@@ -195,6 +209,11 @@
 			);
 			mainGroup = 89037BA0305FEF5D004927E0;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				83A3B3CC32D847D00184BA54 /* XCRemoteSwiftPackageReference "Moya" */,
+				2F03D9143DE11C58C0A340AB /* XCRemoteSwiftPackageReference "CleanJSON" */,
+				8A337C0A16E1F5AAECAC6C54 /* XCRemoteSwiftPackageReference "Kingfisher" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 89037BAA305FEF5D004927E0 /* Products */;
 			projectDirPath = "";
@@ -391,12 +410,14 @@
 		89037BCB305FEF5F004927E0 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				API_BASE_URL = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_APIBaseURL = "$(API_BASE_URL)";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -422,12 +443,14 @@
 		89037BCC305FEF5F004927E0 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				API_BASE_URL = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_APIBaseURL = "$(API_BASE_URL)";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -570,6 +593,51 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2F03D9143DE11C58C0A340AB /* XCRemoteSwiftPackageReference "CleanJSON" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Pircate/CleanJSON.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.9;
+			};
+		};
+		83A3B3CC32D847D00184BA54 /* XCRemoteSwiftPackageReference "Moya" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Moya/Moya.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 15.0.3;
+			};
+		};
+		8A337C0A16E1F5AAECAC6C54 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/onevcat/Kingfisher.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3E9FFA2E16D56CDC4A0D976B /* CleanJSON */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2F03D9143DE11C58C0A340AB /* XCRemoteSwiftPackageReference "CleanJSON" */;
+			productName = CleanJSON;
+		};
+		CFA84987DFEB08F1E259EF09 /* Moya */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 83A3B3CC32D847D00184BA54 /* XCRemoteSwiftPackageReference "Moya" */;
+			productName = Moya;
+		};
+		FCB07EA01592760EB484AE91 /* Kingfisher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8A337C0A16E1F5AAECAC6C54 /* XCRemoteSwiftPackageReference "Kingfisher" */;
+			productName = Kingfisher;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 89037BA1305FEF5D004927E0 /* Project object */;
 }

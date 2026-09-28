@@ -12,7 +12,10 @@ xcuserdata/
 *.ipa
 *.dSYM.zip
 *.dSYM
+Scripts/
 设计图/
+接口文档/
+
 
 ## Playgrounds
 timeline.xctimeline

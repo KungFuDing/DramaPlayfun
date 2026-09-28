@@ -54,3 +54,9 @@ xcodebuild -project DramaPlayfun.xcodeproj -scheme DramaPlayfun \
 ```
 
 单元测试覆盖分类搜索、收藏/断点持久化、Tab 导航隔离、待批准/取消不授予会员以及购买/恢复后的权益刷新。真实支付与视频端到端测试需要对应服务配置。
+
+## 接口与网络
+
+本地接口入口：[离线 HTML](接口文档/index.html) · [Markdown 参考](接口文档/API参考.md) · [网络模块接入](接口文档/网络模块接入.md)。
+
+通过 Swift Package Manager 管理 Moya、CleanJSON、Kingfisher。配置 `API_BASE_URL` 后可使用 `AppContainer.network` 和生成的 `AppAPI` / `APIModels`；当前业务页面的数据源仍由 Repository 注入。接口文件更新后执行 `python3 Scripts/generate_api_docs.py`。

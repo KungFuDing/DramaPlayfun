@@ -59,4 +59,38 @@ final class HomeFeedTests: XCTestCase {
         XCTAssertEqual(feed.hotDramas.map(\.id), ["143"])
         XCTAssertEqual(feed.hotDramas.first?.displayTags, "年代 · 脑洞 · 玄幻")
     }
+
+    func testRefreshDiscardsAnOlderLoadMoreResponse() async throws {
+        let provider = MoyaProvider<APITarget>(endpointClosure: { target in
+            let page = ((try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int])?["page"]
+            let json: String
+            if target.path == "/mobile/v1/theater/home" {
+                json = #"{"code":200,"data":{"banners":[],"list":[]},"message":"ok"}"#
+            } else if page == 2 {
+                json = #"{"code":200,"data":{"page":2,"hasMore":false,"list":[{"dramaId":2,"dramaTitle":"旧分页"}]},"message":"ok"}"#
+            } else {
+                json = #"{"code":200,"data":{"page":1,"hasMore":true,"list":[{"dramaId":1,"dramaTitle":"当前剧集"}]},"message":"ok"}"#
+            }
+            return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
+                            sampleResponseClosure: { .networkResponse(200, Data(json.utf8)) },
+                            method: target.method, task: target.task, httpHeaderFields: target.headers)
+        }, stubClosure: { target in
+            let page = ((try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int])?["page"]
+            return page == 2 ? .delayed(seconds: 0.25) : .immediate
+        })
+        let network = APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!),
+                                provider: provider)
+        let feed = HomeFeedStore(network: network)
+
+        await feed.reload()
+        let oldPage = _Concurrency.Task { await feed.loadMore() }
+        for _ in 0..<100 where !feed.isLoadingMore { await _Concurrency.Task.yield() }
+        XCTAssertTrue(feed.isLoadingMore)
+
+        await feed.reload()
+        await oldPage.value
+        XCTAssertEqual(feed.hotDramas.map(\.id), ["1"])
+        XCTAssertTrue(feed.hasMoreHot)
+        XCTAssertFalse(feed.isLoadingMore)
+    }
 }

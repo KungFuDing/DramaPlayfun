@@ -25,6 +25,7 @@ final class HomeFeedStore {
     private(set) var hotErrorMessage: String?
     private(set) var hasLoaded = false
     private var hotPage = 0
+    private var requestGeneration = 0
     private let network: APIClient
     private let pageSize = 20
 
@@ -36,7 +37,10 @@ final class HomeFeedStore {
     }
 
     func reload() async {
-        guard !isLoading, !isLoadingMore else { return }
+        guard !isLoading else { return }
+        requestGeneration += 1
+        isLoadingMore = false
+        hasMoreHot = false
         isLoading = true
         homeErrorMessage = nil
         hotErrorMessage = nil
@@ -79,13 +83,17 @@ final class HomeFeedStore {
 
     func loadMore() async {
         guard hasMoreHot, !isLoadingMore else { return }
+        let generation = requestGeneration
         isLoadingMore = true
-        defer { isLoadingMore = false }
+        defer {
+            if generation == requestGeneration { isLoadingMore = false }
+        }
         do {
             let nextPage = hotPage + 1
             let result = try await network.request(AppAPI.v1TheaterHomeHotPage,
                 body: .init(page: nextPage, pageSize: pageSize), unwrapEnvelope: true)
             try Task.checkCancellation()
+            guard generation == requestGeneration else { return }
             let existingIDs = Set(hotDramas.map(\.id))
             hotDramas += (result.list ?? []).compactMap(Self.drama).filter { !existingIDs.contains($0.id) }
             hotPage = result.page ?? nextPage
@@ -93,7 +101,7 @@ final class HomeFeedStore {
             hotErrorMessage = nil
         } catch is CancellationError {
         } catch {
-            hotErrorMessage = error.localizedDescription
+            if generation == requestGeneration { hotErrorMessage = error.localizedDescription }
         }
     }
 

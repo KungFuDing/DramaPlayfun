@@ -21,7 +21,19 @@ struct HomeView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            ScrollView {
+            RefreshLoadScrollView(
+                hasMore: category == .all && query.isEmpty && app.homeFeed.hasMoreHot,
+                isLoadingMore: category == .all && query.isEmpty && app.homeFeed.isLoadingMore,
+                loadError: category == .all && query.isEmpty ? app.homeFeed.hotErrorMessage : nil,
+                coordinateSpaceName: "homeScroll",
+                refreshIndicatorTop: HomeTopControls.pinnedCategoryTop + 8,
+                scrollOffset: $scrollOffset,
+                onRefresh: {
+                    await app.homeFeed.reload()
+                    await app.catalog.reload()
+                },
+                onLoadMore: { await app.homeFeed.loadMore() }
+            ) {
                 VStack(alignment: .leading, spacing: 0) {
                     HomeBannerCarousel(banners: app.homeFeed.banners)
 
@@ -48,17 +60,8 @@ struct HomeView: View {
                     .padding(.horizontal, Theme.spacing)
                     .padding(.bottom, 28)
                 }
-                .onGeometryChange(for: CGFloat.self) { geometry in
-                    geometry.frame(in: .named("homeScroll")).minY
-                } action: { newY in
-                    if #unavailable(iOS 18.0) {
-                        scrollOffset = max(0, -newY)
-                    }
-                }
                 .coordinateSpace(name: "homeContent")
             }
-            .coordinateSpace(name: "homeScroll")
-            .modifier(HomeScrollTracking(offset: $scrollOffset))
 
             HomeTopControls(
                 query: $query,
@@ -76,10 +79,6 @@ struct HomeView: View {
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea(edges: .top)
         .task { await app.homeFeed.loadIfNeeded() }
-        .refreshable {
-            await app.homeFeed.reload()
-            await app.catalog.reload()
-        }
     }
 
 }
@@ -144,15 +143,9 @@ private struct HomeCategoryContent: View {
                     }
                     HomeSectionTitle(title: "热播剧集") { router.selectedTab = .rankings }
                     if !app.homeFeed.hotDramas.isEmpty {
-                        HomeWaterfallGrid(dramas: app.homeFeed.hotDramas) {
-                            Task { await app.homeFeed.loadMore() }
-                        }
+                        HomeWaterfallGrid(dramas: app.homeFeed.hotDramas)
                     }
-                    if app.homeFeed.isLoadingMore { ProgressView().frame(maxWidth: .infinity) }
-                    if let message = app.homeFeed.hotErrorMessage {
-                        Button("加载失败，点击重试：\(message)") { Task { await app.homeFeed.loadMore() } }
-                            .frame(maxWidth: .infinity)
-                    } else if app.homeFeed.hotDramas.isEmpty && !app.homeFeed.isLoadingMore {
+                    if app.homeFeed.hotDramas.isEmpty && !app.homeFeed.isLoadingMore && app.homeFeed.hotErrorMessage == nil {
                         ContentUnavailableView("暂无剧集", systemImage: "film")
                     }
                 } else if app.homeFeed.isLoading {
@@ -161,22 +154,6 @@ private struct HomeCategoryContent: View {
             } else {
                 HomeWaterfallGrid(dramas: dramas)
             }
-        }
-    }
-}
-
-private struct HomeScrollTracking: ViewModifier {
-    @Binding var offset: CGFloat
-
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
-            content.onScrollGeometryChange(for: CGFloat.self) { geometry in
-                max(0, geometry.contentOffset.y + geometry.contentInsets.top)
-            } action: { _, newOffset in
-                offset = newOffset
-            }
-        } else {
-            content
         }
     }
 }
@@ -414,7 +391,6 @@ private struct HomeDramaShelf: View {
 
 private struct HomeWaterfallGrid: View {
     let dramas: [Drama]
-    var onLastAppear: (() -> Void)? = nil
     private var leftColumn: [Drama] { dramas.enumerated().compactMap { $0.offset.isMultiple(of: 2) ? $0.element : nil } }
     private var rightColumn: [Drama] { dramas.enumerated().compactMap { $0.offset.isMultiple(of: 2) ? nil : $0.element } }
 
@@ -424,8 +400,8 @@ private struct HomeWaterfallGrid: View {
                 .frame(maxWidth: .infinity).padding(.vertical, 36)
         } else {
             HStack(alignment: .top, spacing: 14) {
-                HomeWaterfallColumn(dramas: leftColumn, startsTall: true, onLastAppear: onLastAppear)
-                HomeWaterfallColumn(dramas: rightColumn, startsTall: false, onLastAppear: onLastAppear)
+                HomeWaterfallColumn(dramas: leftColumn, startsTall: true)
+                HomeWaterfallColumn(dramas: rightColumn, startsTall: false)
             }
         }
     }
@@ -434,15 +410,11 @@ private struct HomeWaterfallGrid: View {
 private struct HomeWaterfallColumn: View {
     let dramas: [Drama]
     let startsTall: Bool
-    let onLastAppear: (() -> Void)?
 
     var body: some View {
         LazyVStack(spacing: 16) {
             ForEach(Array(dramas.enumerated()), id: \.element.id) { index, drama in
                 HomeWaterfallCard(drama: drama, posterRatio: (index.isMultiple(of: 2) == startsTall) ? 0.64 : 0.79)
-                    .onAppear {
-                        if index == dramas.count - 1 { onLastAppear?() }
-                    }
             }
         }
         .frame(maxWidth: .infinity, alignment: .top)

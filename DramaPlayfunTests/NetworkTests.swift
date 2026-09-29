@@ -45,6 +45,17 @@ final class NetworkTests: XCTestCase {
         } catch APIError.httpStatus(let status) { XCTAssertEqual(status, 401) }
     }
 
+    func testWrappedBusinessErrorKeepsServerCodeAndMessage() async throws {
+        let client = try client(json: #"{"code":403,"data":null,"message":"denied"}"#)
+        do {
+            _ = try await client.request(AppAPI.v1TheaterHome, body: .init(), unwrapEnvelope: true)
+            XCTFail("Expected business error")
+        } catch APIError.business(let code, let message) {
+            XCTAssertEqual(code, 403)
+            XCTAssertEqual(message, "denied")
+        }
+    }
+
     func testMalformedAndNonObjectResponsesFail() async throws {
         for payload in ["", "not-json", "[]", "null"] {
             let client = try client(json: payload)
@@ -94,6 +105,28 @@ final class NetworkTests: XCTestCase {
         }
         XCTAssertThrowsError(try APIConfiguration(baseURL: XCTUnwrap(URL(string: "https://example.invalid")), timeout: -1))
     }
+
+    #if DEBUG
+    func testDebugHeadersSendAccessTokenAndBearerAuthorization() {
+        let headers = DebugHTTPHeaders.addingAuthorization(to: ["accessToken": "sample-token", "countryCode": "TW"])
+        XCTAssertEqual(headers["accessToken"], "sample-token")
+        XCTAssertEqual(headers["Authorization"], "Bearer sample-token")
+        XCTAssertEqual(headers["countryCode"], "TW")
+        XCTAssertNil(DebugHTTPHeaders.addingAuthorization(to: [:])["Authorization"])
+    }
+
+    func testDebugLogRedactsSensitiveNestedFields() {
+        let data = Data(#"{"accessToken":"secret-value","profile":{"phone":"123456","deviceId":"device-secret","ip":"2001:db8::1","nickname":"小明","coverUrl":"https://cdn.example.invalid/cover.jpg?x-media-token=signed-value"},"items":[{"Authorization":"Bearer secret-value"}]}"#.utf8)
+        let output = APIDebugLogger.formattedBody(data)
+        XCTAssertFalse(output.contains("secret-value"))
+        XCTAssertFalse(output.contains("123456"))
+        XCTAssertFalse(output.contains("device-secret"))
+        XCTAssertFalse(output.contains("2001:db8::1"))
+        XCTAssertFalse(output.contains("signed-value"))
+        XCTAssertTrue(output.contains("小明"))
+        XCTAssertTrue(output.contains("<redacted>"))
+    }
+    #endif
 
     func testExtensionValuesPreserveTypesAndLargeIntegers() throws {
         let original = JSONValue.object(["id": .integer(9_007_199_254_740_993), "value": .array([.null, .bool(true), .string("123"), .number(1.25)])])

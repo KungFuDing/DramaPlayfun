@@ -34,6 +34,7 @@
 		89037BA9305FEF5D004927E0 /* DramaPlayfun.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DramaPlayfun.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		89037BB6305FEF5F004927E0 /* DramaPlayfunTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DramaPlayfunTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		89037BC0305FEF5F004927E0 /* DramaPlayfunUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DramaPlayfunUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F60718293A4B5C /* Config/Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Debug.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -85,6 +86,7 @@
 		89037BA0305FEF5D004927E0 = {
 			isa = PBXGroup;
 			children = (
+				A1B2C3D4E5F60718293A4B5C /* Config/Debug.xcconfig */,
 				528E91F952BABA9AD4915DE7 /* 接口文档 */,
 				89037BAB305FEF5D004927E0 /* DramaPlayfun */,
 				89037BB9305FEF5F004927E0 /* DramaPlayfunTests */,
@@ -409,15 +411,17 @@
 		};
 		89037BCB305FEF5F004927E0 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1B2C3D4E5F60718293A4B5C /* Config/Debug.xcconfig */;
 			buildSettings = {
-				API_BASE_URL = "";
+				API_BASE_URL = "https://zy.aws.aijccz.com/aigc-mobile";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyTm8iOiI5NjExMjY4MjE3Iiwibmlja25hbWUiOiLlm7Top4Lpq5jog73njKvnjKsiLCJpc3MiOiJtb2JpbGUtYXV0aCIsInN1YiI6Ijk2MTEyNjgyMTciLCJuYmYiOjE3OTA2NjQzNzUsImlhdCI6MTc5MDY2NDM3NSwianRpIjoiYWNjZXNzLTE3OTA2NjQzNzUxOTU3MjA4OTMifQ.A1zC6bC-UudB-DO1AON6ej2ffXWotWrF7gyDfO117c8";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_APIBaseURL = "$(API_BASE_URL)";
+				INFOPLIST_FILE = Config/Info.Debug.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -443,14 +447,15 @@
 		89037BCC305FEF5F004927E0 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				API_BASE_URL = "";
+				API_BASE_URL = "https://zy.aws.aijccz.com/aigc-mobile";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyTm8iOiI5NjExMjY4MjE3Iiwibmlja25hbWUiOiLlm7Top4Lpq5jog73njKvnjKsiLCJpc3MiOiJtb2JpbGUtYXV0aCIsInN1YiI6Ijk2MTEyNjgyMTciLCJuYmYiOjE3OTA2NjQzNzUsImlhdCI6MTc5MDY2NDM3NSwianRpIjoiYWNjZXNzLTE3OTA2NjQzNzUxOTU3MjA4OTMifQ.A1zC6bC-UudB-DO1AON6ej2ffXWotWrF7gyDfO117c8";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_APIBaseURL = "$(API_BASE_URL)";
+				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

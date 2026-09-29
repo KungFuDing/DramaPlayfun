@@ -15,7 +15,11 @@ struct DramaDetailView: View {
                     DramaPoster(drama: drama).frame(width: 130)
                     VStack(alignment: .leading, spacing: 14) {
                         Text(drama.title).font(.title2.bold())
-                        Text("\(drama.category.rawValue) · 全\(drama.episodeCount)集").foregroundStyle(.secondary)
+                        if !drama.displayTags.isEmpty || drama.episodeCount > 0 {
+                            Text([drama.displayTags, drama.episodeCount > 0 ? "全\(drama.episodeCount)集" : ""]
+                                .filter { !$0.isEmpty }.joined(separator: " · "))
+                                .foregroundStyle(.secondary)
+                        }
                         Button { app.library.toggleFavorite(drama.id) } label: {
                             Label(app.library.favoriteIDs.contains(drama.id) ? "已收藏" : "收藏", systemImage: app.library.favoriteIDs.contains(drama.id) ? "heart.fill" : "heart")
                         }.buttonStyle(.bordered)

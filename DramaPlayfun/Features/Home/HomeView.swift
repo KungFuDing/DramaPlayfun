@@ -23,10 +23,16 @@ struct HomeView: View {
         ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    HomeBannerCarousel(dramas: Array(app.catalog.dramas.prefix(5)))
+                    HomeBannerCarousel(banners: app.homeFeed.banners)
 
                     VStack(alignment: .leading, spacing: 28) {
-                        CatalogStatus(catalog: app.catalog)
+                        if let message = app.homeFeed.homeErrorMessage {
+                            VStack(spacing: 8) {
+                                Text(message).foregroundStyle(.secondary)
+                                Button("重新加载") { Task { await app.homeFeed.reload() } }
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
                         ContinueWatchingSection()
                         CategoryPicker(selection: $category)
                             .onGeometryChange(for: CGFloat.self) { geometry in
@@ -69,7 +75,11 @@ struct HomeView: View {
         .scrollDismissesKeyboard(.interactively)
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea(edges: .top)
-        .refreshable { await app.catalog.reload() }
+        .task { await app.homeFeed.loadIfNeeded() }
+        .refreshable {
+            await app.homeFeed.reload()
+            await app.catalog.reload()
+        }
     }
 
 }
@@ -128,10 +138,26 @@ private struct HomeCategoryContent: View {
         VStack(alignment: .leading, spacing: 28) {
             let dramas = app.catalog.filtered(category: category, query: query)
             if category == .all && query.isEmpty {
-                HomeDramaShelf(title: "最新发布", dramas: app.catalog.dramas)
-                HomeDramaShelf(title: "独家播出", dramas: app.catalog.dramas.filter { $0.category == .costume || $0.category == .drama })
-                HomeSectionTitle(title: "热播剧集") { router.selectedTab = .rankings }
-                HomeWaterfallGrid(dramas: dramas)
+                if app.homeFeed.hasLoaded {
+                    ForEach(app.homeFeed.shelves) { shelf in
+                        HomeDramaShelf(title: shelf.title, dramas: shelf.dramas)
+                    }
+                    HomeSectionTitle(title: "热播剧集") { router.selectedTab = .rankings }
+                    if !app.homeFeed.hotDramas.isEmpty {
+                        HomeWaterfallGrid(dramas: app.homeFeed.hotDramas) {
+                            Task { await app.homeFeed.loadMore() }
+                        }
+                    }
+                    if app.homeFeed.isLoadingMore { ProgressView().frame(maxWidth: .infinity) }
+                    if let message = app.homeFeed.hotErrorMessage {
+                        Button("加载失败，点击重试：\(message)") { Task { await app.homeFeed.loadMore() } }
+                            .frame(maxWidth: .infinity)
+                    } else if app.homeFeed.hotDramas.isEmpty && !app.homeFeed.isLoadingMore {
+                        ContentUnavailableView("暂无剧集", systemImage: "film")
+                    }
+                } else if app.homeFeed.isLoading {
+                    ProgressView("加载首页…").frame(maxWidth: .infinity).padding(.vertical, 36)
+                }
             } else {
                 HomeWaterfallGrid(dramas: dramas)
             }
@@ -206,31 +232,33 @@ private struct HomeHeaderTestAccessibility: ViewModifier {
 
 private struct HomeBannerCarousel: View {
     static let height: CGFloat = 370
-    let dramas: [Drama]
+    let banners: [HomeBanner]
     @State private var selectedIndex = 0
 
     var body: some View {
         ZStack {
-            if dramas.isEmpty {
+            if banners.isEmpty {
                 HomeBannerArtwork()
             } else {
                 TabView(selection: $selectedIndex) {
-                    ForEach(Array(dramas.enumerated()), id: \.element.id) { index, drama in
-                        HomeBannerPage(drama: drama)
+                    ForEach(Array(banners.enumerated()), id: \.element.id) { index, banner in
+                        HomeBannerPage(banner: banner)
                             .tag(index)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
 
-            if let drama = currentDrama {
+            if let drama = currentBanner?.drama {
                 VStack(alignment: .leading, spacing: 10) {
-                    HomeBannerIndicator(selectedIndex: selectedIndex, pageCount: dramas.count)
+                    HomeBannerIndicator(selectedIndex: selectedIndex, pageCount: banners.count)
                     HStack(spacing: 8) {
                         Text(drama.title).font(.title3.bold()).lineLimit(1)
-                        Text(drama.badge ?? "最新").font(.caption.bold()).foregroundStyle(.black)
-                            .padding(.horizontal, 7).padding(.vertical, 4)
-                            .background(Theme.accent, in: RoundedRectangle(cornerRadius: 5))
+                        if let badge = drama.displayBadge {
+                            Text(badge).font(.caption.bold()).foregroundStyle(.black)
+                                .padding(.horizontal, 7).padding(.vertical, 4)
+                                .background(Theme.accent, in: RoundedRectangle(cornerRadius: 5))
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -241,31 +269,35 @@ private struct HomeBannerCarousel: View {
             }
         }
         .frame(height: Self.height)
-        .onChange(of: dramas.map(\.id), initial: true) { _, _ in
+        .onChange(of: banners.map(\.id), initial: true) { _, _ in
             selectedIndex = 0
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("推荐剧集轮播")
     }
 
-    private var currentDrama: Drama? {
-        dramas.indices.contains(selectedIndex) ? dramas[selectedIndex] : nil
+    private var currentBanner: HomeBanner? {
+        banners.indices.contains(selectedIndex) ? banners[selectedIndex] : nil
     }
 }
 
 private struct HomeBannerPage: View {
-    let drama: Drama
+    let banner: HomeBanner
 
     var body: some View {
-        NavigationLink(value: AppRoute.drama(drama)) {
+        NavigationLink(value: AppRoute.drama(banner.drama)) {
             ZStack(alignment: .bottomLeading) {
-                HomeBannerArtwork()
+                if let imageURL = banner.imageURL {
+                    CachedRemoteImage(url: imageURL) { HomeBannerArtwork() }
+                } else {
+                    HomeBannerArtwork()
+                }
                 LinearGradient(colors: [.clear, .black.opacity(0.12), Theme.background], startPoint: .top, endPoint: .bottom)
             }
             .frame(height: 370)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("推荐剧集，\(drama.title)")
+        .accessibilityLabel("推荐剧集，\(banner.drama.title)")
     }
 }
 
@@ -294,12 +326,6 @@ private struct HomeBannerArtwork: View {
             Circle().fill(.pink.opacity(0.26)).blur(radius: 28).frame(width: 260).offset(x: 110, y: -30)
             Image(systemName: "sparkles").font(.system(size: 150, weight: .thin))
                 .foregroundStyle(.white.opacity(0.22)).rotationEffect(.degrees(-18)).offset(x: 65, y: -48)
-        }
-        .overlay {
-            VStack(spacing: 0) {
-                Spacer()
-                Text("重启人生，命运由我书写").font(.title2.weight(.medium)).foregroundStyle(.white.opacity(0.18)).padding(.bottom, 110)
-            }
         }
         .clipped()
     }
@@ -388,6 +414,7 @@ private struct HomeDramaShelf: View {
 
 private struct HomeWaterfallGrid: View {
     let dramas: [Drama]
+    var onLastAppear: (() -> Void)? = nil
     private var leftColumn: [Drama] { dramas.enumerated().compactMap { $0.offset.isMultiple(of: 2) ? $0.element : nil } }
     private var rightColumn: [Drama] { dramas.enumerated().compactMap { $0.offset.isMultiple(of: 2) ? nil : $0.element } }
 
@@ -397,8 +424,8 @@ private struct HomeWaterfallGrid: View {
                 .frame(maxWidth: .infinity).padding(.vertical, 36)
         } else {
             HStack(alignment: .top, spacing: 14) {
-                HomeWaterfallColumn(dramas: leftColumn, startsTall: true)
-                HomeWaterfallColumn(dramas: rightColumn, startsTall: false)
+                HomeWaterfallColumn(dramas: leftColumn, startsTall: true, onLastAppear: onLastAppear)
+                HomeWaterfallColumn(dramas: rightColumn, startsTall: false, onLastAppear: onLastAppear)
             }
         }
     }
@@ -407,11 +434,15 @@ private struct HomeWaterfallGrid: View {
 private struct HomeWaterfallColumn: View {
     let dramas: [Drama]
     let startsTall: Bool
+    let onLastAppear: (() -> Void)?
 
     var body: some View {
         LazyVStack(spacing: 16) {
             ForEach(Array(dramas.enumerated()), id: \.element.id) { index, drama in
                 HomeWaterfallCard(drama: drama, posterRatio: (index.isMultiple(of: 2) == startsTall) ? 0.64 : 0.79)
+                    .onAppear {
+                        if index == dramas.count - 1 { onLastAppear?() }
+                    }
             }
         }
         .frame(maxWidth: .infinity, alignment: .top)
@@ -428,7 +459,9 @@ private struct HomeWaterfallCard: View {
                 DramaPoster(drama: drama).aspectRatio(posterRatio, contentMode: .fit)
                 VStack(alignment: .leading, spacing: 7) {
                     Text(drama.title).font(.subheadline.weight(.medium)).lineLimit(2)
-                    Text("\(drama.category.rawValue) · 都市 · 甜宠").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if !drama.displayTags.isEmpty {
+                        Text(drama.displayTags).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
                 .padding(10)
             }

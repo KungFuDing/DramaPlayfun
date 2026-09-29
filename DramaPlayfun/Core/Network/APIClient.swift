@@ -29,7 +29,7 @@ nonisolated struct APIConfiguration: Sendable {
 
 nonisolated enum APIError: LocalizedError {
     case missingBaseURL, invalidConfiguration
-    case encoding(Error), transport(Error), httpStatus(Int), decoding(Error)
+    case encoding(Error), transport(Error), httpStatus(Int), business(Int, String?), decoding(Error)
 
     var errorDescription: String? {
         switch self {
@@ -38,6 +38,9 @@ nonisolated enum APIError: LocalizedError {
         case .encoding: "请求参数编码失败。"
         case .transport: "网络连接失败，请稍后重试。"
         case .httpStatus(let status): "服务器返回 HTTP \(status)。"
+        case .business(let code, let message):
+            if let message, !message.isEmpty { "服务器返回业务错误 \(code)：\(message)" }
+            else { "服务器返回业务错误 \(code)。" }
         case .decoding: "接口返回的数据格式无法解析。"
         }
     }
@@ -82,40 +85,82 @@ final class APIClient {
     }
 
     func request<Body, Output>(_ endpoint: APIEndpoint<Body, Output>, body: Body,
-                              decoding: APIResponseDecoding = .strict) async throws -> Output {
-        try _Concurrency.Task<Never, Never>.checkCancellation()
-        let configuration = try configuration ?? APIConfiguration.fromBundle()
-        let data: Data
-        do { data = try JSONEncoder().encode(body) }
-        catch { throw APIError.encoding(error) }
-        var headers = headerProvider(endpoint.path)
-        headers["Content-Type"] = "application/json"
-        headers["Accept"] = "application/json"
-        let target = APITarget(baseURL: configuration.baseURL, path: endpoint.path,
-                               body: data, requestHeaders: headers)
-        let pending = PendingAPIRequest()
-        let response: Moya.Response = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                guard pending.begin(continuation) else { return }
-                let token = provider.request(target) { result in
-                    pending.finish(result.mapError { APIError.transport($0) })
-                }
-                pending.setToken(token)
-            }
-        } onCancel: { pending.cancel() }
-        try _Concurrency.Task<Never, Never>.checkCancellation()
-        guard (200..<300).contains(response.statusCode) else { throw APIError.httpStatus(response.statusCode) }
+                              decoding: APIResponseDecoding = .strict,
+                              unwrapEnvelope: Bool = false) async throws -> Output {
+        #if DEBUG
+        let requestID = String(UUID().uuidString.prefix(8))
+        let startedAt = Date()
+        #endif
         do {
-            // The source describes direct objects, not an assumed code/message/data envelope.
-            guard try JSONSerialization.jsonObject(with: response.data) is [String: Any] else {
-                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Expected a JSON object"))
+            try _Concurrency.Task<Never, Never>.checkCancellation()
+            let configuration = try configuration ?? APIConfiguration.fromBundle()
+            let data: Data
+            do { data = try JSONEncoder().encode(body) }
+            catch { throw APIError.encoding(error) }
+            var headers = headerProvider(endpoint.path)
+            headers["Content-Type"] = "application/json"
+            headers["Accept"] = "application/json"
+            let target = APITarget(baseURL: configuration.baseURL, path: endpoint.path,
+                                   body: data, requestHeaders: headers)
+            #if DEBUG
+            APIDebugLogger.request(id: requestID, target: target)
+            #endif
+            let pending = PendingAPIRequest()
+            let response: Moya.Response = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    guard pending.begin(continuation) else { return }
+                    let token = provider.request(target) { result in
+                        pending.finish(result.mapError { APIError.transport($0) })
+                    }
+                    pending.setToken(token)
+                }
+            } onCancel: { pending.cancel() }
+            #if DEBUG
+            APIDebugLogger.response(id: requestID, response: response,
+                                    duration: Date().timeIntervalSince(startedAt))
+            #endif
+            try _Concurrency.Task<Never, Never>.checkCancellation()
+            guard (200..<300).contains(response.statusCode) else { throw APIError.httpStatus(response.statusCode) }
+            let object: [String: Any]
+            do {
+                guard let root = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
+                    throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Expected a JSON object"))
+                }
+                object = root
+            } catch { throw APIError.decoding(error) }
+            if unwrapEnvelope, let code = object["code"] as? Int {
+                guard code == 200 else { throw APIError.business(code, object["message"] as? String) }
+                do {
+                    let envelope: APIEnvelope<Output>
+                    switch decoding {
+                    case .strict: envelope = try JSONDecoder().decode(APIEnvelope<Output>.self, from: response.data)
+                    case .tolerant: envelope = try CleanJSONDecoder().decode(APIEnvelope<Output>.self, from: response.data)
+                    }
+                    guard let data = envelope.data else {
+                        throw DecodingError.valueNotFound(Output.self,
+                            .init(codingPath: [], debugDescription: "Missing envelope data"))
+                    }
+                    return data
+                } catch { throw APIError.decoding(error) }
             }
-            switch decoding {
-            case .strict: return try JSONDecoder().decode(Output.self, from: response.data)
-            case .tolerant: return try CleanJSONDecoder().decode(Output.self, from: response.data)
-            }
-        } catch { throw APIError.decoding(error) }
+            do {
+                switch decoding {
+                case .strict: return try JSONDecoder().decode(Output.self, from: response.data)
+                case .tolerant: return try CleanJSONDecoder().decode(Output.self, from: response.data)
+                }
+            } catch { throw APIError.decoding(error) }
+        } catch {
+            #if DEBUG
+            APIDebugLogger.failure(id: requestID, path: endpoint.path, error: error)
+            #endif
+            throw error
+        }
     }
+
+}
+
+nonisolated private struct APIEnvelope<Payload: Decodable>: Decodable {
+    let data: Payload?
 }
 
 /// Lock protects callback/cancellation races, including cancellation before Moya returns its token.

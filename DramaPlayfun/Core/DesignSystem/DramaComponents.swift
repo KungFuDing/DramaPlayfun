@@ -12,7 +12,7 @@ struct DramaPoster: View {
                     Text(drama.title).font(.headline).multilineTextAlignment(.center)
                 }.padding()
             }
-            if let badge = drama.badge {
+            if let badge = drama.displayBadge {
                 DramaBadge(title: badge)
             }
         }
@@ -59,8 +59,11 @@ struct DramaCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 DramaPoster(drama: drama)
                 Text(drama.title).font(.subheadline).lineLimit(2)
-                Text("\(drama.category.rawValue) · 全\(drama.episodeCount)集")
-                    .font(.caption).foregroundStyle(.secondary)
+                if !drama.displayTags.isEmpty || drama.episodeCount > 0 {
+                    Text([drama.displayTags, drama.episodeCount > 0 ? "全\(drama.episodeCount)集" : ""]
+                        .filter { !$0.isEmpty }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }.buttonStyle(.plain)
     }

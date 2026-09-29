@@ -6,10 +6,20 @@ struct CachedRemoteImage<Placeholder: View>: View {
     @ViewBuilder let placeholder: () -> Placeholder
 
     var body: some View {
-        KFImage(url)
-            .placeholder { placeholder() }
-            .cancelOnDisappear(true)
-            .resizable()
-            .scaledToFill()
+        GeometryReader { geometry in
+            Group {
+                if let url {
+                    KFImage(url)
+                        .placeholder { placeholder() }
+                        .cancelOnDisappear(true)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    placeholder()
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+        }
     }
 }

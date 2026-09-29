@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>APIBaseURL</key>
+    <string>$(API_BASE_URL)</string>
+    <key>DebugHTTPHeaders</key>
+    <dict>
+        <key>accessToken</key><string>$(DEBUG_ACCESS_TOKEN)</string>
+        <key>appVersion</key><string>$(DEBUG_APP_VERSION)</string>
+        <key>countryCode</key><string>$(DEBUG_COUNTRY_CODE)</string>
+        <key>deviceId</key><string>$(DEBUG_DEVICE_ID)</string>
+        <key>ip</key><string>$(DEBUG_IP)</string>
+        <key>language</key><string>$(DEBUG_LANGUAGE)</string>
+        <key>modelName</key><string>$(DEBUG_MODEL_NAME)</string>
+        <key>platform</key><string>$(DEBUG_PLATFORM)</string>
+        <key>systemVersion</key><string>$(DEBUG_SYSTEM_VERSION)</string>
+    </dict>
+</dict>
+</plist>

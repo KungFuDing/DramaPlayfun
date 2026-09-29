@@ -9,6 +9,34 @@ struct Drama: Identifiable, Hashable, Codable, Sendable {
     let heat: Int
     let badge: String?
     let coverURL: URL?
+    let tagNames: [String]
+
+    init(id: String, title: String, summary: String, category: DramaCategory, episodeCount: Int,
+         heat: Int, badge: String?, coverURL: URL?, tagNames: [String] = []) {
+        self.id = id
+        self.title = title
+        self.summary = summary
+        self.category = category
+        self.episodeCount = episodeCount
+        self.heat = heat
+        self.badge = badge
+        self.coverURL = coverURL
+        self.tagNames = tagNames
+    }
+
+    var displayTags: String {
+        if !tagNames.isEmpty { return tagNames.joined(separator: " · ") }
+        return category == .all ? "" : category.rawValue
+    }
+
+    var displayBadge: String? {
+        guard let badge = badge?.trimmingCharacters(in: .whitespacesAndNewlines), !badge.isEmpty else { return nil }
+        switch badge.lowercased() {
+        case "hot": return "爆款"
+        case "new": return "新品"
+        default: return badge
+        }
+    }
 }
 
 enum DramaCategory: String, CaseIterable, Codable, Identifiable, Sendable {

@@ -64,3 +64,6 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Local Debug API credentials and device headers
+/Config/Debug.local.xcconfig

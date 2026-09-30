@@ -42,6 +42,8 @@ nonisolated enum AppAPI {
     static let v1ClientDramaProgress = APIEndpoint<APIModels.V1ReportDramaProgressReq, APIModels.V1ReportDramaProgressRes>(path: "/mobile/v1/client/drama/progress")
     /// 随机获取剧目
     static let v1ClientDramaRandom = APIEndpoint<APIModels.V1GetRandomDramaReq, APIModels.V1GetRandomDramaRes>(path: "/mobile/v1/client/drama/random")
+    /// 随机获取三个剧目
+    static let v1ClientDramaRandomList = APIEndpoint<APIModels.V1GetRandomDramaListReq, APIModels.V1GetRandomDramaListRes>(path: "/mobile/v1/client/drama/random/list")
     /// 上报分享行为
     static let v1ClientDramaShare = APIEndpoint<APIModels.V1ReportDramaShareReq, APIModels.V1ReportDramaShareRes>(path: "/mobile/v1/client/drama/share")
     /// 获取剧集分享文案

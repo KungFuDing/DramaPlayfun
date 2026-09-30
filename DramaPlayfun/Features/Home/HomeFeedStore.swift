@@ -27,6 +27,9 @@ struct HomeMoment: Identifiable {
 @MainActor @Observable
 final class HomeFeedStore {
     private(set) var moments: [HomeMoment] = []
+    private(set) var isRefreshingMoments = false
+    private(set) var momentsErrorMessage: String?
+    private var momentsGeneration = 0
     private(set) var banners: [HomeBanner] = []
     private(set) var shelves: [HomeShelf] = []
     private(set) var hotDramas: [Drama] = []
@@ -51,6 +54,9 @@ final class HomeFeedStore {
     func reload() async {
         guard !isLoading else { return }
         requestGeneration += 1
+        momentsGeneration += 1
+        let currentMoments = momentsGeneration
+        momentsErrorMessage = nil
         isLoadingMore = false
         hasMoreHot = false
         isLoading = true
@@ -61,7 +67,9 @@ final class HomeFeedStore {
             let home = try await network.request(AppAPI.v1TheaterHome, body: .init(), unwrapEnvelope: true)
             try Task.checkCancellation()
             banners = (home.banners ?? []).compactMap(Self.banner)
-            moments = (home.rank ?? []).prefix(3).compactMap(Self.moment)
+            if currentMoments == momentsGeneration {
+                moments = (home.rank ?? []).prefix(3).compactMap(Self.moment)
+            }
             shelves = (home.list ?? []).enumerated().compactMap { index, group in
                 guard let title = group.categoryName?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !title.isEmpty else { return nil }
@@ -94,6 +102,25 @@ final class HomeFeedStore {
         await loadMore()
     }
 
+    func refreshMoments() async {
+        guard !isLoading, !isRefreshingMoments else { return }
+        momentsGeneration += 1
+        let current = momentsGeneration
+        isRefreshingMoments = true
+        momentsErrorMessage = nil
+        defer { isRefreshingMoments = false }
+        do {
+            let result = try await network.request(AppAPI.v1ClientDramaRandomList,
+                body: .init(), unwrapEnvelope: true)
+            try Task.checkCancellation()
+            guard current == momentsGeneration else { return }
+            moments = (result.list ?? []).prefix(3).compactMap(Self.moment)
+        } catch is CancellationError {
+        } catch {
+            if current == momentsGeneration { momentsErrorMessage = error.localizedDescription }
+        }
+    }
+
     func loadMore() async {
         guard hasMoreHot, !isLoadingMore else { return }
         let generation = requestGeneration
@@ -119,6 +146,14 @@ final class HomeFeedStore {
     }
 
     private static func moment(_ item: APIModels.V1TheaterHomeRankItem) -> HomeMoment? {
+        guard let drama = makeDrama(id: item.dramaId ?? item.id ?? item.rootDramaId, title: item.dramaTitle,
+            summary: nil, tags: item.tagNames, badge: item.badge, cover: item.coverUrl,
+            rootDramaID: item.rootDramaId) else { return nil }
+        return HomeMoment(drama: drama, landscapeURL: imageURL(item.coverFourThreeUrl),
+                          lastEpisodeNumber: item.lastEpisodeNo)
+    }
+
+    private static func moment(_ item: APIModels.V1DramaSeriesItem) -> HomeMoment? {
         guard let drama = makeDrama(id: item.dramaId ?? item.id ?? item.rootDramaId, title: item.dramaTitle,
             summary: nil, tags: item.tagNames, badge: item.badge, cover: item.coverUrl,
             rootDramaID: item.rootDramaId) else { return nil }

@@ -552,6 +552,45 @@ nonisolated enum APIModels {
         var `screenType`: String? = nil
     }
 
+    struct V1GetRandomDramaListReq: Codable, Sendable {
+    }
+
+    struct V1GetRandomDramaListRes: Codable, Sendable {
+        /// 随机剧目列表，最多三个
+        var `list`: [V1DramaSeriesItem]? = nil
+    }
+
+    struct V1DramaSeriesItem: Codable, Sendable {
+        /// 剧目ID
+        var `id`: Int64? = nil
+        /// 剧目ID
+        var `dramaId`: Int64? = nil
+        /// 主剧ID
+        var `rootDramaId`: Int64? = nil
+        /// 剧目标题
+        var `dramaTitle`: String? = nil
+        /// 剧目分类：AI真人剧/AI漫剧
+        var `category`: String? = nil
+        /// 短剧语言
+        var `language`: String? = nil
+        /// 最后观看集ID
+        var `lastEpisodeId`: Int64? = nil
+        /// 最后观看集号
+        var `lastEpisodeNo`: Int? = nil
+        /// 观看进度（秒）
+        var `progressSeconds`: Int? = nil
+        /// 封面地址
+        var `coverUrl`: String? = nil
+        /// 4:3封面地址
+        var `coverFourThreeUrl`: String? = nil
+        /// 标签名称列表
+        var `tagNames`: [String]? = nil
+        /// 角标
+        var `badge`: String? = nil
+        /// 横竖屏类型：vertical=竖屏，horizontal=横屏
+        var `screenType`: String? = nil
+    }
+
     struct V1ReportDramaShareReq: Codable, Sendable {
         /// 剧集ID
         var `episodeId`: Int64
@@ -978,37 +1017,6 @@ nonisolated enum APIModels {
         var `total`: Int? = nil
         /// 是否还有更多
         var `hasMore`: Bool? = nil
-    }
-
-    struct V1DramaSeriesItem: Codable, Sendable {
-        /// 剧目ID
-        var `id`: Int64? = nil
-        /// 剧目ID
-        var `dramaId`: Int64? = nil
-        /// 主剧ID
-        var `rootDramaId`: Int64? = nil
-        /// 剧目标题
-        var `dramaTitle`: String? = nil
-        /// 剧目分类：AI真人剧/AI漫剧
-        var `category`: String? = nil
-        /// 短剧语言
-        var `language`: String? = nil
-        /// 最后观看集ID
-        var `lastEpisodeId`: Int64? = nil
-        /// 最后观看集号
-        var `lastEpisodeNo`: Int? = nil
-        /// 观看进度（秒）
-        var `progressSeconds`: Int? = nil
-        /// 封面地址
-        var `coverUrl`: String? = nil
-        /// 4:3封面地址
-        var `coverFourThreeUrl`: String? = nil
-        /// 标签名称列表
-        var `tagNames`: [String]? = nil
-        /// 角标
-        var `badge`: String? = nil
-        /// 横竖屏类型：vertical=竖屏，horizontal=横屏
-        var `screenType`: String? = nil
     }
 
     struct V1GetDramaSeriesTopListReq: Codable, Sendable {

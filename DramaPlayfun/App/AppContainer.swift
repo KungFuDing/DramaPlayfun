@@ -7,6 +7,7 @@ import Moya
 @MainActor @Observable
 final class AppContainer {
     let network: APIClient
+    let guestSession: GuestSessionStore
     let repository: any DramaRepository
     let catalog: CatalogStore
     let homeCategories: DramaTabFeedStore
@@ -41,6 +42,7 @@ final class AppContainer {
             #endif
             })
         }()
+        guestSession = GuestSessionStore(network: self.network, defaults: defaults)
         let repository = repository ?? APIDramaRepository(network: self.network,
                                                           fallback: DemoDramaRepository())
         self.repository = repository
@@ -61,6 +63,8 @@ final class AppContainer {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             let response: String
             switch target.path {
+            case "/mobile/v1/auth/guest/login":
+                response = #"{"code":200,"data":{"accessToken":"ui-test-guest-token"}}"#
             case "/mobile/v1/client/me/history/list":
                 response = ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture")
                     ? #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":111,"rootDramaId":110,"dramaTitle":"历史测试剧","episodeId":1111,"episodeNo":3,"progressSeconds":65,"isOnline":"online"},{"dramaId":112,"dramaTitle":"历史测试剧乙","episodeId":1112,"episodeNo":5,"progressSeconds":30}]}}"#
@@ -83,6 +87,8 @@ final class AppContainer {
                      "dramaDesc": "榜单简介\(id)，探索精彩故事，发现更多值得观看的好剧。"]
                 }
                 response = String(data: try! JSONSerialization.data(withJSONObject: ["code": 200, "data": ["list": list]]), encoding: .utf8)!
+            case "/mobile/v1/client/drama/random/list":
+                response = #"{"code":200,"data":{"list":[{"dramaId":51,"dramaTitle":"随机片刻甲"},{"dramaId":52,"dramaTitle":"随机片刻乙"},{"dramaId":53,"dramaTitle":"随机片刻丙"}]}}"#
             case "/mobile/v1/theater/home":
                 response = #"{"code":200,"data":{"banners":[{"id":31,"dramaTitle":"推荐测试"}],"rank":[{"dramaId":41,"dramaTitle":"今日片刻甲","lastEpisodeNo":3},{"dramaId":42,"dramaTitle":"今日片刻乙"},{"dramaId":43,"dramaTitle":"今日片刻丙"},{"dramaId":44,"dramaTitle":"第四项不展示"}],"list":[{"categoryName":"最新发布","list":[{"dramaId":31,"dramaTitle":"推荐测试"}]}]}}"#
             case "/mobile/v1/theater/home/hot/page":

@@ -67,6 +67,8 @@ final class APIClient {
     private let configuration: APIConfiguration?
     private let provider: MoyaProvider<APITarget>
     private let headerProvider: (String) -> [String: String]
+    private var accessToken: String?
+    private var identityHeaders: [String: String] = [:]
 
     init(configuration: APIConfiguration? = nil,
          provider: MoyaProvider<APITarget>? = nil,
@@ -84,6 +86,30 @@ final class APIClient {
         })
     }
 
+    func configuredHeaders(for path: String) -> [String: String] { headerProvider(path) }
+
+    func setClientIdentity(version: String, deviceIdentifier: String) {
+        identityHeaders = ["appVersion": version, "deviceId": deviceIdentifier]
+    }
+
+    func setAccessToken(_ token: String) { accessToken = token }
+
+    private func headers(for path: String) -> [String: String] {
+        var values = headerProvider(path)
+        for (key, value) in identityHeaders { values[key] = value }
+        let isGuestLogin = path == AppAPI.v1AuthGuestLogin.path
+        if isGuestLogin || accessToken != nil {
+            values = values.filter { key, _ in
+                !["accesstoken", "authorization"].contains(key.lowercased())
+            }
+        }
+        if !isGuestLogin, let accessToken {
+            values["accessToken"] = accessToken
+            values["Authorization"] = "Bearer \(accessToken)"
+        }
+        return values
+    }
+
     func request<Body, Output>(_ endpoint: APIEndpoint<Body, Output>, body: Body,
                               decoding: APIResponseDecoding = .strict,
                               unwrapEnvelope: Bool = false) async throws -> Output {
@@ -97,7 +123,7 @@ final class APIClient {
             let data: Data
             do { data = try JSONEncoder().encode(body) }
             catch { throw APIError.encoding(error) }
-            var headers = headerProvider(endpoint.path)
+            var headers = headers(for: endpoint.path)
             headers["Content-Type"] = "application/json"
             headers["Accept"] = "application/json"
             let target = APITarget(baseURL: configuration.baseURL, path: endpoint.path,

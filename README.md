@@ -33,7 +33,7 @@ DramaPlayfun/
 - 首页参照设计图的颜色、卡片和布局结构。设计图是整页截图，未提供独立海报，因此当前使用明确的图形占位。`Drama.coverURL` 可接入实际海报。
 - `DemoDramaRepository` 提供离线示例目录；无真实视频资源，点击免费集会显示可重试的资源未提供状态。AVPlayer 播放、加载超时、后台暂停、进度保存、断点恢复和重播流程已实现，但需真实资源进一步验证。
 - `StoreKitSubscriptionService` 已实现商品加载、已验证交易、购买取消/待批准、恢复购买和交易更新监听。`AppContainer` 的商品 ID 默认为空，因此不展示虚构价格、不发起模拟收费。
-- 默认数据仅用于搭建架构，不包含登录、服务端鉴权、下载、推荐算法、广告、埋点或后台播放。
+- 默认数据仅用于搭建架构，已接入启动游客登录和请求鉴权；不包含推荐算法、广告、埋点或后台播放。
 
 ## 接入真实服务
 
@@ -63,4 +63,4 @@ xcodebuild -project DramaPlayfun.xcodeproj -scheme DramaPlayfun \
 
 Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴权及个人敏感字段会脱敏；Release 构建不输出。
 
-Debug 专用请求头从本机 `Config/Debug.local.xcconfig` 注入（可参考 `Config/Debug.local.example.xcconfig`）；同一令牌同时用于 `accessToken` 和 `Authorization: Bearer <token>`，本机文件已忽略提交。Xcode 控制台会脱敏显示 accessToken、deviceId 和 IP。
+Debug 专用请求头从本机 `Config/Debug.local.xcconfig` 注入（可参考 `Config/Debug.local.example.xcconfig`）；启动游客登录后，返回的令牌覆盖 `accessToken` 和 `Authorization: Bearer <token>`；登录完成后再加载业务页面，失败可重试。本机配置文件已忽略提交。Xcode 控制台会脱敏显示 accessToken、deviceId 和 IP。

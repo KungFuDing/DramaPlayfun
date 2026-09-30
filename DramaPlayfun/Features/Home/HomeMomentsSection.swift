@@ -6,7 +6,28 @@ struct HomeMomentsSection: View {
     var body: some View {
         if let first = feed.moments.first {
             VStack(alignment: .leading, spacing: 14) {
-                Text("今日片刻").font(.system(size: 20, weight: .bold))
+                HStack {
+                    Text("今日片刻").font(.system(size: 20, weight: .bold))
+                    Spacer()
+                    Button {
+                        Task { await feed.refreshMoments() }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("换一换")
+                            if feed.isRefreshingMoments {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.blue)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(feed.isLoading || feed.isRefreshingMoments)
+                    .accessibilityIdentifier("home-moments-refresh")
+                }
                 GeometryReader { geometry in
                     let gap: CGFloat = 10
                     let leftWidth = feed.moments.count > 1 ? (geometry.size.width - gap) * 0.525 : geometry.size.width
@@ -28,6 +49,9 @@ struct HomeMomentsSection: View {
                     }
                 }
                 .aspectRatio(390.0 / 260.0, contentMode: .fit)
+                if let message = feed.momentsErrorMessage {
+                    Text(message).font(.caption).foregroundStyle(.secondary)
+                }
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("home-moments")
@@ -61,6 +85,7 @@ private struct HomeMomentCard: View {
                 }.padding(10)
             }
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("home-moment-\(moment.id)")

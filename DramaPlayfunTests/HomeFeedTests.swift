@@ -9,6 +9,8 @@ final class HomeFeedTests: XCTestCase {
             let json: String
             if target.path == "/mobile/v1/theater/home" {
                 json = #"{"code":200,"data":{"banners":[{"id":11,"dramaTitle":"推荐剧","bannerImage":"https://example.invalid/banner.jpg"}],"rank":[{"dramaId":41,"rootDramaId":40,"dramaTitle":"今日甲","coverUrl":"https://example.invalid/portrait.jpg","coverFourThreeUrl":"https://example.invalid/landscape.jpg","lastEpisodeNo":4},{"dramaId":42,"dramaTitle":"今日乙"},{"dramaId":43,"dramaTitle":"今日丙"},{"dramaId":44,"dramaTitle":"第四项不展示"}],"list":[{"categoryName":"专题甲","list":[{"dramaId":21,"dramaTitle":"短剧甲","coverUrl":"https://example.invalid/a.jpg","tagNames":["都市"]}]},{"categoryName":"专题乙","list":[{"dramaId":22,"dramaTitle":"短剧乙"}]}]},"message":"ok"}"#
+            } else if target.path == "/mobile/v1/client/drama/random/list" {
+                json = #"{"code":200,"data":{"list":[{"dramaId":51,"dramaTitle":"随机甲"},{"dramaId":52,"dramaTitle":"随机乙"},{"dramaId":53,"dramaTitle":"随机丙"},{"dramaId":54,"dramaTitle":"第四项"}]}}"#
             } else {
                 let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
                 json = body?["page"] == 1
@@ -38,6 +40,13 @@ final class HomeFeedTests: XCTestCase {
         XCTAssertEqual(feed.hotDramas.first?.coverURL?.absoluteString, "https://example.invalid/cover.jpg")
         XCTAssertTrue(feed.hasMoreHot)
 
+        await feed.refreshMoments()
+        XCTAssertEqual(feed.moments.map(\.id), ["51", "52", "53"])
+        XCTAssertEqual(feed.banners.map(\.id), ["11"])
+        XCTAssertEqual(feed.shelves.map(\.title), ["专题甲", "专题乙"])
+        XCTAssertEqual(feed.hotDramas.map(\.id), ["31"])
+        XCTAssertFalse(feed.isRefreshingMoments)
+        XCTAssertNil(feed.momentsErrorMessage)
         await feed.loadMore()
         XCTAssertEqual(feed.hotDramas.map(\.id), ["31", "32"])
         XCTAssertNil(feed.hotDramas.last?.displayBadge)

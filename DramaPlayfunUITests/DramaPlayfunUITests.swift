@@ -219,12 +219,19 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertGreaterThan(first.frame.height, second.frame.height * 1.8)
         XCTAssertGreaterThan(second.frame.minX, first.frame.minX)
         XCTAssertGreaterThan(third.frame.minY, second.frame.minY)
-        XCTAssertFalse(app.buttons["home-moments-refresh"].exists)
+        app.buttons["home-moments-refresh"].tap()
+        XCTAssertTrue(app.buttons["home-moment-51"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["home-moment-52"].exists)
+        XCTAssertTrue(app.buttons["home-moment-53"].exists)
+        XCTAssertFalse(app.buttons["home-moment-41"].exists)
+        XCTAssertFalse(app.navigationBars["剧集详情"].exists, "换一换只能刷新数据，不能跳转页面")
+        XCTAssertTrue(app.buttons["home-moments-refresh"].isHittable)
+        XCTAssertTrue(app.tabBars.buttons["首页"].isSelected)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "首页今日片刻"
         screenshot.lifetime = .keepAlways
         add(screenshot)
-        first.tap()
+        app.buttons["home-moment-51"].tap()
         XCTAssertTrue(app.navigationBars["剧集详情"].waitForExistence(timeout: 5))
     }
 

@@ -85,6 +85,12 @@ nonisolated enum APIModels {
     struct V1BindPhoneBySmsRes: Codable, Sendable {
     }
 
+    struct V1GetRestoreRegistrationOptionsReq: Codable, Sendable {
+    }
+
+    struct V1GetRestoreRegistrationOptionsRes: Codable, Sendable {
+    }
+
     struct V1SendSmsCodeReq: Codable, Sendable {
         /// 手机号
         var `phone`: String
@@ -407,6 +413,8 @@ nonisolated enum APIModels {
         var `unlockCoin`: Int64? = nil
         /// 是否点赞
         var `isLiked`: Bool? = nil
+        /// 是否观看过
+        var `looked`: Bool? = nil
         /// 点赞数（基础值+补充值）
         var `likeCount`: Int? = nil
     }
@@ -1042,6 +1050,39 @@ nonisolated enum APIModels {
         var `badge`: String? = nil
         /// 横竖屏类型：vertical=竖屏，horizontal=横屏
         var `screenType`: String? = nil
+    }
+
+    struct V1GetDramaTagListReq: Codable, Sendable {
+    }
+
+    struct V1GetDramaTagListRes: Codable, Sendable {
+        /// 标签列表
+        var `list`: [V1DramaTagItem]? = nil
+    }
+
+    struct V1DramaTagItem: Codable, Sendable {
+        /// 标签ID
+        var `tagId`: Int64? = nil
+        /// 标签名称
+        var `tagName`: String? = nil
+        /// 排序值，越大越靠前
+        var `sortOrder`: Int? = nil
+    }
+
+    struct V1GetDramaTagSeriesListReq: Codable, Sendable {
+        /// 标签ID
+        var `tagId`: Int64
+        /// 页码，从1开始
+        var `page`: Int? = nil
+        /// 每页数量
+        var `pageSize`: Int? = nil
+    }
+
+    struct V1GetDramaTagSeriesListRes: Codable, Sendable {
+        /// 剧目列表
+        var `list`: [V1DramaSeriesItem]? = nil
+        /// 是否还有更多
+        var `hasMore`: Bool? = nil
     }
 
     struct V1GetMyRechargeRecordListReq: Codable, Sendable {

@@ -14,6 +14,8 @@ nonisolated enum AppAPI {
     static let v1AuthOneTapPrefetch = APIEndpoint<APIModels.V1PrefetchOneTapPhoneReq, APIModels.V1PrefetchOneTapPhoneRes>(path: "/mobile/v1/auth/oneTap/prefetch")
     /// 短信绑定手机号
     static let v1AuthPhoneBind = APIEndpoint<APIModels.V1BindPhoneBySmsReq, APIModels.V1BindPhoneBySmsRes>(path: "/mobile/v1/auth/phone/bind")
+    /// 获取恢复注册选项
+    static let v1AuthRestoreRegistrationOptions = APIEndpoint<APIModels.V1GetRestoreRegistrationOptionsReq, APIModels.V1GetRestoreRegistrationOptionsRes>(path: "/mobile/v1/auth/restore/registration/options")
     /// 发送短信验证码
     static let v1AuthSmsSend = APIEndpoint<APIModels.V1SendSmsCodeReq, APIModels.V1SendSmsCodeRes>(path: "/mobile/v1/auth/sms/send")
     /// 下发媒体XMToken
@@ -82,6 +84,10 @@ nonisolated enum AppAPI {
     static let v1DramaSeriesList = APIEndpoint<APIModels.V1GetDramaSeriesListReq, APIModels.V1GetDramaSeriesListRes>(path: "/mobile/v1/drama/series/list")
     /// 按剧目分类查询前5条
     static let v1DramaSeriesTopList = APIEndpoint<APIModels.V1GetDramaSeriesTopListReq, APIModels.V1GetDramaSeriesTopListRes>(path: "/mobile/v1/drama/series/top/list")
+    /// 标签查询
+    static let v1DramaTagList = APIEndpoint<APIModels.V1GetDramaTagListReq, APIModels.V1GetDramaTagListRes>(path: "/mobile/v1/drama/tag/list")
+    /// 按标签查询剧目
+    static let v1DramaTagSeriesList = APIEndpoint<APIModels.V1GetDramaTagSeriesListReq, APIModels.V1GetDramaTagSeriesListRes>(path: "/mobile/v1/drama/tag/series/list")
     /// 查询我的充值记录
     static let v1OrderRechargeList = APIEndpoint<APIModels.V1GetMyRechargeRecordListReq, APIModels.V1GetMyRechargeRecordListRes>(path: "/mobile/v1/order/recharge/list")
     /// Apple支付回调

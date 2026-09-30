@@ -83,28 +83,29 @@ struct DramaGrid: View {
 }
 
 struct CategoryPicker: View {
-    @Binding var selection: DramaCategory
+    let tabs: [DramaFeedTab]
+    @Binding var selection: String
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(DramaCategory.allCases) { category in
-                        Button { withAnimation(.easeInOut(duration: 0.25)) { selection = category } } label: {
+                    ForEach(tabs) { category in
+                        Button { withAnimation(.easeInOut(duration: 0.25)) { selection = category.id } } label: {
                             HStack(spacing: 5) {
-                                if category == .all {
+                                if category.id == DramaFeedTab.featured.id {
                                     Image("HomeFeatured")
                                         .resizable()
                                         .scaledToFit()
                                         .frame(width: 18, height: 18)
                                 }
-                                Text(category.rawValue)
+                                Text(category.title)
                             }
                                 .font(.subheadline.weight(.medium)).padding(.horizontal, 16).padding(.vertical, 10)
-                                .background(selection == category ? Theme.accent : Theme.surface)
-                                .foregroundStyle(selection == category ? Color.black : Color.secondary)
+                                .background(selection == category.id ? Theme.accent : Theme.surface)
+                                .foregroundStyle(selection == category.id ? Color.black : Color.secondary)
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }.accessibilityAddTraits(selection == category ? .isSelected : [])
-                        .id(category)
+                        }.accessibilityAddTraits(selection == category.id ? .isSelected : [])
+                        .id(category.id)
                     }
                 }
             }

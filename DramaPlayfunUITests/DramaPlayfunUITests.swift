@@ -25,6 +25,7 @@ final class DramaPlayfunUITests: XCTestCase {
     @MainActor
     func testHomeHeaderFadesAndCategoriesStickOnScroll() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-FeedUITestFixture")
         app.launch()
 
         let header = app.otherElements["home-top-controls"]
@@ -61,6 +62,7 @@ final class DramaPlayfunUITests: XCTestCase {
     @MainActor
     func testHomeCategoryPagesAndButtonsStayInSync() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-FeedUITestFixture")
         app.launch()
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
@@ -92,6 +94,7 @@ final class DramaPlayfunUITests: XCTestCase {
     @MainActor
     func testFeaturedSwipeSelectsLiveAction() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-FeedUITestFixture")
         app.launch()
         let heading = app.staticTexts["热播剧集"].firstMatch
         let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
@@ -140,6 +143,62 @@ final class DramaPlayfunUITests: XCTestCase {
         end.press(forDuration: 0.05, thenDragTo: start)
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: first)
         waitForExpectations(timeout: 5)
+    }
+
+    @MainActor
+    func testRankingsUseServerTabsAndReplaceListOnSelection() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("-FeedUITestFixture")
+        app.launch()
+        app.tabBars.buttons["排行榜"].tap()
+        XCTAssertTrue(app.staticTexts["榜单测试21"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["日榜"].isSelected)
+        XCTAssertFalse(app.buttons["精选"].exists)
+        app.buttons["周榜"].tap()
+        XCTAssertTrue(app.staticTexts["榜单测试22"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["周榜"].isSelected)
+        XCTAssertFalse(app.staticTexts["榜单测试21"].exists)
+        let pages = app.scrollViews["ranking-category-pages"]
+        XCTAssertEqual(pages.value as? String, "周榜")
+        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.6))
+        let left = app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.6))
+        right.press(forDuration: 0.05, thenDragTo: left)
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: app.buttons["月榜"])
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(app.staticTexts["榜单测试23"].waitForExistence(timeout: 5))
+        XCTAssertEqual(pages.value as? String, "月榜")
+        left.press(forDuration: 0.05, thenDragTo: right)
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: app.buttons["周榜"])
+        waitForExpectations(timeout: 5)
+        app.buttons["日榜"].tap()
+        expectation(for: NSPredicate(format: "value == %@", "日榜"), evaluatedWith: pages)
+        waitForExpectations(timeout: 5)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "排行榜设计还原"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.staticTexts["榜单测试21"].tap()
+        XCTAssertTrue(app.navigationBars["剧集详情"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testHomeContinueWatchingUsesServerHistoryAndHidesWhenEmpty() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-HistoryUITestFixture"]
+        app.launch()
+        let title = app.staticTexts["历史测试剧"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["第3集 · 已观看 1:05"].exists)
+        let section = app.otherElements["home-continue-watching"]
+        XCTAssertTrue(section.exists)
+        app.buttons["history-111"].tap()
+        XCTAssertTrue(app.navigationBars["剧集详情"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["历史测试剧"].firstMatch.exists)
+        app.terminate()
+        app.launchArguments = ["-FeedUITestFixture"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["最新发布"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.otherElements["home-continue-watching"].exists)
     }
 
     @MainActor

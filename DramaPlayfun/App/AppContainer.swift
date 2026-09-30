@@ -9,6 +9,9 @@ final class AppContainer {
     let network: APIClient
     let repository: any DramaRepository
     let catalog: CatalogStore
+    let homeCategories: DramaTabFeedStore
+    let rankings: DramaTabFeedStore
+    let watchHistory: WatchHistoryStore
     let homeFeed: HomeFeedStore
     let theaterFeed: TheaterFeedStore
     let library: LibraryStore
@@ -21,7 +24,9 @@ final class AppContainer {
          subscriptions: (any SubscriptionService)? = nil,
          defaults: UserDefaults = .standard) {
         #if DEBUG
-        let fixture = ProcessInfo.processInfo.arguments.contains("-TheaterUITestFixture")
+        let fixture = (ProcessInfo.processInfo.arguments.contains("-TheaterUITestFixture") ||
+                       ProcessInfo.processInfo.arguments.contains("-FeedUITestFixture") ||
+                       ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture"))
             ? Self.theaterUITestClient() : nil
         #endif
         self.network = network ?? {
@@ -40,6 +45,9 @@ final class AppContainer {
                                                           fallback: DemoDramaRepository())
         self.repository = repository
         catalog = CatalogStore(repository: repository)
+        homeCategories = DramaTabFeedStore(network: self.network, source: .homeTags)
+        rankings = DramaTabFeedStore(network: self.network, source: .rankings)
+        watchHistory = WatchHistoryStore(network: self.network)
         homeFeed = HomeFeedStore(network: self.network)
         theaterFeed = TheaterFeedStore(network: self.network)
         library = LibraryStore(defaults: defaults)
@@ -53,6 +61,32 @@ final class AppContainer {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             let response: String
             switch target.path {
+            case "/mobile/v1/client/me/history/list":
+                response = ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture")
+                    ? #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":111,"rootDramaId":110,"dramaTitle":"历史测试剧","episodeId":1111,"episodeNo":3,"progressSeconds":65,"isOnline":"online"},{"dramaId":112,"dramaTitle":"历史测试剧乙","episodeId":1112,"episodeNo":5,"progressSeconds":30}]}}"#
+                    : #"{"code":200,"data":{"page":1,"hasMore":false,"list":[]}}"#
+            case "/mobile/v1/drama/tag/list":
+                response = #"{"code":200,"data":{"list":[{"tagId":11,"tagName":"真人剧"},{"tagId":12,"tagName":"剧情"},{"tagId":13,"tagName":"古装"}]}}"#
+            case "/mobile/v1/drama/tag/series/list":
+                let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
+                let id = body?["tagId"] ?? 0
+                response = "{\"code\":200,\"data\":{\"hasMore\":false,\"list\":[{\"dramaId\":\(id),\"dramaTitle\":\"标签测试\(id)\"}]}}"
+            case "/mobile/v1/drama/category/list":
+                response = #"{"code":200,"data":{"list":[{"categoryId":21,"categoryName":"日榜"},{"categoryId":22,"categoryName":"周榜"},{"categoryId":23,"categoryName":"月榜"}]}}"#
+            case "/mobile/v2/theater/rank/list":
+                let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
+                let id = body?["categoryId"] ?? 0
+                let list: [[String: Any]] = (1...5).map { rank in
+                    ["dramaId": rank == 1 ? id : id * 100 + rank,
+                     "dramaTitle": rank == 1 ? "榜单测试\(id)" : "榜单\(id)第\(rank)名",
+                     "tagNames": ["剧情", "都市", "甜宠"],
+                     "dramaDesc": "榜单简介\(id)，探索精彩故事，发现更多值得观看的好剧。"]
+                }
+                response = String(data: try! JSONSerialization.data(withJSONObject: ["code": 200, "data": ["list": list]]), encoding: .utf8)!
+            case "/mobile/v1/theater/home":
+                response = #"{"code":200,"data":{"banners":[{"id":31,"dramaTitle":"推荐测试"}],"list":[{"categoryName":"最新发布","list":[{"dramaId":31,"dramaTitle":"推荐测试"}]}]}}"#
+            case "/mobile/v1/theater/home/hot/page":
+                response = #"{"code":200,"data":{"hasMore":false,"list":[{"dramaId":31,"dramaTitle":"推荐测试"},{"dramaId":32,"dramaTitle":"热门测试"}]}}"#
             case "/mobile/v2/client/list":
                 response = #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":101,"rootDramaId":101,"dramaTitle":"剧场测试甲","episodePassed":12,"episodes":[{"episodeId":1001,"episodeNo":1,"videoUrl":"https://example.invalid/first.m3u8"}]},{"dramaId":102,"rootDramaId":102,"dramaTitle":"剧场测试乙","episodePassed":24,"episodes":[{"episodeId":1002,"episodeNo":1,"videoUrl":"https://example.invalid/second.m3u8"}]},{"dramaId":103,"rootDramaId":103,"dramaTitle":"剧场测试丙","episodePassed":36,"episodes":[{"episodeId":1003,"episodeNo":1,"videoUrl":"https://example.invalid/third.m3u8"}]}]}}"#
             case "/mobile/v1/client/drama/episode/list":

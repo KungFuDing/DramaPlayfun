@@ -1,0 +1,36 @@
+import SwiftUI
+
+struct FeedTabsStatus: View {
+    let feed: DramaTabFeedStore
+
+    var body: some View {
+        if feed.isLoadingTabs && !feed.hasLoadedTabs {
+            ProgressView("加载分类…").frame(maxWidth: .infinity)
+        } else if let message = feed.tabsErrorMessage {
+            VStack(spacing: 8) {
+                Text(message).foregroundStyle(.secondary)
+                Button("重新加载分类") { Task { await feed.reloadTabs() } }
+            }.frame(maxWidth: .infinity)
+        } else if feed.hasLoadedTabs && feed.tabs.isEmpty {
+            ContentUnavailableView("暂无分类", systemImage: "square.grid.2x2")
+        }
+    }
+}
+
+struct FeedPageStatus: View {
+    let state: DramaTabPage
+    let onRetry: () async -> Void
+
+    var body: some View {
+        if state.isLoading && state.dramas.isEmpty {
+            ProgressView("加载剧集…").frame(maxWidth: .infinity).padding(.vertical, 36)
+        } else if let message = state.errorMessage {
+            VStack(spacing: 8) {
+                Text(message).foregroundStyle(.secondary)
+                Button("重新加载") { Task { await onRetry() } }
+            }.frame(maxWidth: .infinity)
+        } else if state.hasLoaded && state.dramas.isEmpty && state.errorMessage == nil {
+            ContentUnavailableView("暂无剧集", systemImage: "film")
+        }
+    }
+}

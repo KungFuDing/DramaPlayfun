@@ -59,7 +59,7 @@ xcodebuild -project DramaPlayfun.xcodeproj -scheme DramaPlayfun \
 
 本地接口入口：[离线 HTML](接口文档/index.html) · [Markdown 参考](接口文档/API参考.md) · [网络模块接入](接口文档/网络模块接入.md)。
 
-通过 Swift Package Manager 管理 Moya、CleanJSON、Kingfisher。Debug 环境已将 `API_BASE_URL` 配置为 `https://pre.aijccz.com/aigc-mobile`（Release 仍需按部署环境单独配置）。首页 Banner 和横向栏目从 `POST /mobile/v1/theater/home` 加载，热播瀑布流从 `POST /mobile/v1/theater/home/hot/page` 分页加载（解析实际的 `code/message/data` 包装）；未配置时显示演示数据。其他页面仍使用 Repository 数据源。接口文件更新后执行 `python3 Scripts/generate_api_docs.py`。
+通过 Swift Package Manager 管理 Moya、CleanJSON、Kingfisher。Debug 环境已将 `API_BASE_URL` 配置为 `https://pre.aijccz.com/aigc-mobile`（Release 仍需按部署环境单独配置）。首页 Banner 和横向栏目从 `POST /mobile/v1/theater/home` 加载，热播瀑布流从 `POST /mobile/v1/theater/home/hot/page` 分页加载（解析实际的 `code/message/data` 包装）；未配置时显示演示数据。首页固定“精选”，其余 Tab 从 `POST /mobile/v1/drama/tag/list` 获取，瀑布流按 `tagId` 请求 `POST /mobile/v1/drama/tag/series/list`。排行榜 Tab 从 `POST /mobile/v1/drama/category/list` 获取（`type=ranking`），列表按 `categoryId` 请求 `POST /mobile/v2/theater/rank/list`，保留服务端排序。分类数据独立缓存，支持刷新、分页及切换取消。首页“继续观看”从 `POST /mobile/v1/client/me/history/list` 获取，支持横向分页、刷新和进度恢复，空数据隐藏。接口文件更新后执行 `python3 Scripts/generate_api_docs.py`。
 
 Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴权及个人敏感字段会脱敏；Release 构建不输出。
 

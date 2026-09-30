@@ -3,7 +3,6 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AppContainer.self) private var app
     @Environment(AppRouter.self) private var router
-    @State private var category: DramaCategory = .all
     @State private var query = ""
     @State private var scrollOffset: CGFloat = 0
     @State private var viewportHeight: CGFloat = 700
@@ -20,19 +19,26 @@ struct HomeView: View {
     }
 
     var body: some View {
+        @Bindable var categories = app.homeCategories
+        let featured = categories.selectedID == DramaFeedTab.featured.id
         ZStack(alignment: .top) {
             RefreshLoadScrollView(
-                hasMore: category == .all && query.isEmpty && app.homeFeed.hasMoreHot,
-                isLoadingMore: category == .all && query.isEmpty && app.homeFeed.isLoadingMore,
-                loadError: category == .all && query.isEmpty ? app.homeFeed.hotErrorMessage : nil,
+                hasMore: query.isEmpty && (featured ? app.homeFeed.hasMoreHot : categories.selectedPage.hasMore),
+                isLoadingMore: featured ? app.homeFeed.isLoadingMore : categories.selectedPage.isLoadingMore,
+                loadError: featured ? app.homeFeed.hotErrorMessage : categories.selectedPage.loadMoreErrorMessage,
                 coordinateSpaceName: "homeScroll",
                 refreshIndicatorTop: HomeTopControls.pinnedCategoryTop + 8,
                 scrollOffset: $scrollOffset,
                 onRefresh: {
                     await app.homeFeed.reload()
-                    await app.catalog.reload()
+                    await app.watchHistory.reload()
+                    await categories.reloadTabs()
+                    await categories.refreshSelected()
                 },
-                onLoadMore: { await app.homeFeed.loadMore() }
+                onLoadMore: {
+                    if featured { await app.homeFeed.loadMore() }
+                    else { await categories.loadMore() }
+                }
             ) {
                 VStack(alignment: .leading, spacing: 0) {
                     HomeBannerCarousel(banners: app.homeFeed.banners)
@@ -45,15 +51,16 @@ struct HomeView: View {
                             }
                             .frame(maxWidth: .infinity)
                         }
-                        ContinueWatchingSection()
-                        CategoryPicker(selection: $category)
+                        HomeContinueWatchingSection()
+                        CategoryPicker(tabs: categories.tabs, selection: $categories.selectedID)
                             .onGeometryChange(for: CGFloat.self) { geometry in
                                 geometry.frame(in: .named("homeContent")).minY
                             } action: { newY in
                                 categoryContentY = newY
                             }
                             .opacity(isCategoryPinned ? 0 : 1)
-                        HomeCategoryPager(selection: $category, query: query,
+                        FeedTabsStatus(feed: categories)
+                        HomeCategoryPager(tabs: categories.tabs, selection: $categories.selectedID, query: query,
                                           minimumHeight: max(1, viewportHeight - HomeTopControls.pinnedCategoryTop))
                     }
                     .padding(.top, 22)
@@ -66,7 +73,8 @@ struct HomeView: View {
             HomeTopControls(
                 query: $query,
                 isSearchFocused: $isSearchFocused,
-                category: $category,
+                tabs: categories.tabs,
+                category: $categories.selectedID,
                 isCategoryPinned: isCategoryPinned,
                 navbarOpacity: navbarOpacity
             ) {
@@ -79,22 +87,29 @@ struct HomeView: View {
         .toolbar(.hidden, for: .navigationBar)
         .ignoresSafeArea(edges: .top)
         .task { await app.homeFeed.loadIfNeeded() }
+        .task { await app.watchHistory.reload() }
+        .onChange(of: router.playback?.id) { old, new in
+            if old != nil && new == nil { Task { await app.watchHistory.reload() } }
+        }
+        .task { await categories.loadTabsIfNeeded() }
+        .task(id: categories.selectedID) { await categories.loadSelectedIfNeeded() }
     }
 
 }
 
 /// Each category owns its content height; short pages still fill the space below the pinned tabs.
 private struct HomeCategoryPager: View {
-    @Binding var selection: DramaCategory
+    let tabs: [DramaFeedTab]
+    @Binding var selection: String
     let query: String
     let minimumHeight: CGFloat
-    @State private var pageHeights: [DramaCategory: CGFloat] = [:]
+    @State private var pageHeights: [String: CGFloat] = [:]
 
     private var pageHeight: CGFloat {
         max(minimumHeight, pageHeights[selection] ?? minimumHeight)
     }
 
-    private var pagePosition: Binding<DramaCategory?> {
+    private var pagePosition: Binding<String?> {
         Binding(get: { selection }, set: { if let category = $0 { selection = category } })
     }
 
@@ -102,17 +117,17 @@ private struct HomeCategoryPager: View {
         GeometryReader { geometry in
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 0) {
-                    ForEach(DramaCategory.allCases) { category in
+                    ForEach(tabs) { category in
                         HomeCategoryContent(category: category, query: query)
                             .frame(width: geometry.size.width, alignment: .topLeading)
                             .fixedSize(horizontal: false, vertical: true)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                                pageHeights[category] = height
+                                pageHeights[category.id] = height
                             }
                             // Equal target bounds keep short categories detectable when Featured is scrolled down.
                             .frame(height: pageHeight, alignment: .top)
                             .contentShape(Rectangle())
-                            .id(category)
+                            .id(category.id)
                     }
                 }
                 .scrollTargetLayout()
@@ -121,22 +136,21 @@ private struct HomeCategoryPager: View {
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: pagePosition, anchor: .leading)
             .accessibilityIdentifier("home-category-pages")
-            .accessibilityValue(selection.rawValue)
+            .accessibilityValue(tabs.first(where: { $0.id == selection })?.title ?? "")
         }
         .frame(height: pageHeight)
     }
 }
 
 private struct HomeCategoryContent: View {
-    let category: DramaCategory
+    let category: DramaFeedTab
     let query: String
     @Environment(AppContainer.self) private var app
     @Environment(AppRouter.self) private var router
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
-            let dramas = app.catalog.filtered(category: category, query: query)
-            if category == .all && query.isEmpty {
+            if category.id == DramaFeedTab.featured.id && query.isEmpty {
                 if app.homeFeed.hasLoaded {
                     ForEach(app.homeFeed.shelves) { shelf in
                         HomeDramaShelf(title: shelf.title, dramas: shelf.dramas)
@@ -151,8 +165,14 @@ private struct HomeCategoryContent: View {
                 } else if app.homeFeed.isLoading {
                     ProgressView("加载首页…").frame(maxWidth: .infinity).padding(.vertical, 36)
                 }
-            } else {
+            } else if category.id == DramaFeedTab.featured.id {
+                let dramas = app.homeFeed.hotDramas.filter { $0.title.localizedStandardContains(query) || $0.displayTags.localizedStandardContains(query) }
                 HomeWaterfallGrid(dramas: dramas)
+            } else {
+                let state = app.homeCategories.page(for: category.id)
+                FeedPageStatus(state: state) { await app.homeCategories.refreshSelected() }
+                let dramas = state.dramas.filter { query.isEmpty || $0.title.localizedStandardContains(query) || $0.displayTags.localizedStandardContains(query) }
+                if !dramas.isEmpty { HomeWaterfallGrid(dramas: dramas) }
             }
         }
     }
@@ -166,7 +186,8 @@ private struct HomeTopControls: View {
 
     @Binding var query: String
     var isSearchFocused: FocusState<Bool>.Binding
-    @Binding var category: DramaCategory
+    let tabs: [DramaFeedTab]
+    @Binding var category: String
     let isCategoryPinned: Bool
     let navbarOpacity: Double
     let onGiftTap: () -> Void
@@ -175,7 +196,7 @@ private struct HomeTopControls: View {
         VStack(spacing: 10) {
             HomeSearchBar(query: $query, isSearchFocused: isSearchFocused, onGiftTap: onGiftTap)
             if isCategoryPinned {
-                CategoryPicker(selection: $category)
+                CategoryPicker(tabs: tabs, selection: $category)
                     .padding(.vertical, 2)
                     .transition(.opacity)
             }
@@ -340,7 +361,7 @@ private struct HomeSearchBar: View {
     }
 }
 
-private struct HomeSectionTitle: View {
+struct HomeSectionTitle: View {
     let title: String
     let onMore: () -> Void
 

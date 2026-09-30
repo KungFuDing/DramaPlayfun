@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>保存短剧分享图片到相册，便于分享给朋友。</string>
     <key>APIBaseURL</key>
     <string>$(API_BASE_URL)</string>
     <key>HLSSharedSecret</key>

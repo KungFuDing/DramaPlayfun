@@ -21,6 +21,11 @@ final class LibraryStore {
         defaults.set(Array(favoriteIDs), forKey: Self.favoritesKey)
     }
 
+    func setFavorite(_ id: Drama.ID, isFavorite: Bool) {
+        if isFavorite { favoriteIDs.insert(id) } else { favoriteIDs.remove(id) }
+        defaults.set(Array(favoriteIDs), forKey: Self.favoritesKey)
+    }
+
     func save(_ value: WatchProgress) {
         guard value.seconds.isFinite, value.duration.isFinite, value.seconds >= 0 else { return }
         progress[value.dramaID] = value

@@ -7,6 +7,7 @@ struct TheaterView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedID: Drama.ID?
     @State private var episodeDrama: Drama?
+    @State private var shareItem: TheaterFeedItem?
     @State private var pendingRequest: PlaybackRequest?
     @State private var retryingPlayback = false
 
@@ -34,7 +35,8 @@ struct TheaterView: View {
                                     isActive: selectedID == item.id && isTheaterVisible,
                                     topInset: geometry.safeAreaInsets.top,
                                     onRetry: { Task { await retryPlayback() } },
-                                    onEpisodes: { episodeDrama = item.drama }
+                                    onEpisodes: { episodeDrama = item.drama },
+                                    onShare: { shareItem = item }
                                 )
                                 .frame(width: geometry.size.width, height: geometry.size.height)
                                 .id(item.id)
@@ -79,6 +81,9 @@ struct TheaterView: View {
             Task { await app.theaterFeed.loadMore() }
         }
         .onDisappear { app.theaterPlayback.suspend() }
+        .fullScreenCover(item: $shareItem) { item in
+            DramaShareView(item: item)
+        }
         .sheet(item: $episodeDrama, onDismiss: presentSelectedEpisode) { drama in
             TheaterEpisodesSheet(drama: drama) { episode in
                 pendingRequest = PlaybackRequest(drama: drama, episode: episode)
@@ -90,7 +95,7 @@ struct TheaterView: View {
     }
 
     private var isTheaterVisible: Bool {
-        router.selectedTab == .theater && scenePhase == .active && episodeDrama == nil
+        router.selectedTab == .theater && scenePhase == .active && episodeDrama == nil && shareItem == nil
             && router.playback == nil && !router.membershipPresented
     }
 
@@ -129,23 +134,26 @@ private struct TheaterVideoPage: View {
     let topInset: CGFloat
     let onRetry: () -> Void
     let onEpisodes: () -> Void
+    let onShare: () -> Void
     @Environment(AppContainer.self) private var app
     @State private var isExpanded = false
     @State private var summaryHeight: CGFloat = 20
     @State private var showCheckIn = false
-    @AppStorage private var isLiked: Bool
+    @State private var interactionError: String?
+    private var isLiked: Bool { item.isFirstEpisodeLiked }
 
     private var drama: Drama { item.drama }
 
     init(item: TheaterFeedItem, playback: TheaterPlayerPool, isActive: Bool,
-         topInset: CGFloat, onRetry: @escaping () -> Void, onEpisodes: @escaping () -> Void) {
+         topInset: CGFloat, onRetry: @escaping () -> Void, onEpisodes: @escaping () -> Void,
+         onShare: @escaping () -> Void) {
         self.item = item
         self.playback = playback
         self.isActive = isActive
         self.topInset = topInset
         self.onRetry = onRetry
         self.onEpisodes = onEpisodes
-        _isLiked = AppStorage(wrappedValue: item.isFirstEpisodeLiked, "theater.liked.\(item.id)")
+        self.onShare = onShare
     }
 
     var body: some View {
@@ -177,6 +185,10 @@ private struct TheaterVideoPage: View {
         .foregroundStyle(.white)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("theater-video-\(drama.id)")
+        .alert("操作失败", isPresented: Binding(get: { interactionError != nil },
+            set: { if !$0 { interactionError = nil } })) {
+            Button("知道了", role: .cancel) { interactionError = nil }
+        } message: { Text(interactionError ?? "") }
         .alert("每日签到", isPresented: $showCheckIn) {
             Button("知道了", role: .cancel) { }
         } message: { Text("签到服务暂未接入，接入后可领取每日奖励。") }
@@ -263,16 +275,30 @@ private struct TheaterVideoPage: View {
 
     private var actions: some View {
         VStack(spacing: 24) {
-            Button { isLiked.toggle() } label: {
+            Button {
+                Task {
+                    do { try await app.theaterFeed.toggleLike(item.id) }
+                    catch { interactionError = error.localizedDescription }
+                }
+            } label: {
                 actionLabel("heart.fill", title: isLiked ? "已赞" : "点赞", color: isLiked ? .red : .white)
-            }.accessibilityLabel(isLiked ? "取消点赞" : "点赞")
-            Button { app.library.toggleFavorite(drama.id) } label: {
-                actionLabel("star.fill", title: app.library.favoriteIDs.contains(drama.id) ? "已收藏" : "收藏",
-                            color: app.library.favoriteIDs.contains(drama.id) ? Theme.accent : .white)
-            }.accessibilityLabel(app.library.favoriteIDs.contains(drama.id) ? "取消收藏" : "收藏")
-            ShareLink(item: "\(drama.title)\n\(drama.summary)") {
+            }.disabled(app.theaterFeed.likingIDs.contains(item.id))
+                .accessibilityLabel(isLiked ? "取消点赞" : "点赞")
+                .accessibilityIdentifier("theater-like-\(item.id)")
+            Button {
+                Task {
+                    do { try await app.theaterFeed.toggleFavorite(item.id, library: app.library) }
+                    catch { interactionError = error.localizedDescription }
+                }
+            } label: {
+                actionLabel("star.fill", title: item.isFavorited ? "已收藏" : "收藏",
+                            color: item.isFavorited ? Theme.accent : .white)
+            }.disabled(app.theaterFeed.favoritingIDs.contains(item.id))
+                .accessibilityLabel(item.isFavorited ? "取消收藏" : "收藏")
+                .accessibilityIdentifier("theater-favorite-\(item.id)")
+            Button(action: onShare) {
                 actionLabel("square.and.arrow.up", title: "分享", color: .white)
-            }
+            }.accessibilityIdentifier("theater-share-\(item.id)")
         }
         .frame(width: 48)
         .shadow(color: .black.opacity(0.3), radius: 3, y: 2)

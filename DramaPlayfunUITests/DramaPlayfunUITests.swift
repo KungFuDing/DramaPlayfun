@@ -117,6 +117,53 @@ final class DramaPlayfunUITests: XCTestCase {
     }
 
     @MainActor
+    func testTheaterServerActionsAndSharePoster() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TheaterUITestFixture"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["剧场"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["剧场"].tap()
+        let like = app.buttons["theater-like-101"]
+        XCTAssertTrue(like.waitForExistence(timeout: 10))
+        like.tap()
+        expectation(for: NSPredicate(format: "label == %@", "取消点赞"), evaluatedWith: like)
+        waitForExpectations(timeout: 5)
+        like.tap()
+        expectation(for: NSPredicate(format: "label == %@", "点赞"), evaluatedWith: like)
+        waitForExpectations(timeout: 5)
+        let favorite = app.buttons["theater-favorite-101"]
+        favorite.tap()
+        expectation(for: NSPredicate(format: "label == %@", "取消收藏"), evaluatedWith: favorite)
+        waitForExpectations(timeout: 5)
+        app.buttons["theater-share-101"].tap()
+        XCTAssertTrue(app.buttons["保存相册"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["分享至"].isHittable)
+        XCTAssertTrue(app.images["短剧分享二维码"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "剧场分享海报"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.buttons["保存相册"].tap()
+        XCTAssertTrue(app.alerts["提示"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.alerts["提示"].staticTexts["已保存到相册"].exists)
+        app.alerts["提示"].buttons["知道了"].tap()
+        app.buttons["分享至"].tap()
+        let systemShare = app.otherElements["ActivityListView"]
+        XCTAssertTrue(systemShare.waitForExistence(timeout: 5), app.debugDescription)
+        let systemScreenshot = XCTAttachment(screenshot: app.screenshot())
+        systemScreenshot.name = "系统图片分享"
+        systemScreenshot.lifetime = .keepAlways
+        add(systemScreenshot)
+        let close = app.buttons["Close"]
+        if close.exists { close.tap() }
+        else if app.buttons["关闭"].exists { app.buttons["关闭"].tap() }
+        else { app.swipeDown() }
+        XCTAssertTrue(app.buttons["关闭分享"].waitForExistence(timeout: 5))
+        app.buttons["关闭分享"].tap()
+        XCTAssertTrue(app.buttons["theater-share-101"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testTheaterPagesVerticallyAndOpensEpisodes() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-TheaterUITestFixture")

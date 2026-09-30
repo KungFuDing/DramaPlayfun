@@ -381,12 +381,13 @@ struct HomeSectionTitle: View {
                 HStack(spacing: 6) {
                     Text("更多")
                     Image("HomeChevron")
+                        .renderingMode(.template)
                         .resizable()
                         .scaledToFit()
                         .frame(width: 8, height: 14)
                 }
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color(red: 185.0 / 255, green: 185.0 / 255, blue: 185.0 / 255))
             }
         }
     }

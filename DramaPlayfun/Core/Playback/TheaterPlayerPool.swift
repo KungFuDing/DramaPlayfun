@@ -27,10 +27,12 @@ final class TheaterPlayerPool {
     @ObservationIgnored private var items: [TheaterFeedItem] = []
     private let library: LibraryStore
     private let cache: HLSOfflineCache
+    private let progressReporter: TheaterProgressReporter?
 
-    init(library: LibraryStore, cache: HLSOfflineCache) {
+    init(library: LibraryStore, cache: HLSOfflineCache, progressReporter: TheaterProgressReporter? = nil) {
         self.library = library
         self.cache = cache
+        self.progressReporter = progressReporter
     }
 
     var playerCount: Int { players.count + sparePlayers.count }
@@ -38,14 +40,14 @@ final class TheaterPlayerPool {
     func player(for id: TheaterFeedItem.ID) -> AVPlayer? { players[id] }
 
     func update(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID?, visible: Bool) {
-        self.items = items
-        self.visible = visible
         let previousID = currentID
         if previousID != selectedID {
             saveProgress()
             hasEnded = false
             isPaused = false
         }
+        self.items = items
+        self.visible = visible
         currentID = selectedID
 
         guard let index = items.firstIndex(where: { $0.id == selectedID }) else {
@@ -243,20 +245,22 @@ final class TheaterPlayerPool {
                     players[currentID]?.pause()
                     return
                 }
-                saveProgress()
+                saveProgress(force: false)
             }
         }
     }
 
-    private func saveProgress() {
+    private func saveProgress(force: Bool = true) {
         guard let currentID, let item = items.first(where: { $0.id == currentID }),
               let episode = item.firstEpisode, let player = players[currentID],
               let duration = player.currentItem?.duration.seconds, duration.isFinite, duration > 0 else { return }
         let seconds = player.currentTime().seconds
         guard seconds.isFinite else { return }
-        library.save(WatchProgress(dramaID: currentID, episodeID: episode.id,
-                                   episodeNumber: episode.number, seconds: seconds,
-                                   duration: duration, updatedAt: Date()))
+        let progress = WatchProgress(dramaID: currentID, episodeID: episode.id,
+                                     episodeNumber: episode.number, seconds: seconds,
+                                     duration: duration, updatedAt: Date())
+        library.save(progress)
+        progressReporter?.report(progress, force: force)
     }
 }
 

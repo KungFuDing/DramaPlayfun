@@ -54,7 +54,8 @@ final class AppContainer {
         theaterFeed = TheaterFeedStore(network: self.network)
         library = LibraryStore(defaults: defaults)
         hlsCache = .shared
-        theaterPlayback = TheaterPlayerPool(library: library, cache: hlsCache)
+        theaterPlayback = TheaterPlayerPool(library: library, cache: hlsCache,
+            progressReporter: TheaterProgressReporter(network: self.network))
         membership = MembershipStore(service: subscriptions ?? StoreKitSubscriptionService(productIDs: []))
     }
 
@@ -65,6 +66,20 @@ final class AppContainer {
             switch target.path {
             case "/mobile/v1/auth/guest/login":
                 response = #"{"code":200,"data":{"accessToken":"ui-test-guest-token"}}"#
+            case "/mobile/v1/client/drama/share/text":
+                response = #"{"code":200,"data":{"text":"https://example.invalid/drama/first-episode"}}"#
+            case "/mobile/v1/client/drama/like":
+                let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Any]
+                let liked = body?["like"] as? Bool ?? false
+                response = "{\"code\":200,\"data\":{\"isLiked\":\(liked),\"likeCount\":12}}"
+            case "/mobile/v1/client/drama/favorite":
+                let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Any]
+                let favorite = body?["favorite"] as? Bool ?? false
+                response = "{\"code\":200,\"data\":{\"isFavorited\":\(favorite)}}"
+            case "/mobile/v1/client/drama/share":
+                response = #"{"code":200,"data":{}}"#
+            case "/mobile/v1/client/drama/progress":
+                response = #"{"code":200,"data":{"saved":true}}"#
             case "/mobile/v1/client/me/history/list":
                 response = ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture")
                     ? #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":111,"rootDramaId":110,"dramaTitle":"历史测试剧","episodeId":1111,"episodeNo":3,"progressSeconds":65,"isOnline":"online"},{"dramaId":112,"dramaTitle":"历史测试剧乙","episodeId":1112,"episodeNo":5,"progressSeconds":30}]}}"#
@@ -94,7 +109,7 @@ final class AppContainer {
             case "/mobile/v1/theater/home/hot/page":
                 response = #"{"code":200,"data":{"hasMore":false,"list":[{"dramaId":31,"dramaTitle":"推荐测试"},{"dramaId":32,"dramaTitle":"热门测试"}]}}"#
             case "/mobile/v2/client/list":
-                response = #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":101,"rootDramaId":101,"dramaTitle":"剧场测试甲","dramaDesc":"这是剧场测试简介，展开后应按文字高度向上显示，不在底部预留空白。","episodePassed":12,"episodes":[{"episodeId":1001,"episodeNo":1,"videoUrl":"https://example.invalid/first.m3u8"}]},{"dramaId":102,"rootDramaId":102,"dramaTitle":"剧场测试乙","episodePassed":24,"episodes":[{"episodeId":1002,"episodeNo":1,"videoUrl":"https://example.invalid/second.m3u8"}]},{"dramaId":103,"rootDramaId":103,"dramaTitle":"剧场测试丙","episodePassed":36,"episodes":[{"episodeId":1003,"episodeNo":1,"videoUrl":"https://example.invalid/third.m3u8"}]}]}}"#
+                response = #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":101,"rootDramaId":101,"dramaTitle":"剧场测试甲","tagNames":["剧情","古装","甜宠"],"dramaDesc":"这是剧场测试简介，展开后应按文字高度向上显示，不在底部预留空白。","episodePassed":12,"episodes":[{"episodeId":1001,"episodeNo":1,"videoUrl":"https://example.invalid/first.m3u8"}]},{"dramaId":102,"rootDramaId":102,"dramaTitle":"剧场测试乙","episodePassed":24,"episodes":[{"episodeId":1002,"episodeNo":1,"videoUrl":"https://example.invalid/second.m3u8"}]},{"dramaId":103,"rootDramaId":103,"dramaTitle":"剧场测试丙","episodePassed":36,"episodes":[{"episodeId":1003,"episodeNo":1,"videoUrl":"https://example.invalid/third.m3u8"}]}]}}"#
             case "/mobile/v1/client/drama/episode/list":
                 response = #"{"code":200,"data":{"episodes":[{"episodeId":1002,"episodeNo":1,"videoUrl":"https://example.invalid/second.m3u8","unlockCoin":0},{"episodeId":2002,"episodeNo":2,"videoUrl":"https://example.invalid/locked.m3u8","unlockCoin":10}]}}"#
             default:

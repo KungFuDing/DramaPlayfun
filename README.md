@@ -1,6 +1,6 @@
 # DramaPlayfun
 
-SwiftUI 短剧 App 基础架构，最低 iOS 17，无第三方依赖。直接打开 `DramaPlayfun.xcodeproj`，运行 `DramaPlayfun` Scheme。
+SwiftUI 短剧 App 基础架构，最低 iOS 17，使用 Moya、CleanJSON 和 Kingfisher。直接打开 `DramaPlayfun.xcodeproj`，运行 `DramaPlayfun` Scheme。
 
 ## 目录与依赖方向
 
@@ -15,7 +15,7 @@ DramaPlayfun/
 │   └── Subscriptions/      订阅协议、StoreKit 2 实现、会员权益状态
 └── Features/
     ├── Home/               推荐、分类、搜索、继续观看
-    ├── Theater/            剧集分类浏览
+    ├── Theater/            首集短视频、点赞收藏、进度上报及分享海报
     ├── Rankings/           热度榜单
     ├── Membership/         商品展示、购买、恢复、管理订阅
     ├── Profile/            收藏、历史、会员入口
@@ -64,3 +64,5 @@ xcodebuild -project DramaPlayfun.xcodeproj -scheme DramaPlayfun \
 Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴权及个人敏感字段会脱敏；Release 构建不输出。
 
 Debug 专用请求头从本机 `Config/Debug.local.xcconfig` 注入（可参考 `Config/Debug.local.example.xcconfig`）；启动游客登录后，返回的令牌覆盖 `accessToken` 和 `Authorization: Bearer <token>`；登录完成后再加载业务页面，失败可重试。本机配置文件已忽略提交。Xcode 控制台会脱敏显示 accessToken、deviceId 和 IP。
+
+剧场首集已接入点赞、收藏、观看进度和分享接口。分享弹窗使用接口文案生成二维码，封面、标题和标签合成同一海报，可保存相册或调起系统图片分享。详见 [网络模块接入](接口文档/网络模块接入.md#剧场互动与分享)。

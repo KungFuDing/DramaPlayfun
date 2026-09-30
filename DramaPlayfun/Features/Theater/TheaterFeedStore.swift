@@ -5,9 +5,9 @@ struct TheaterFeedItem: Identifiable {
     let drama: Drama
     let firstEpisode: Episode?
     let videoURL: URL?
-    let firstEpisodeLikeCount: Int
-    let isFirstEpisodeLiked: Bool
-    let isFavorited: Bool
+    var firstEpisodeLikeCount: Int
+    var isFirstEpisodeLiked: Bool
+    var isFavorited: Bool
 
     var id: Drama.ID { drama.id }
     var keyIdentity: HLSKeyIdentity? {
@@ -25,6 +25,9 @@ final class TheaterFeedStore {
     private(set) var isLoadingMore = false
     private(set) var errorMessage: String?
     private(set) var loadMoreErrorMessage: String?
+
+    private(set) var likingIDs: Set<Drama.ID> = []
+    private(set) var favoritingIDs: Set<Drama.ID> = []
 
     private let network: APIClient
     private let pageSize = 20
@@ -87,6 +90,38 @@ final class TheaterFeedStore {
         }
     }
 
+    func toggleLike(_ id: Drama.ID) async throws {
+        guard !likingIDs.contains(id), let item = items.first(where: { $0.id == id }),
+              let episodeID = (item.firstEpisode?.id).flatMap(Int64.init) else {
+            if likingIDs.contains(id) { return }
+            throw TheaterInteractionError.invalidEpisode
+        }
+        likingIDs.insert(id)
+        defer { likingIDs.remove(id) }
+        let liked = !item.isFirstEpisodeLiked
+        let response = try await network.request(AppAPI.v1ClientDramaLike,
+            body: .init(episodeId: episodeID, like: liked), unwrapEnvelope: true)
+        guard let index = items.firstIndex(where: { $0.id == id && $0.firstEpisode?.id == item.firstEpisode?.id }) else { return }
+        items[index].isFirstEpisodeLiked = response.isLiked ?? liked
+        items[index].firstEpisodeLikeCount = response.likeCount ?? max(0, item.firstEpisodeLikeCount + (liked ? 1 : -1))
+    }
+
+    func toggleFavorite(_ id: Drama.ID, library: LibraryStore) async throws {
+        guard !favoritingIDs.contains(id), let item = items.first(where: { $0.id == id }),
+              let dramaID = Int64(id) else {
+            if favoritingIDs.contains(id) { return }
+            throw TheaterInteractionError.invalidEpisode
+        }
+        favoritingIDs.insert(id)
+        defer { favoritingIDs.remove(id) }
+        let favorite = !item.isFavorited
+        let response = try await network.request(AppAPI.v1ClientDramaFavorite,
+            body: .init(dramaId: dramaID, favorite: favorite), unwrapEnvelope: true)
+        let value = response.isFavorited ?? favorite
+        if let index = items.firstIndex(where: { $0.id == id }) { items[index].isFavorited = value }
+        library.setFavorite(id, isFavorite: value)
+    }
+
     private static func makeItem(_ raw: APIModels.V2HomeListItem) -> TheaterFeedItem? {
         guard let dramaID = raw.dramaId ?? raw.rootDramaId ?? raw.id.map(Int64.init),
               let title = raw.dramaTitle, !title.isEmpty else { return nil }
@@ -115,5 +150,20 @@ final class TheaterFeedStore {
         guard let raw, let url = URL(string: raw),
               ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else { return nil }
         return url
+    }
+}
+
+
+nonisolated enum TheaterInteractionError: LocalizedError {
+    case invalidEpisode, missingShareText, missingCover, imageRendering, photoPermission, progressRejected
+    var errorDescription: String? {
+        switch self {
+        case .invalidEpisode: "剧集信息无效，请重新加载。"
+        case .missingShareText: "暂无有效分享内容，请重试。"
+        case .missingCover: "暂无短剧封面，无法生成分享图片。"
+        case .imageRendering: "分享图片生成失败，请重试。"
+        case .photoPermission: "请在系统设置中允许添加照片后重试。"
+        case .progressRejected: "观看进度保存失败。"
+        }
     }
 }

@@ -229,6 +229,30 @@ final class DramaPlayfunUITests: XCTestCase {
     }
 
     @MainActor
+    func testTheaterSummaryExpandsUpwardWithoutUnusedHeight() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TheaterUITestFixture"]
+        app.launch()
+        app.tabBars.buttons["剧场"].tap()
+        let page = app.otherElements["theater-video-101"]
+        let expand = page.buttons["展开"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 5))
+        let collapsed = page.staticTexts["theater-summary-text"]
+        let originalBottom = collapsed.frame.maxY
+        let originalHeight = collapsed.frame.height
+        expand.tap()
+        let scroll = page.scrollViews["theater-summary-scroll"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+        let text = page.staticTexts["theater-summary-text"]
+        XCTAssertGreaterThan(text.frame.height, originalHeight)
+        XCTAssertLessThan(scroll.frame.height, 140)
+        XCTAssertEqual(scroll.frame.height, text.frame.height, accuracy: 2)
+        XCTAssertEqual(text.frame.maxY, originalBottom, accuracy: 3)
+        page.buttons["收起"].tap()
+        XCTAssertEqual(page.staticTexts["theater-summary-text"].frame.height, originalHeight, accuracy: 2)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

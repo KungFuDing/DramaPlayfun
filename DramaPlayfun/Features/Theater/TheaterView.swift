@@ -131,6 +131,7 @@ private struct TheaterVideoPage: View {
     let onEpisodes: () -> Void
     @Environment(AppContainer.self) private var app
     @State private var isExpanded = false
+    @State private var summaryHeight: CGFloat = 20
     @State private var showCheckIn = false
     @AppStorage private var isLiked: Bool
 
@@ -234,10 +235,19 @@ private struct TheaterVideoPage: View {
             HStack(alignment: .bottom, spacing: 8) {
                 if isExpanded {
                     ScrollView {
-                        Text("第一集 | \(drama.summary)").frame(maxWidth: .infinity, alignment: .leading)
-                    }.frame(maxHeight: 140)
+                        Text("第一集 | \(drama.summary)")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                summaryHeight = height
+                            }
+                            .accessibilityIdentifier("theater-summary-text")
+                    }
+                    .frame(height: min(max(summaryHeight, 20), 140))
+                    .accessibilityIdentifier("theater-summary-scroll")
                 } else {
                     Text("第一集 | \(drama.summary)").lineLimit(1)
+                        .accessibilityIdentifier("theater-summary-text")
                 }
                 Button(isExpanded ? "收起" : "展开") { isExpanded.toggle() }
                     .fixedSize().foregroundStyle(.white)

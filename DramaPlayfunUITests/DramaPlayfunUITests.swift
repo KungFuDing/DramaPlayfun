@@ -116,15 +116,16 @@ final class DramaPlayfunUITests: XCTestCase {
     @MainActor
     func testTheaterPagesVerticallyAndOpensEpisodes() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-TheaterUITestFixture")
         app.launch()
         app.tabBars.buttons["剧场"].tap()
-        let first = app.buttons["更多剧集，重生之我逆袭做校花"]
+        let first = app.buttons["更多剧集，剧场测试甲"]
         XCTAssertTrue(first.waitForExistence(timeout: 10))
         XCTAssertTrue(first.isHittable)
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.8))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.15))
         start.press(forDuration: 0.05, thenDragTo: end)
-        let second = app.buttons["更多剧集，全家抢我神笔许愿，全玩脱了"]
+        let second = app.buttons["更多剧集，剧场测试乙"]
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: second)
         waitForExpectations(timeout: 5)
         let screenshot = XCTAttachment(screenshot: app.screenshot())

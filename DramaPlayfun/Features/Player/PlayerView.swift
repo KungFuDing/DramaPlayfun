@@ -8,9 +8,11 @@ struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
-    init(request: PlaybackRequest, repository: any DramaRepository, library: LibraryStore) {
+    init(request: PlaybackRequest, repository: any DramaRepository, library: LibraryStore,
+         cache: HLSOfflineCache? = nil) {
         self.request = request
-        _session = State(initialValue: PlaybackSession(request: request, repository: repository, library: library))
+        _session = State(initialValue: PlaybackSession(request: request, repository: repository,
+                                                       library: library, cache: cache))
     }
 
     var body: some View {

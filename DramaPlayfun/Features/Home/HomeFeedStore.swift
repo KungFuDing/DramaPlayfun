@@ -115,23 +115,25 @@ final class HomeFeedStore {
 
     private static func drama(_ item: APIModels.V1GetTheaterHomeCategoryDramaItem) -> Drama? {
         makeDrama(id: item.dramaId ?? item.id ?? item.rootDramaId, title: item.dramaTitle,
-                  summary: nil, tags: item.tagNames, badge: item.badge, cover: item.coverUrl)
+                  summary: nil, tags: item.tagNames, badge: item.badge, cover: item.coverUrl,
+                  rootDramaID: item.rootDramaId)
     }
 
     private static func drama(_ item: APIModels.V1GetTheaterHomeHotPageItem) -> Drama? {
         makeDrama(id: item.dramaId ?? item.id ?? item.rootDramaId, title: item.dramaTitle,
-                  summary: item.dramaDesc, tags: item.tagNames, badge: item.badge, cover: item.coverUrl)
+                  summary: item.dramaDesc, tags: item.tagNames, badge: item.badge, cover: item.coverUrl,
+                  rootDramaID: item.rootDramaId)
     }
 
     private static func makeDrama(id: Int64?, title: String?, summary: String?, tags: [String]?,
-                                  badge: String?, cover: String?) -> Drama? {
+                                  badge: String?, cover: String?, rootDramaID: Int64?) -> Drama? {
         guard let id, let title, !title.isEmpty else { return nil }
         let category = DramaCategory.allCases.first { category in
             category != .all && (tags ?? []).contains(where: { $0.localizedStandardContains(category.rawValue) })
         } ?? .all
         return Drama(id: String(id), title: title, summary: summary ?? "", category: category,
                      episodeCount: 0, heat: 0, badge: badge, coverURL: imageURL(cover),
-                     tagNames: tags ?? [])
+                     tagNames: tags ?? [], rootDramaID: rootDramaID)
     }
 
     private static func imageURL(_ raw: String?) -> URL? {

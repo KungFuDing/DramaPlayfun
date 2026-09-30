@@ -4,5 +4,9 @@
 <dict>
     <key>APIBaseURL</key>
     <string>$(API_BASE_URL)</string>
+    <key>HLSSharedSecret</key>
+    <string>$(HLS_SHARED_SECRET)</string>
+    <key>NSAppTransportSecurity</key>
+    <dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict>
 </plist>

@@ -2,6 +2,7 @@ import Foundation
 
 struct Drama: Identifiable, Hashable, Codable, Sendable {
     let id: String
+    let rootDramaID: Int64?
     let title: String
     let summary: String
     let category: DramaCategory
@@ -12,8 +13,10 @@ struct Drama: Identifiable, Hashable, Codable, Sendable {
     let tagNames: [String]
 
     init(id: String, title: String, summary: String, category: DramaCategory, episodeCount: Int,
-         heat: Int, badge: String?, coverURL: URL?, tagNames: [String] = []) {
+         heat: Int, badge: String?, coverURL: URL?, tagNames: [String] = [],
+         rootDramaID: Int64? = nil) {
         self.id = id
+        self.rootDramaID = rootDramaID
         self.title = title
         self.summary = summary
         self.category = category
@@ -49,6 +52,20 @@ struct Episode: Identifiable, Hashable, Codable, Sendable {
     let number: Int
     let title: String
     let requiresMembership: Bool
+    let unlockCoin: Int64
+    let isUnlocked: Bool
+
+    init(id: String, number: Int, title: String, requiresMembership: Bool,
+         unlockCoin: Int64 = 0, isUnlocked: Bool = true) {
+        self.id = id
+        self.number = number
+        self.title = title
+        self.requiresMembership = requiresMembership
+        self.unlockCoin = unlockCoin
+        self.isUnlocked = isUnlocked
+    }
+
+    var requiresCoinUnlock: Bool { unlockCoin > 0 && !isUnlocked }
 }
 
 struct WatchProgress: Codable, Equatable {

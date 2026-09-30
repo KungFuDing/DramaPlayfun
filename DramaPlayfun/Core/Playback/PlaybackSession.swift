@@ -11,11 +11,14 @@ final class PlaybackSession {
     private let request: PlaybackRequest
     private let repository: any DramaRepository
     private let library: LibraryStore
+    private let cache: HLSOfflineCache?
 
-    init(request: PlaybackRequest, repository: any DramaRepository, library: LibraryStore) {
+    init(request: PlaybackRequest, repository: any DramaRepository, library: LibraryStore,
+         cache: HLSOfflineCache? = nil) {
         self.request = request
         self.repository = repository
         self.library = library
+        self.cache = cache
     }
 
     func run() async {
@@ -24,11 +27,30 @@ final class PlaybackSession {
         hasEnded = false
         defer { isLoading = false }
         do {
-            let url = try await repository.playbackURL(dramaID: request.drama.id, episodeID: request.episode.id)
+            let cachedIdentity = HLSKeyIdentity(drama: request.drama, episode: request.episode)
+            let asset: AVURLAsset
+            if let cachedIdentity,
+               let cached = try cache?.cachedAsset(for: request.episode.id, identity: cachedIdentity) {
+                asset = cached
+            } else {
+                let source = try await repository.playbackSource(dramaID: request.drama.id,
+                                                                 episodeID: request.episode.id)
+                guard let episodeID = Int64(request.episode.id) else { throw HLSKeyError.invalidIdentity }
+                let identity = HLSKeyIdentity(rootDramaID: source.rootDramaID
+                    ?? request.drama.rootDramaID ?? 0, episodeID: episodeID)
+                guard identity.isValid else { throw HLSKeyError.invalidIdentity }
+                if let cache {
+                    asset = try await cache.asset(for: request.episode.id, remoteURL: source.url,
+                                                  identity: identity)
+                } else {
+                    asset = try await HLSLocalGateway.shared.asset(remoteURL: source.url,
+                        identity: identity, secret: HLSPlaybackKey.configuredSecret())
+                }
+            }
             try Task.checkCancellation()
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             try AVAudioSession.sharedInstance().setActive(true)
-            let item = AVPlayerItem(url: url)
+            let item = AVPlayerItem(asset: asset)
             player.replaceCurrentItem(with: item)
             let deadline = Date().addingTimeInterval(30)
             while item.status == .unknown {
@@ -43,6 +65,8 @@ final class PlaybackSession {
             try Task.checkCancellation()
             isLoading = false
             player.play()
+            cache?.downloadIfNeeded(episodeID: request.episode.id, asset: asset,
+                                    title: request.drama.title)
             while !Task.isCancelled {
                 try await Task.sleep(for: .seconds(2))
                 if item.status == .failed { throw item.error ?? PlaybackError.failed }

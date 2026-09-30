@@ -152,6 +152,7 @@ private struct HomeCategoryContent: View {
         VStack(alignment: .leading, spacing: 28) {
             if category.id == DramaFeedTab.featured.id && query.isEmpty {
                 if app.homeFeed.hasLoaded {
+                    HomeMomentsSection(feed: app.homeFeed)
                     ForEach(app.homeFeed.shelves) { shelf in
                         HomeDramaShelf(title: shelf.title, dramas: shelf.dramas)
                     }

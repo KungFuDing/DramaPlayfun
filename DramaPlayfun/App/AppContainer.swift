@@ -84,7 +84,7 @@ final class AppContainer {
                 }
                 response = String(data: try! JSONSerialization.data(withJSONObject: ["code": 200, "data": ["list": list]]), encoding: .utf8)!
             case "/mobile/v1/theater/home":
-                response = #"{"code":200,"data":{"banners":[{"id":31,"dramaTitle":"推荐测试"}],"list":[{"categoryName":"最新发布","list":[{"dramaId":31,"dramaTitle":"推荐测试"}]}]}}"#
+                response = #"{"code":200,"data":{"banners":[{"id":31,"dramaTitle":"推荐测试"}],"rank":[{"dramaId":41,"dramaTitle":"今日片刻甲","lastEpisodeNo":3},{"dramaId":42,"dramaTitle":"今日片刻乙"},{"dramaId":43,"dramaTitle":"今日片刻丙"},{"dramaId":44,"dramaTitle":"第四项不展示"}],"list":[{"categoryName":"最新发布","list":[{"dramaId":31,"dramaTitle":"推荐测试"}]}]}}"#
             case "/mobile/v1/theater/home/hot/page":
                 response = #"{"code":200,"data":{"hasMore":false,"list":[{"dramaId":31,"dramaTitle":"推荐测试"},{"dramaId":32,"dramaTitle":"热门测试"}]}}"#
             case "/mobile/v2/client/list":

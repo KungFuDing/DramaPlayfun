@@ -13,8 +13,20 @@ struct HomeShelf: Identifiable {
     let dramas: [Drama]
 }
 
+struct HomeMoment: Identifiable {
+    let drama: Drama
+    let landscapeURL: URL?
+    let lastEpisodeNumber: Int?
+    var id: String { drama.id }
+    var subtitle: String {
+        if let lastEpisodeNumber, lastEpisodeNumber > 0 { return "看到第\(lastEpisodeNumber)集" }
+        return drama.displayTags
+    }
+}
+
 @MainActor @Observable
 final class HomeFeedStore {
+    private(set) var moments: [HomeMoment] = []
     private(set) var banners: [HomeBanner] = []
     private(set) var shelves: [HomeShelf] = []
     private(set) var hotDramas: [Drama] = []
@@ -49,6 +61,7 @@ final class HomeFeedStore {
             let home = try await network.request(AppAPI.v1TheaterHome, body: .init(), unwrapEnvelope: true)
             try Task.checkCancellation()
             banners = (home.banners ?? []).compactMap(Self.banner)
+            moments = (home.rank ?? []).prefix(3).compactMap(Self.moment)
             shelves = (home.list ?? []).enumerated().compactMap { index, group in
                 guard let title = group.categoryName?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !title.isEmpty else { return nil }
@@ -103,6 +116,14 @@ final class HomeFeedStore {
         } catch {
             if generation == requestGeneration { hotErrorMessage = error.localizedDescription }
         }
+    }
+
+    private static func moment(_ item: APIModels.V1TheaterHomeRankItem) -> HomeMoment? {
+        guard let drama = makeDrama(id: item.dramaId ?? item.id ?? item.rootDramaId, title: item.dramaTitle,
+            summary: nil, tags: item.tagNames, badge: item.badge, cover: item.coverUrl,
+            rootDramaID: item.rootDramaId) else { return nil }
+        return HomeMoment(drama: drama, landscapeURL: imageURL(item.coverFourThreeUrl),
+                          lastEpisodeNumber: item.lastEpisodeNo)
     }
 
     private static func banner(_ item: APIModels.V1TheaterHomeBannerItem) -> HomeBanner? {

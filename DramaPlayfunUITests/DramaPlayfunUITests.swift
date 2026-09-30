@@ -202,6 +202,33 @@ final class DramaPlayfunUITests: XCTestCase {
     }
 
     @MainActor
+    func testFeaturedMomentsLayoutAndNavigation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-FeedUITestFixture"]
+        app.launch()
+        let heading = app.staticTexts["今日片刻"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 5))
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        for _ in 0..<4 where !heading.isHittable { start.press(forDuration: 0.05, thenDragTo: end) }
+        let first = app.buttons["home-moment-41"]
+        let second = app.buttons["home-moment-42"]
+        let third = app.buttons["home-moment-43"]
+        XCTAssertTrue(first.exists && second.exists && third.exists)
+        XCTAssertFalse(app.buttons["home-moment-44"].exists)
+        XCTAssertGreaterThan(first.frame.height, second.frame.height * 1.8)
+        XCTAssertGreaterThan(second.frame.minX, first.frame.minX)
+        XCTAssertGreaterThan(third.frame.minY, second.frame.minY)
+        XCTAssertFalse(app.buttons["home-moments-refresh"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "首页今日片刻"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        first.tap()
+        XCTAssertTrue(app.navigationBars["剧集详情"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

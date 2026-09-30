@@ -8,7 +8,7 @@ final class HomeFeedTests: XCTestCase {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             let json: String
             if target.path == "/mobile/v1/theater/home" {
-                json = #"{"code":200,"data":{"banners":[{"id":11,"dramaTitle":"推荐剧","bannerImage":"https://example.invalid/banner.jpg"}],"list":[{"categoryName":"专题甲","list":[{"dramaId":21,"dramaTitle":"短剧甲","coverUrl":"https://example.invalid/a.jpg","tagNames":["都市"]}]},{"categoryName":"专题乙","list":[{"dramaId":22,"dramaTitle":"短剧乙"}]}]},"message":"ok"}"#
+                json = #"{"code":200,"data":{"banners":[{"id":11,"dramaTitle":"推荐剧","bannerImage":"https://example.invalid/banner.jpg"}],"rank":[{"dramaId":41,"rootDramaId":40,"dramaTitle":"今日甲","coverUrl":"https://example.invalid/portrait.jpg","coverFourThreeUrl":"https://example.invalid/landscape.jpg","lastEpisodeNo":4},{"dramaId":42,"dramaTitle":"今日乙"},{"dramaId":43,"dramaTitle":"今日丙"},{"dramaId":44,"dramaTitle":"第四项不展示"}],"list":[{"categoryName":"专题甲","list":[{"dramaId":21,"dramaTitle":"短剧甲","coverUrl":"https://example.invalid/a.jpg","tagNames":["都市"]}]},{"categoryName":"专题乙","list":[{"dramaId":22,"dramaTitle":"短剧乙"}]}]},"message":"ok"}"#
             } else {
                 let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
                 json = body?["page"] == 1
@@ -27,6 +27,10 @@ final class HomeFeedTests: XCTestCase {
         XCTAssertEqual(feed.banners.map(\.drama.title), ["推荐剧"])
         XCTAssertEqual(feed.banners.first?.imageURL?.absoluteString, "https://example.invalid/banner.jpg")
         XCTAssertEqual(feed.shelves.map(\.title), ["专题甲", "专题乙"])
+        XCTAssertEqual(feed.moments.map(\.id), ["41", "42", "43"])
+        XCTAssertEqual(feed.moments.first?.drama.rootDramaID, 40)
+        XCTAssertEqual(feed.moments.first?.landscapeURL?.absoluteString, "https://example.invalid/landscape.jpg")
+        XCTAssertEqual(feed.moments.first?.subtitle, "看到第4集")
         XCTAssertEqual(feed.shelves.first?.dramas.first?.displayTags, "都市")
         XCTAssertEqual(feed.hotDramas.map(\.id), ["31"])
         XCTAssertEqual(feed.hotDramas.first?.summary, "剧情简介")
@@ -55,6 +59,7 @@ final class HomeFeedTests: XCTestCase {
 
         await feed.reload()
         XCTAssertNotNil(feed.homeErrorMessage)
+        XCTAssertTrue(feed.moments.isEmpty)
         XCTAssertNil(feed.hotErrorMessage)
         XCTAssertEqual(feed.hotDramas.map(\.id), ["143"])
         XCTAssertEqual(feed.hotDramas.first?.displayTags, "年代 · 脑洞 · 玄幻")

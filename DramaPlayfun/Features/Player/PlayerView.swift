@@ -14,6 +14,9 @@ struct PlayerView: View {
     @State private var unlockError: String?
     @State private var isUnlocking = false
     @State private var showMembership = false
+    @State private var feedbackEpisode: Episode?
+    @State private var isSubmittingFeedback = false
+    @State private var feedbackSubmitted = false
     @State private var controlVisible = false
     @State private var rate: Float = 1
     @State private var optionsKind: PlayerOptionsKind?
@@ -169,9 +172,22 @@ struct PlayerView: View {
             set: { if !$0 { unlockError = nil } })) {
             Button("知道了", role: .cancel) { unlockError = nil }
         } message: { Text(unlockError ?? "") }
+        .confirmationDialog("剧集反馈", isPresented: Binding(get: { feedbackEpisode != nil },
+            set: { if !$0 { feedbackEpisode = nil } }), titleVisibility: .visible) {
+            if let episode = feedbackEpisode {
+                ForEach([("播放异常", "playback_abnormal"), ("内容低俗", "vulgar"),
+                         ("侵权", "infringement"), ("其他", "other")], id: \.1) { title, code in
+                    Button(title) { Task { await submitFeedback(episode, categoryCode: code) } }
+                }
+            }
+            Button("取消", role: .cancel) { feedbackEpisode = nil }
+        }
+        .alert("反馈已提交", isPresented: $feedbackSubmitted) {
+            Button("知道了", role: .cancel) { }
+        } message: { Text("感谢你的反馈，我们会尽快处理。") }
     }
 
-    private var isVisible: Bool { scenePhase == .active && !showEpisodes && optionsKind == nil && shareItem == nil && !isUnlocking && pendingUnlock == nil && !showMembership }
+    private var isVisible: Bool { scenePhase == .active && !showEpisodes && optionsKind == nil && shareItem == nil && !isUnlocking && pendingUnlock == nil && !showMembership && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
     private var currentItem: TheaterFeedItem? { store.items.first(where: { $0.id == selectedID }) }
     private var mediaItem: AVPlayerItem? { playback.player(for: selectedID ?? "")?.currentItem }
     private var mediaItemID: ObjectIdentifier? { mediaItem.map(ObjectIdentifier.init) }
@@ -195,13 +211,12 @@ struct PlayerView: View {
                 .accessibilityValue(options(for: .subtitles).first(where: { $0.id == selectedSubtitleID })?.title ?? "")
             }
             Menu {
-                Button("选集") { showEpisodes = true }
-                Button("分享") { shareItem = currentItem }
-                Button("重新加载") { attempt += 1 }
+                Button("反馈") { feedbackEpisode = currentItem?.firstEpisode }
+                    .disabled(currentItem?.firstEpisode == nil || isSubmittingFeedback)
             } label: {
                 Image("PlayerMore").resizable().scaledToFit().frame(width: 24, height: 24)
                     .frame(width: 44, height: 44)
-            }.accessibilityLabel("更多")
+            }.accessibilityLabel("更多").accessibilityIdentifier("player-more")
         }.padding(.horizontal, 8)
     }
 
@@ -260,6 +275,17 @@ struct PlayerView: View {
     private func retry(_ item: TheaterFeedItem) {
         if item.firstEpisode?.requiresCoinUnlock == true { pendingUnlock = item.firstEpisode }
         else { playback.reset(); updatePlayback() }
+    }
+
+    private func submitFeedback(_ episode: Episode, categoryCode: String) async {
+        guard !isSubmittingFeedback else { return }
+        isSubmittingFeedback = true
+        feedbackEpisode = nil
+        defer { isSubmittingFeedback = false }
+        do {
+            try await store.reportFeedback(episode, categoryCode: categoryCode)
+            feedbackSubmitted = true
+        } catch { unlockError = error.localizedDescription }
     }
 
     private func unlock(_ episode: Episode) async {

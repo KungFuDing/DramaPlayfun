@@ -121,4 +121,10 @@ final class DramaPlaybackStore {
         guard let item = items.first(where: { $0.firstEpisode?.id == episode.id }),
               item.videoURL != nil, item.firstEpisode?.requiresCoinUnlock == false else { throw CatalogError.episodeLocked }
     }
+
+    func reportFeedback(_ episode: Episode, categoryCode: String) async throws {
+        guard let episodeID = Int64(episode.id) else { throw CatalogError.notFound }
+        _ = try await network.request(AppAPI.v1ClientDramaEpisodeFeedback,
+            body: .init(episodeId: episodeID, categoryCode: categoryCode), unwrapEnvelope: true)
+    }
 }

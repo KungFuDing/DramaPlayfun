@@ -387,13 +387,117 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertTrue(app.buttons["episode-selection-80"].exists)
         app.buttons["episode-range-1"].tap()
         app.buttons["episode-selection-17"].tap()
-        XCTAssertTrue(app.alerts["解锁本集"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.alerts.buttons["花10金币解锁"].exists)
-        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(app.otherElements["player-unlock-dialog"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["player-unlock-coins"].exists)
+        XCTAssertTrue(app.buttons["player-unlock-vip"].exists)
+        app.buttons["player-unlock-close"].tap()
         XCTAssertTrue(panel.exists)
         app.buttons["关闭选集"].tap()
         XCTAssertFalse(panel.exists)
         XCTAssertTrue(app.scrollViews["player-episode-feed"].exists)
+    }
+
+    @MainActor
+    func testSwipingToPaidEpisodeShowsUnlockDialogAndOpensMembership() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-FeedUITestFixture"]
+        app.launch()
+        let banner = app.buttons["推荐剧集，推荐测试"]
+        XCTAssertTrue(banner.waitForExistence(timeout: 10))
+        banner.tap()
+        app.buttons["player-episodes"].tap()
+        app.buttons["episode-selection-5"].tap()
+        let feed = app.scrollViews["player-episode-feed"]
+        expectation(for: NSPredicate(format: "value == %@", "第5集"), evaluatedWith: feed)
+        waitForExpectations(timeout: 5)
+        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.75))
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.2))
+        let dialog = app.otherElements["player-unlock-dialog"]
+        bottom.press(forDuration: 0.05, thenDragTo: top)
+        XCTAssertTrue(dialog.waitForExistence(timeout: 5), "滑到未解锁付费集时应自动显示弹窗")
+        XCTAssertTrue(app.staticTexts["本集需要解锁"].exists)
+        XCTAssertTrue(app.buttons["player-unlock-coins"].isHittable)
+        XCTAssertTrue(app.buttons["player-unlock-vip"].isHittable)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "滑到付费集自动显示解锁弹窗"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.buttons["player-unlock-close"].tap()
+        XCTAssertFalse(dialog.exists)
+        XCTAssertEqual(feed.value as? String, "第6集")
+        top.press(forDuration: 0.05, thenDragTo: bottom)
+        XCTAssertEqual(feed.value as? String, "第5集")
+        XCTAssertFalse(dialog.exists, "免费集不应弹出解锁弹窗")
+        bottom.press(forDuration: 0.05, thenDragTo: top)
+        XCTAssertTrue(dialog.waitForExistence(timeout: 5), "重新滑入未解锁付费集时应再次弹出")
+        app.buttons["player-unlock-vip"].tap()
+        XCTAssertTrue(app.navigationBars["会员"].waitForExistence(timeout: 5))
+        app.buttons["完成"].tap()
+        XCTAssertTrue(dialog.waitForExistence(timeout: 5))
+        app.buttons["player-unlock-coins"].tap()
+        let error = app.alerts["操作失败"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        error.buttons["知道了"].tap()
+        XCTAssertTrue(dialog.exists, "解锁失败后应保留弹窗供用户重试")
+        app.buttons["player-unlock-close"].tap()
+        XCTAssertEqual(feed.value as? String, "第6集", "浏览会员页不会直接授予付费集权限")
+    }
+
+    @MainActor
+    func testPlayerQualityAndSpeedSheetsRememberSelections() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-FeedUITestFixture"]
+        app.launch()
+        let banner = app.buttons["推荐剧集，推荐测试"]
+        XCTAssertTrue(banner.waitForExistence(timeout: 10))
+        banner.tap()
+        XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["player-subtitles"].exists, "片源没有字幕轨道时隐藏字幕入口")
+
+        let quality = app.buttons["player-quality"]
+        quality.tap()
+        let qualityPanel = app.otherElements["player-quality-panel"]
+        XCTAssertTrue(qualityPanel.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["player-quality-0"].isSelected)
+        XCTAssertTrue(app.buttons["player-quality-480"].exists)
+        XCTAssertTrue(app.buttons["player-quality-720"].exists)
+        let vip = app.buttons["player-quality-1080"]
+        XCTAssertEqual(vip.value as? String, "会员专享")
+        vip.tap()
+        XCTAssertFalse(qualityPanel.exists)
+        XCTAssertEqual(quality.value as? String, "1080P")
+        XCTAssertFalse(app.navigationBars["会员"].exists, "1080P 暂不校验会员权限")
+        quality.tap()
+        XCTAssertTrue(vip.isSelected)
+        let selectedQuality = XCTAttachment(screenshot: app.screenshot())
+        selectedQuality.name = "1080P 选中及黑色皇冠"
+        selectedQuality.lifetime = .keepAlways
+        add(selectedQuality)
+        app.buttons["player-quality-720"].tap()
+        quality.tap()
+        XCTAssertTrue(app.buttons["player-quality-720"].isSelected)
+        XCTAssertFalse(vip.isSelected)
+        let normalQuality = XCTAttachment(screenshot: app.screenshot())
+        normalQuality.name = "720P 选中及金色皇冠"
+        normalQuality.lifetime = .keepAlways
+        add(normalQuality)
+        app.buttons["player-options-close"].tap()
+
+        let speed = app.buttons["player-speed"]
+        speed.tap()
+        let speedPanel = app.otherElements["player-speed-panel"]
+        XCTAssertTrue(speedPanel.waitForExistence(timeout: 5))
+        for value in ["0.75", "1", "1.5", "2", "3"] {
+            XCTAssertTrue(app.buttons["player-speed-\(value)"].exists)
+        }
+        XCTAssertTrue(app.buttons["player-speed-1"].isSelected)
+        app.buttons["player-speed-3"].tap()
+        XCTAssertFalse(speedPanel.exists)
+        XCTAssertEqual(speed.value as? String, "3x")
+        speed.tap()
+        XCTAssertTrue(app.buttons["player-speed-3"].isSelected)
+        app.buttons["player-options-close"].tap()
+        XCTAssertFalse(speedPanel.exists)
     }
 
     @MainActor

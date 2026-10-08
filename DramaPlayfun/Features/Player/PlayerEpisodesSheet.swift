@@ -76,7 +76,7 @@ struct PlayerEpisodesSheet: View {
                 }.accessibilityLabel("关闭选集")
             }.padding(.top, 4).padding(.trailing, 6)
         }
-        .clipShape(EpisodePanelShape())
+        .clipShape(PlayerBottomPanelShape())
         .overlay(alignment: .top) {
             Capsule().fill(Color(white: 0.56)).frame(width: 43, height: 6)
                 .padding(.top, 2).frame(width: 76, height: 20, alignment: .top)
@@ -185,27 +185,5 @@ private struct EpisodeSelectionCell: View {
         .accessibilityValue(isSelected ? "正在播放" : episode.requiresCoinUnlock ? "需\(episode.unlockCoin)金币解锁" : watched ? "已观看" : episode.unlockCoin > 0 && episode.isUnlocked ? "已解锁" : "可播放")
         .accessibilityIdentifier("episode-selection-\(episode.number)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
-private struct EpisodePanelShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let radius: CGFloat = 16
-        let mid = rect.midX
-        var path = Path()
-        path.move(to: CGPoint(x: 0, y: radius))
-        path.addQuadCurve(to: CGPoint(x: radius, y: 0), control: .zero)
-        path.addLine(to: CGPoint(x: mid - 38, y: 0))
-        path.addQuadCurve(to: CGPoint(x: mid - 32, y: 6), control: CGPoint(x: mid - 32, y: 0))
-        path.addQuadCurve(to: CGPoint(x: mid - 26, y: 12), control: CGPoint(x: mid - 32, y: 12))
-        path.addLine(to: CGPoint(x: mid + 26, y: 12))
-        path.addQuadCurve(to: CGPoint(x: mid + 32, y: 6), control: CGPoint(x: mid + 32, y: 12))
-        path.addQuadCurve(to: CGPoint(x: mid + 38, y: 0), control: CGPoint(x: mid + 32, y: 0))
-        path.addLine(to: CGPoint(x: rect.maxX - radius, y: 0))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: radius), control: CGPoint(x: rect.maxX, y: 0))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: 0, y: rect.maxY))
-        path.closeSubpath()
-        return path
     }
 }

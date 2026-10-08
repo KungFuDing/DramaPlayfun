@@ -13,9 +13,15 @@ struct PlayerView: View {
     @State private var pendingUnlock: Episode?
     @State private var unlockError: String?
     @State private var isUnlocking = false
+    @State private var showMembership = false
     @State private var controlVisible = false
     @State private var rate: Float = 1
-    @State private var subtitlesEnabled = false
+    @State private var optionsKind: PlayerOptionsKind?
+    @State private var subtitleGroup: AVMediaSelectionGroup?
+    @State private var subtitleItemID: ObjectIdentifier?
+    @State private var selectedSubtitleID: String?
+    @State private var preferredSubtitleLanguage: String?
+    @State private var isLoadingSubtitles = false
     @State private var quality: Double = 0
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -75,7 +81,7 @@ struct PlayerView: View {
                     }
                     }
                 }
-                if controlVisible && !playback.isPaused && !playback.hasEnded {
+                if controlVisible && isVisible && !playback.isPaused && !playback.hasEnded {
                     Button { playback.toggle() } label: {
                         ZStack {
                             Image("PlayerPauseBackground").resizable().scaledToFit()
@@ -103,13 +109,18 @@ struct PlayerView: View {
             await store.load()
             selectedID = store.initialID(request: request)
             isReady = true
+            presentUnlockIfNeeded()
             updatePlayback()
         }
-        .onChange(of: selectedID) { _, _ in updatePlayback() }
+        .onChange(of: selectedID) { _, _ in
+            presentUnlockIfNeeded()
+            updatePlayback()
+        }
         .onChange(of: isVisible) { _, _ in updatePlayback() }
         .onChange(of: playback.states[selectedID ?? ""]) { _, state in
             if state == .ready { applyMediaOptions() }
         }
+        .task(id: mediaItemID) { await loadSubtitleOptions() }
         .onChange(of: playback.hasEnded) { _, ended in
             guard ended, isVisible, let index = store.items.firstIndex(where: { $0.id == selectedID }),
                   store.items.indices.contains(index + 1) else { return }
@@ -117,6 +128,11 @@ struct PlayerView: View {
         }
         .onDisappear { playback.reset() }
         .overlay {
+            if let kind = optionsKind {
+                PlayerOptionsSheet(kind: kind, options: options(for: kind), selectedID: selectedOptionID(for: kind),
+                    isLoading: kind == .subtitles && isLoadingSubtitles,
+                    onClose: { optionsKind = nil }, onSelect: { selectOption($0, kind: kind) })
+            }
             if showEpisodes {
                 PlayerEpisodesSheet(drama: currentItem?.drama ?? request.drama,
                     episodes: store.items.compactMap(\.firstEpisode), selectedID: currentItem?.firstEpisode?.id,
@@ -126,24 +142,42 @@ struct PlayerView: View {
                     })
             }
         }
-        .fullScreenCover(item: $shareItem) { DramaShareView(item: $0) }
-        .alert("解锁本集", isPresented: Binding(get: { pendingUnlock != nil },
-            set: { if !$0 { pendingUnlock = nil } })) {
-            Button("花\(pendingUnlock?.unlockCoin ?? 0)金币解锁") {
-                guard let episode = pendingUnlock else { return }
-                pendingUnlock = nil
-                Task { await unlock(episode) }
+        .blur(radius: pendingUnlock == nil ? 0 : 8)
+        .allowsHitTesting(pendingUnlock == nil)
+        .accessibilityHidden(pendingUnlock != nil)
+        .overlay {
+            if let episode = pendingUnlock {
+                PlayerUnlockDialog(episode: episode, isUnlocking: isUnlocking,
+                    onClose: { pendingUnlock = nil },
+                    onUnlock: { Task { await unlock(episode) } },
+                    onMembership: { showMembership = true })
             }
-            Button("取消", role: .cancel) { pendingUnlock = nil }
-        } message: { Text("确认后将从钱包扣除金币。") }
+        }
+        .fullScreenCover(item: $shareItem) { DramaShareView(item: $0) }
+        .sheet(isPresented: $showMembership, onDismiss: {
+            Task { await refreshAfterMembership() }
+        }) {
+            NavigationStack {
+                MembershipView().toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { showMembership = false }
+                    }
+                }
+            }
+        }
         .alert("操作失败", isPresented: Binding(get: { unlockError != nil },
             set: { if !$0 { unlockError = nil } })) {
             Button("知道了", role: .cancel) { unlockError = nil }
         } message: { Text(unlockError ?? "") }
     }
 
-    private var isVisible: Bool { scenePhase == .active && !showEpisodes && shareItem == nil && !isUnlocking && pendingUnlock == nil }
+    private var isVisible: Bool { scenePhase == .active && !showEpisodes && optionsKind == nil && shareItem == nil && !isUnlocking && pendingUnlock == nil && !showMembership }
     private var currentItem: TheaterFeedItem? { store.items.first(where: { $0.id == selectedID }) }
+    private var mediaItem: AVPlayerItem? { playback.player(for: selectedID ?? "")?.currentItem }
+    private var mediaItemID: ObjectIdentifier? { mediaItem.map(ObjectIdentifier.init) }
+    private var subtitleTracks: [AVMediaSelectionOption] {
+        (subtitleGroup?.options ?? []).filter { $0.mediaType == .subtitle }
+    }
 
     private var header: some View {
         HStack {
@@ -152,13 +186,14 @@ struct PlayerView: View {
                     .frame(width: 44, height: 44)
             }.accessibilityLabel("返回")
             Spacer()
-            Button {
-                subtitlesEnabled.toggle()
-                applyMediaOptions()
-            } label: {
-                Text("字幕").font(.system(size: 15)).padding(.horizontal, 7).padding(.vertical, 4)
-                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(subtitlesEnabled ? Theme.accent : .white.opacity(0.6)))
-            }.accessibilityValue(subtitlesEnabled ? "已开启" : "已关闭")
+            if !subtitleTracks.isEmpty {
+                Button { optionsKind = .subtitles } label: {
+                    Text("字幕").font(.system(size: 15)).padding(.horizontal, 7).padding(.vertical, 4)
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(.white.opacity(0.6)))
+                }
+                .accessibilityIdentifier("player-subtitles")
+                .accessibilityValue(options(for: .subtitles).first(where: { $0.id == selectedSubtitleID })?.title ?? "")
+            }
             Menu {
                 Button("选集") { showEpisodes = true }
                 Button("分享") { shareItem = currentItem }
@@ -180,24 +215,20 @@ struct PlayerView: View {
                 }.padding(10).frame(maxWidth: .infinity)
                     .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
             }.accessibilityIdentifier("player-episodes")
-            Menu {
-                Button("自动") { quality = 0; applyMediaOptions() }
-                Button("720P（最高）") { quality = 720; applyMediaOptions() }
-                Button("1080P（最高）") { quality = 1080; applyMediaOptions() }
-            } label: {
+            Button { optionsKind = .quality } label: {
                 HStack(spacing: 4) {
                     Image("PlayerQuality").resizable().scaledToFit().frame(width: 16, height: 16)
-                    Text(quality == 0 ? "自动" : "\(Int(quality))P")
+                    Text(quality == 0 ? "自动" : String(Int(quality)) + "P")
                 }.padding(10).background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
             }.accessibilityLabel("清晰度")
-            Menu {
-                ForEach([Float(0.75), 1, 1.25, 1.5, 2], id: \.self) { value in
-                    Button("\(value.formatted())x") { rate = value; playback.playbackRate = value }
-                }
-            } label: {
+                .accessibilityIdentifier("player-quality")
+                .accessibilityValue(quality == 0 ? "自动" : String(Int(quality)) + "P")
+            Button { optionsKind = .speed } label: {
                 Text("\(rate.formatted())x").padding(10)
                     .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
             }.accessibilityLabel("播放速度")
+                .accessibilityIdentifier("player-speed")
+                .accessibilityValue("\(rate.formatted())x")
         }.font(.system(size: 14)).padding(.horizontal, 12).padding(.vertical, 10)
             .background(Theme.background)
     }
@@ -207,28 +238,123 @@ struct PlayerView: View {
         if playback.states[selectedID ?? ""] == .ready { applyMediaOptions() }
     }
 
+    private func presentUnlockIfNeeded() {
+        guard isReady else { return }
+        pendingUnlock = currentItem?.firstEpisode.flatMap { $0.requiresCoinUnlock ? $0 : nil }
+        if pendingUnlock != nil { optionsKind = nil }
+    }
+
+    private func refreshAfterMembership() async {
+        await store.load()
+        if let episode = pendingUnlock,
+           let updated = store.items.first(where: { $0.firstEpisode?.id == episode.id })?.firstEpisode,
+           !updated.requiresCoinUnlock {
+            pendingUnlock = nil
+            selectedID = updated.id
+            showEpisodes = false
+        }
+        playback.reset()
+        updatePlayback()
+    }
+
     private func retry(_ item: TheaterFeedItem) {
         if item.firstEpisode?.requiresCoinUnlock == true { pendingUnlock = item.firstEpisode }
         else { playback.reset(); updatePlayback() }
     }
 
     private func unlock(_ episode: Episode) async {
+        guard !isUnlocking else { return }
         isUnlocking = true
         defer { isUnlocking = false; updatePlayback() }
         do {
             try await store.unlock(episode)
             playback.reset()
+            pendingUnlock = nil
             selectedID = episode.id
             showEpisodes = false
         } catch { unlockError = error.localizedDescription }
     }
 
     private func applyMediaOptions() {
-        guard let item = playback.player(for: selectedID ?? "")?.currentItem else { return }
+        guard let item = mediaItem else { return }
         item.preferredMaximumResolution = quality == 0 ? .zero : CGSize(width: quality * 16 / 9, height: quality)
-        Task { @MainActor in
-            guard let group = try? await item.asset.loadMediaSelectionGroup(for: .legible) else { return }
-            item.select(subtitlesEnabled ? group.options.first : nil, in: group)
+        guard subtitleItemID == ObjectIdentifier(item), let group = subtitleGroup,
+              let id = selectedSubtitleID, let index = Int(id), subtitleTracks.indices.contains(index) else { return }
+        item.select(subtitleTracks[index], in: group)
+    }
+
+    private func options(for kind: PlayerOptionsKind) -> [PlayerOption] {
+        switch kind {
+        case .quality:
+            return [PlayerOption(id: "0", title: "自动"), PlayerOption(id: "480", title: "480P"),
+                PlayerOption(id: "720", title: "720P"), PlayerOption(id: "1080", title: "1080P", isVIP: true)]
+        case .speed:
+            return ["0.75", "1", "1.5", "2", "3"].map { PlayerOption(id: $0, title: "\($0)x") }
+        case .subtitles:
+            return subtitleTracks.enumerated().map { index, track in
+                PlayerOption(id: String(index), title: subtitleTitle(track))
+            }
+        }
+    }
+
+    private func selectedOptionID(for kind: PlayerOptionsKind) -> String? {
+        switch kind {
+        case .quality: String(Int(quality))
+        case .speed: rate.formatted(.number.locale(Locale(identifier: "en_US_POSIX")))
+        case .subtitles: selectedSubtitleID
+        }
+    }
+
+    private func selectOption(_ option: PlayerOption, kind: PlayerOptionsKind) {
+        switch kind {
+        case .quality:
+            guard let value = Double(option.id) else { return }
+            quality = value
+        case .speed:
+            guard let value = Float(option.id) else { return }
+            rate = value
+            playback.playbackRate = value
+        case .subtitles:
+            guard let index = Int(option.id), subtitleTracks.indices.contains(index) else { return }
+            selectedSubtitleID = option.id
+            preferredSubtitleLanguage = subtitleLanguage(subtitleTracks[index])
+        }
+        applyMediaOptions()
+        optionsKind = nil
+    }
+
+    private func loadSubtitleOptions() async {
+        subtitleGroup = nil
+        selectedSubtitleID = nil
+        subtitleItemID = nil
+        guard let item = mediaItem else { isLoadingSubtitles = false; return }
+        isLoadingSubtitles = true
+        let group = try? await item.asset.loadMediaSelectionGroup(for: .legible)
+        guard !Task.isCancelled, item === mediaItem else { return }
+        subtitleGroup = group
+        subtitleItemID = ObjectIdentifier(item)
+        if let group {
+            let preferred = subtitleTracks.firstIndex { subtitleLanguage($0) == preferredSubtitleLanguage }
+            let defaultIndex = group.defaultOption.flatMap { subtitleTracks.firstIndex(of: $0) }
+            selectedSubtitleID = (preferred ?? defaultIndex ?? subtitleTracks.indices.first).map(String.init)
+        }
+        if subtitleTracks.isEmpty && optionsKind == .subtitles { optionsKind = nil }
+        isLoadingSubtitles = false
+        applyMediaOptions()
+    }
+
+    private func subtitleLanguage(_ option: AVMediaSelectionOption) -> String {
+        option.extendedLanguageTag ?? option.locale?.identifier ?? option.displayName
+    }
+
+    private func subtitleTitle(_ option: AVMediaSelectionOption) -> String {
+        let language = subtitleLanguage(option).lowercased().replacingOccurrences(of: "_", with: "-")
+        switch language.split(separator: "-").first {
+        case "zh": return "中文"
+        case "en": return "English"
+        case "ja": return "にほんご"
+        case "ko": return "한국어"
+        default: return option.displayName
         }
     }
 }

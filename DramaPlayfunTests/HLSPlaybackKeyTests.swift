@@ -16,6 +16,41 @@ final class HLSPlaybackKeyTests: XCTestCase {
     }
 
     @MainActor
+    func testHLSSubtitleTracksAreReadAndSelectedThroughGateway() async throws {
+        let bundle = Bundle(for: Self.self)
+        let url = try XCTUnwrap(bundle.url(forResource: "subtitle-master", withExtension: "m3u8"))
+        let server = try HLSFixtureServer(directory: url.deletingLastPathComponent())
+        let ready = expectation(description: "Subtitle HLS fixture server ready")
+        server.listener.stateUpdateHandler = { state in
+            if case .ready = state { ready.fulfill() }
+        }
+        server.listener.start(queue: server.queue)
+        defer { server.listener.cancel() }
+        await fulfillment(of: [ready], timeout: 5)
+        let port = try XCTUnwrap(server.listener.port)
+        let streamURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port.rawValue)/subtitle-master.m3u8?X-Media-Token=fixture-token"))
+        let asset = try await HLSLocalGateway.shared.asset(remoteURL: streamURL,
+            identity: HLSKeyIdentity(rootDramaID: 107, episodeID: 2531), secret: Data("test-secret".utf8))
+        let loadedGroup = try await asset.loadMediaSelectionGroup(for: .legible)
+        let group = try XCTUnwrap(loadedGroup)
+        XCTAssertEqual(group.options.count, 2, "Only subtitle renditions declared by the m3u8 should appear")
+        XCTAssertTrue(group.options.allSatisfy { $0.mediaType == .subtitle })
+        XCTAssertEqual(Set(group.options.compactMap(\.extendedLanguageTag)), ["zh", "en"])
+        let english = try XCTUnwrap(group.options.first(where: { $0.extendedLanguageTag == "en" }))
+        let item = AVPlayerItem(asset: asset)
+        item.select(english, in: group)
+        XCTAssertEqual(item.currentMediaSelection.selectedMediaOption(in: group), english)
+
+        let noSubtitleURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port.rawValue)/master.m3u8?X-Media-Token=fixture-token"))
+        let noSubtitleAsset = try await HLSLocalGateway.shared.asset(remoteURL: noSubtitleURL,
+            identity: HLSKeyIdentity(rootDramaID: 107, episodeID: 2531), secret: Data("test-secret".utf8))
+        let noSubtitleGroup = try await noSubtitleAsset.loadMediaSelectionGroup(for: .legible)
+        XCTAssertFalse(noSubtitleGroup?.options.contains { $0.mediaType == .subtitle } ?? false,
+            "AVFoundation may expose a default CC entry, but this manifest declares no subtitle files")
+        XCTAssertTrue(server.unauthorizedPaths.isEmpty)
+    }
+
+    @MainActor
     func testEncryptedHLSFixtureUsesTokenHeaderAndLocalKey() async throws {
         let bundle = Bundle(for: Self.self)
         let url = try XCTUnwrap(bundle.url(forResource: "master", withExtension: "m3u8"))
@@ -112,14 +147,17 @@ private final class HLSFixtureServer {
                         .lowercased().contains("x-media-token: fixture-token") == true
                 if !authorized { self.unauthorized.append(name) }
                 self.lock.unlock()
-                let allowed = ["master.m3u8", "index.m3u8", "seg_00000.ts", "seg_00001.ts"]
+                let allowed = ["master.m3u8", "index.m3u8", "seg_00000.ts", "seg_00001.ts",
+                               "subtitle-master.m3u8", "subtitle-zh.m3u8", "subtitle-en.m3u8",
+                               "subtitle-zh.vtt", "subtitle-en.vtt"]
                 let path = String(name.dropFirst()).components(separatedBy: "?")[0]
                 let fixtureName = path.hasSuffix(".ts")
                     ? path.replacingOccurrences(of: ".ts", with: ".mpegts") : path
                 let file = authorized && allowed.contains(path)
                     ? try? Data(contentsOf: self.directory.appendingPathComponent(fixtureName)) : nil
                 let body = file ?? Data()
-                let contentType = name.hasSuffix(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t"
+                let contentType = path.hasSuffix(".m3u8") ? "application/vnd.apple.mpegurl"
+                    : path.hasSuffix(".vtt") ? "text/vtt" : "video/mp2t"
                 let header = "HTTP/1.1 \(!authorized ? "403 Forbidden" : file == nil ? "404 Not Found" : "200 OK")\r\n"
                     + "Content-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
                 connection.send(content: Data(header.utf8) + body,

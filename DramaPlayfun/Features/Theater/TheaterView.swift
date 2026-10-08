@@ -198,7 +198,9 @@ struct TheaterVideoPage: View {
     }
 
     @ViewBuilder private var playbackStatus: some View {
-        if case .unavailable(let error) = playback.states[item.id] {
+        if isDetail && item.firstEpisode?.requiresCoinUnlock == true {
+            EmptyView()
+        } else if case .unavailable(let error) = playback.states[item.id] {
             VStack(spacing: 12) {
                 Image(systemName: "play.slash").font(.largeTitle)
                 Text(error).font(.subheadline).multilineTextAlignment(.center)

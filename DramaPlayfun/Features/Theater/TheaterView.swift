@@ -196,7 +196,7 @@ private struct TheaterVideoPage: View {
 
     private var checkInBanner: some View {
         HStack(spacing: 10) {
-            Image("HomeGift").resizable().scaledToFit().frame(width: 28, height: 28)
+            Image("TheaterCheckInGift").renderingMode(.original).resizable().scaledToFit().frame(width: 28, height: 28)
             Text("今日签到").font(.subheadline)
             Text("+20金币").font(.subheadline.bold()).foregroundStyle(Theme.accent)
             Button("领取") { showCheckIn = true }
@@ -238,9 +238,11 @@ private struct TheaterVideoPage: View {
             }
             Button(action: onEpisodes) {
                 HStack(spacing: 6) {
-                    Image(systemName: "play.rectangle")
+                    Image("TheaterEpisodes").renderingMode(.original)
+                        .resizable().scaledToFit().frame(width: 20, height: 20)
                     Text("更多剧集(第1集/共\(drama.episodeCount)集)").lineLimit(1).minimumScaleFactor(0.75)
-                    Image(systemName: "chevron.right")
+                    Image("TheaterChevron").renderingMode(.original)
+                        .resizable().scaledToFit().frame(width: 16, height: 16)
                 }.font(.subheadline).padding(10)
                     .background(.white.opacity(0.2), in: RoundedRectangle(cornerRadius: 6))
             }.accessibilityLabel("更多剧集，\(drama.title)")
@@ -281,7 +283,8 @@ private struct TheaterVideoPage: View {
                     catch { interactionError = error.localizedDescription }
                 }
             } label: {
-                actionLabel("heart.fill", title: isLiked ? "已赞" : "点赞", color: isLiked ? .red : .white)
+                actionLabel(isLiked ? "TheaterLikeSelected" : "TheaterLike",
+                            title: isLiked ? "已赞" : "点赞")
             }.disabled(app.theaterFeed.likingIDs.contains(item.id))
                 .accessibilityLabel(isLiked ? "取消点赞" : "点赞")
                 .accessibilityIdentifier("theater-like-\(item.id)")
@@ -291,22 +294,23 @@ private struct TheaterVideoPage: View {
                     catch { interactionError = error.localizedDescription }
                 }
             } label: {
-                actionLabel("star.fill", title: item.isFavorited ? "已收藏" : "收藏",
-                            color: item.isFavorited ? Theme.accent : .white)
+                actionLabel(item.isFavorited ? "TheaterFavoriteSelected" : "TheaterFavorite",
+                            title: item.isFavorited ? "已收藏" : "收藏")
             }.disabled(app.theaterFeed.favoritingIDs.contains(item.id))
                 .accessibilityLabel(item.isFavorited ? "取消收藏" : "收藏")
                 .accessibilityIdentifier("theater-favorite-\(item.id)")
             Button(action: onShare) {
-                actionLabel("square.and.arrow.up", title: "分享", color: .white)
+                actionLabel("TheaterShare", title: "分享")
             }.accessibilityIdentifier("theater-share-\(item.id)")
         }
         .frame(width: 48)
         .shadow(color: .black.opacity(0.3), radius: 3, y: 2)
     }
 
-    private func actionLabel(_ symbol: String, title: String, color: Color) -> some View {
+    private func actionLabel(_ asset: String, title: String) -> some View {
         VStack(spacing: 6) {
-            Image(systemName: symbol).font(.system(size: 32)).foregroundStyle(color)
+            Image(asset).renderingMode(.original)
+                .resizable().scaledToFit().frame(width: 32, height: 32)
             Text(title).font(.caption).foregroundStyle(.white.opacity(0.85))
         }.frame(minWidth: 44, minHeight: 54)
     }

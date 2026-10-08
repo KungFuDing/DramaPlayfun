@@ -117,8 +117,8 @@ final class AppContainer {
                 let episodes: [[String: Any]] = (1...(expanded ? 80 : 6)).map { number in
                     let locked = expanded ? number >= 17 : number == 6
                     return ["episodeId": dramaID == 111 && number == 3 ? 1111 : dramaID * 100 + number,
-                            "episodeNo": number, "unlockCoin": locked ? 10 : 0,
-                            "isUnlocked": expanded ? (11...16).contains(number) : !locked,
+                            "episodeNo": number, "unlockCoin": (expanded ? number >= 11 : locked) ? 10 : 0,
+                            "isUnlocked": expanded ? (3...16).contains(number) : !locked,
                             "looked": expanded && number <= 2, "likeCount": number * 10]
                 }
                 response = String(data: try! JSONSerialization.data(withJSONObject:

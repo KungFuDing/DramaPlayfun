@@ -170,12 +170,9 @@ private struct EpisodeSelectionCell: View {
                         Image("EpisodeWatched").resizable().scaledToFit().frame(width: 16, height: 16)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                             .offset(x: 3, y: -3)
-                    } else if episode.requiresCoinUnlock {
-                        Image("EpisodeLocked").resizable().scaledToFit().frame(width: 12, height: 12)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                            .padding(4)
-                    } else if episode.isUnlocked {
-                        Image("EpisodeUnlocked").renderingMode(.original)
+                    }
+                    if episode.unlockCoin > 0 {
+                        Image(episode.isUnlocked ? "EpisodeUnlocked" : "EpisodeLocked").renderingMode(.original)
                             .resizable().scaledToFit().frame(width: 12, height: 12)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                             .padding(4)
@@ -185,7 +182,7 @@ private struct EpisodeSelectionCell: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("第\(episode.number)集")
-        .accessibilityValue(isSelected ? "正在播放" : episode.requiresCoinUnlock ? "需\(episode.unlockCoin)金币解锁" : watched ? "已观看" : episode.isUnlocked ? "已解锁" : "可播放")
+        .accessibilityValue(isSelected ? "正在播放" : episode.requiresCoinUnlock ? "需\(episode.unlockCoin)金币解锁" : watched ? "已观看" : episode.unlockCoin > 0 && episode.isUnlocked ? "已解锁" : "可播放")
         .accessibilityIdentifier("episode-selection-\(episode.number)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

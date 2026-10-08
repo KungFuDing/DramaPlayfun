@@ -369,6 +369,7 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertTrue(panel.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["episode-range-1"].isSelected)
         XCTAssertEqual(app.buttons["episode-selection-2"].value as? String, "已观看")
+        XCTAssertEqual(app.buttons["episode-selection-3"].value as? String, "可播放")
         XCTAssertEqual(app.buttons["episode-selection-11"].value as? String, "已解锁")
         XCTAssertEqual(app.buttons["episode-selection-17"].value as? String, "需10金币解锁")
         app.buttons["episode-selection-3"].tap()

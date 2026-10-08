@@ -281,10 +281,11 @@ private struct HomeBannerCarousel: View {
 }
 
 private struct HomeBannerPage: View {
+    @Environment(AppRouter.self) private var router
     let banner: HomeBanner
 
     var body: some View {
-        NavigationLink(value: AppRoute.drama(banner.drama)) {
+        Button { router.openPlayback(banner.drama) } label: {
             ZStack(alignment: .bottomLeading) {
                 if let imageURL = banner.imageURL {
                     CachedRemoteImage(url: imageURL) { HomeBannerArtwork() }
@@ -404,7 +405,8 @@ private struct HomeDramaShelf: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(dramas) { drama in
-                        DramaCard(drama: drama).frame(width: 142)
+                        DramaCard(drama: drama, onSelect: { router.openPlayback(drama) }).frame(width: 142)
+                            .accessibilityIdentifier("home-shelf-item-\(drama.id)")
                     }
                 }
             }
@@ -445,11 +447,12 @@ private struct HomeWaterfallColumn: View {
 }
 
 private struct HomeWaterfallCard: View {
+    @Environment(AppRouter.self) private var router
     let drama: Drama
     let posterRatio: CGFloat
 
     var body: some View {
-        NavigationLink(value: AppRoute.drama(drama)) {
+        Button { router.openPlayback(drama) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 DramaPoster(drama: drama).aspectRatio(posterRatio, contentMode: .fit)
                 VStack(alignment: .leading, spacing: 7) {
@@ -463,6 +466,7 @@ private struct HomeWaterfallCard: View {
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cornerRadius))
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("home-drama-item-\(drama.id)")
     }
 }
 
@@ -479,7 +483,7 @@ struct ContinueWatchingSection: View {
                     LazyHStack(spacing: 14) {
                         ForEach(history, id: \.dramaID) { progress in
                             if let drama = app.catalog.dramas.first(where: { $0.id == progress.dramaID }) {
-                                NavigationLink(value: AppRoute.drama(drama)) {
+                                Button { router.openPlayback(drama) } label: {
                                     HStack(spacing: 12) {
                                         DramaPoster(drama: drama).frame(width: 74)
                                         VStack(alignment: .leading, spacing: 8) {

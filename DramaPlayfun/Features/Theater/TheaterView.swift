@@ -6,9 +6,7 @@ struct TheaterView: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedID: Drama.ID?
-    @State private var episodeDrama: Drama?
     @State private var shareItem: TheaterFeedItem?
-    @State private var pendingRequest: PlaybackRequest?
     @State private var retryingPlayback = false
 
     var body: some View {
@@ -35,7 +33,7 @@ struct TheaterView: View {
                                     isActive: selectedID == item.id && isTheaterVisible,
                                     topInset: geometry.safeAreaInsets.top,
                                     onRetry: { Task { await retryPlayback() } },
-                                    onEpisodes: { episodeDrama = item.drama },
+                                    onEpisodes: { router.openPlayback(item.drama, episode: item.firstEpisode) },
                                     onShare: { shareItem = item }
                                 )
                                 .frame(width: geometry.size.width, height: geometry.size.height)
@@ -84,33 +82,15 @@ struct TheaterView: View {
         .fullScreenCover(item: $shareItem) { item in
             DramaShareView(item: item)
         }
-        .sheet(item: $episodeDrama, onDismiss: presentSelectedEpisode) { drama in
-            TheaterEpisodesSheet(drama: drama) { episode in
-                pendingRequest = PlaybackRequest(drama: drama, episode: episode)
-                episodeDrama = nil
-            }
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
     }
 
     private var isTheaterVisible: Bool {
-        router.selectedTab == .theater && scenePhase == .active && episodeDrama == nil && shareItem == nil
+        router.selectedTab == .theater && scenePhase == .active && shareItem == nil
             && router.playback == nil && !router.membershipPresented
     }
 
     private var playbackKey: String {
         "\(selectedID ?? "none")|\(isTheaterVisible)|\(app.theaterFeed.items.map(\.id).joined(separator: ","))"
-    }
-
-    private func presentSelectedEpisode() {
-        guard let request = pendingRequest else { return }
-        pendingRequest = nil
-        if request.episode.requiresMembership && !app.membership.isActive {
-            router.membershipPresented = true
-        } else {
-            router.playback = request
-        }
     }
 
     private func retryPlayback() async {
@@ -127,7 +107,7 @@ struct TheaterView: View {
     }
 }
 
-private struct TheaterVideoPage: View {
+struct TheaterVideoPage: View {
     let item: TheaterFeedItem
     let playback: TheaterPlayerPool
     let isActive: Bool
@@ -135,6 +115,9 @@ private struct TheaterVideoPage: View {
     let onRetry: () -> Void
     let onEpisodes: () -> Void
     let onShare: () -> Void
+    var isDetail = false
+    var onLike: (() async throws -> Void)?
+    var onFavorite: (() async throws -> Void)?
     @Environment(AppContainer.self) private var app
     @State private var isExpanded = false
     @State private var summaryHeight: CGFloat = 20
@@ -146,7 +129,8 @@ private struct TheaterVideoPage: View {
 
     init(item: TheaterFeedItem, playback: TheaterPlayerPool, isActive: Bool,
          topInset: CGFloat, onRetry: @escaping () -> Void, onEpisodes: @escaping () -> Void,
-         onShare: @escaping () -> Void) {
+         onShare: @escaping () -> Void, isDetail: Bool = false,
+         onLike: (() async throws -> Void)? = nil, onFavorite: (() async throws -> Void)? = nil) {
         self.item = item
         self.playback = playback
         self.isActive = isActive
@@ -154,6 +138,9 @@ private struct TheaterVideoPage: View {
         self.onRetry = onRetry
         self.onEpisodes = onEpisodes
         self.onShare = onShare
+        self.isDetail = isDetail
+        self.onLike = onLike
+        self.onFavorite = onFavorite
     }
 
     var body: some View {
@@ -171,7 +158,7 @@ private struct TheaterVideoPage: View {
             playbackStatus
 
             VStack {
-                checkInBanner.padding(.top, max(topInset, 54) + 16)
+                if !isDetail { checkInBanner.padding(.top, max(topInset, 54) + 16) }
                 Spacer(minLength: 24)
                 HStack(alignment: .bottom, spacing: 16) {
                     metadata.frame(maxWidth: .infinity, alignment: .leading)
@@ -184,7 +171,7 @@ private struct TheaterVideoPage: View {
         .clipped()
         .foregroundStyle(.white)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("theater-video-\(drama.id)")
+        .accessibilityIdentifier(isDetail ? "player-episode-\(item.firstEpisode?.number ?? 1)" : "theater-video-\(drama.id)")
         .alert("操作失败", isPresented: Binding(get: { interactionError != nil },
             set: { if !$0 { interactionError = nil } })) {
             Button("知道了", role: .cancel) { interactionError = nil }
@@ -223,7 +210,14 @@ private struct TheaterVideoPage: View {
             ProgressView().tint(.white)
         } else if isActive && (playback.isPaused || playback.hasEnded) {
             Button { togglePlayback() } label: {
-                Image(systemName: "play.fill").font(.system(size: 56)).foregroundStyle(.white.opacity(0.85))
+                if isDetail {
+                    ZStack {
+                        Image("PlayerPlayBackground").resizable().scaledToFit()
+                        Image("PlayerPlay").resizable().scaledToFit().frame(width: 28, height: 28)
+                    }.frame(width: 68, height: 68)
+                } else {
+                    Image(systemName: "play.fill").font(.system(size: 56)).foregroundStyle(.white.opacity(0.85))
+                }
             }.accessibilityLabel("播放视频")
         }
     }
@@ -234,22 +228,24 @@ private struct TheaterVideoPage: View {
             HStack(spacing: 6) {
                 tag("共\(drama.episodeCount)集")
                 tag("热度\(drama.heat.formatted())")
-                tag(drama.category.rawValue)
+                tag(drama.tagNames.first ?? drama.category.rawValue)
             }
-            Button(action: onEpisodes) {
-                HStack(spacing: 6) {
-                    Image("TheaterEpisodes").renderingMode(.original)
-                        .resizable().scaledToFit().frame(width: 20, height: 20)
-                    Text("更多剧集(第1集/共\(drama.episodeCount)集)").lineLimit(1).minimumScaleFactor(0.75)
-                    Image("TheaterChevron").renderingMode(.original)
-                        .resizable().scaledToFit().frame(width: 16, height: 16)
-                }.font(.subheadline).padding(10)
-                    .background(.white.opacity(0.2), in: RoundedRectangle(cornerRadius: 6))
-            }.accessibilityLabel("更多剧集，\(drama.title)")
+            if !isDetail {
+                Button(action: onEpisodes) {
+                    HStack(spacing: 6) {
+                        Image("TheaterEpisodes").renderingMode(.original)
+                            .resizable().scaledToFit().frame(width: 20, height: 20)
+                        Text("更多剧集(第1集/共\(drama.episodeCount)集)").lineLimit(1).minimumScaleFactor(0.75)
+                        Image("TheaterChevron").renderingMode(.original)
+                            .resizable().scaledToFit().frame(width: 16, height: 16)
+                    }.font(.subheadline).padding(10)
+                        .background(.white.opacity(0.2), in: RoundedRectangle(cornerRadius: 6))
+                }.accessibilityLabel("更多剧集，\(drama.title)")
+            }
             HStack(alignment: .bottom, spacing: 8) {
                 if isExpanded {
                     ScrollView {
-                        Text("第一集 | \(drama.summary)")
+                        Text("第\(item.firstEpisode?.number ?? 1)集 | \(drama.summary)")
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
@@ -260,7 +256,7 @@ private struct TheaterVideoPage: View {
                     .frame(height: min(max(summaryHeight, 20), 140))
                     .accessibilityIdentifier("theater-summary-scroll")
                 } else {
-                    Text("第一集 | \(drama.summary)").lineLimit(1)
+                    Text("第\(item.firstEpisode?.number ?? 1)集 | \(drama.summary)").lineLimit(1)
                         .accessibilityIdentifier("theater-summary-text")
                 }
                 Button(isExpanded ? "收起" : "展开") { isExpanded.toggle() }
@@ -279,23 +275,29 @@ private struct TheaterVideoPage: View {
         VStack(spacing: 24) {
             Button {
                 Task {
-                    do { try await app.theaterFeed.toggleLike(item.id) }
+                    do {
+                        if let onLike { try await onLike() }
+                        else { try await app.theaterFeed.toggleLike(item.id) }
+                    }
                     catch { interactionError = error.localizedDescription }
                 }
             } label: {
                 actionLabel(isLiked ? "TheaterLikeSelected" : "TheaterLike",
-                            title: isLiked ? "已赞" : "点赞")
+                            title: isDetail ? item.firstEpisodeLikeCount.formatted() : (isLiked ? "已赞" : "点赞"))
             }.disabled(app.theaterFeed.likingIDs.contains(item.id))
                 .accessibilityLabel(isLiked ? "取消点赞" : "点赞")
                 .accessibilityIdentifier("theater-like-\(item.id)")
             Button {
                 Task {
-                    do { try await app.theaterFeed.toggleFavorite(item.id, library: app.library) }
+                    do {
+                        if let onFavorite { try await onFavorite() }
+                        else { try await app.theaterFeed.toggleFavorite(item.id, library: app.library) }
+                    }
                     catch { interactionError = error.localizedDescription }
                 }
             } label: {
                 actionLabel(item.isFavorited ? "TheaterFavoriteSelected" : "TheaterFavorite",
-                            title: item.isFavorited ? "已收藏" : "收藏")
+                            title: isDetail ? (item.favoriteCount ?? drama.heat).formatted() : (item.isFavorited ? "已收藏" : "收藏"))
             }.disabled(app.theaterFeed.favoritingIDs.contains(item.id))
                 .accessibilityLabel(item.isFavorited ? "取消收藏" : "收藏")
                 .accessibilityIdentifier("theater-favorite-\(item.id)")
@@ -325,6 +327,8 @@ private struct TheaterVideoPage: View {
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.25))
                     Capsule().fill(Theme.accent).frame(width: proxy.size.width * fraction)
+                    Circle().fill(Theme.accent).frame(width: 6, height: 6)
+                        .offset(x: max(0, min(proxy.size.width - 6, proxy.size.width * fraction - 3)))
                 }
             }.frame(height: 2)
         }
@@ -337,7 +341,7 @@ private struct TheaterVideoPage: View {
     }
 }
 
-private struct TheaterVideoBackdrop: View {
+struct TheaterVideoBackdrop: View {
     let drama: Drama
 
     var body: some View {
@@ -351,7 +355,7 @@ private struct TheaterVideoBackdrop: View {
     }
 }
 
-private struct TheaterPlayerSurface: UIViewRepresentable {
+struct TheaterPlayerSurface: UIViewRepresentable {
     let player: AVPlayer
 
     func makeUIView(context: Context) -> PlayerSurface {
@@ -367,116 +371,5 @@ private struct TheaterPlayerSurface: UIViewRepresentable {
     final class PlayerSurface: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
         var layerPlayer: AVPlayerLayer { layer as! AVPlayerLayer }
-    }
-}
-
-private struct TheaterEpisodesSheet: View {
-    let drama: Drama
-    let onSelect: (Episode) -> Void
-    @Environment(AppContainer.self) private var app
-    @Environment(\.dismiss) private var dismiss
-    @State private var episodes: [Episode] = []
-    @State private var error: String?
-    @State private var isLoading = true
-    @State private var isUnlocking = false
-    @State private var pendingUnlock: Episode?
-    @State private var unlockError: String?
-    @State private var attempt = 0
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text(drama.title).font(.title3.bold())
-                    Text("共\(drama.episodeCount)集").font(.subheadline).foregroundStyle(.secondary)
-                    if isLoading { ProgressView("加载选集…") }
-                    if isUnlocking { ProgressView("正在解锁…") }
-                    if let error {
-                        Text(error).foregroundStyle(.secondary)
-                        Button("重试") { attempt += 1 }
-                    }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 56))], spacing: 12) {
-                        ForEach(episodes) { episode in
-                            Button {
-                                if episode.requiresCoinUnlock { pendingUnlock = episode }
-                                else { onSelect(episode) }
-                            } label: {
-                                HStack(spacing: 3) {
-                                    Text("\(episode.number)")
-                                    if episode.requiresCoinUnlock {
-                                        Text("\(episode.unlockCoin)币").font(.caption2)
-                                    } else if episode.requiresMembership {
-                                        Image(systemName: "lock.fill").font(.caption2)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, minHeight: 48)
-                                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
-                            }
-                            .disabled(isUnlocking)
-                            .accessibilityLabel("第\(episode.number)集\(episode.requiresCoinUnlock ? "，需\(episode.unlockCoin)金币解锁" : "")")
-                        }
-                    }
-                }.padding()
-            }
-            .screenBackground()
-            .navigationTitle("选集").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
-            .alert("解锁本集", isPresented: Binding(
-                get: { pendingUnlock != nil },
-                set: { if !$0 { pendingUnlock = nil } }
-            )) {
-                Button("花\(pendingUnlock?.unlockCoin ?? 0)金币解锁") {
-                    let episode = pendingUnlock
-                    pendingUnlock = nil
-                    Task { await unlockEpisode(episode) }
-                }
-                Button("取消", role: .cancel) { pendingUnlock = nil }
-            } message: {
-                Text("确认后将从钱包扣除金币。")
-            }
-            .alert("解锁失败", isPresented: Binding(
-                get: { unlockError != nil },
-                set: { if !$0 { unlockError = nil } }
-            )) {
-                Button("知道了", role: .cancel) { unlockError = nil }
-            } message: {
-                Text(unlockError ?? "请稍后重试。")
-            }
-            .task(id: attempt) {
-                isLoading = true
-                error = nil
-                defer { isLoading = false }
-                do { episodes = try await app.repository.fetchEpisodes(dramaID: drama.id) }
-                catch is CancellationError { }
-                catch { self.error = error.localizedDescription }
-            }
-        }
-    }
-
-    private func unlockEpisode(_ episode: Episode?) async {
-        guard let episode,
-              let dramaID = Int64(drama.id), let episodeID = Int64(episode.id) else {
-            unlockError = "剧集信息无效。"
-            return
-        }
-        isUnlocking = true
-        defer { isUnlocking = false }
-        do {
-            let result = try await app.network.request(AppAPI.v1DramaEpisodeUnlock,
-                body: .init(dramaId: dramaID, episodeId: episodeID), unwrapEnvelope: true)
-            guard result.canWatch == true || result.unlocked == true else {
-                throw CatalogError.episodeLocked
-            }
-            episodes = try await app.repository.fetchEpisodes(dramaID: drama.id)
-            guard let unlocked = episodes.first(where: { $0.id == episode.id }),
-                  !unlocked.requiresCoinUnlock else { throw CatalogError.episodeLocked }
-            onSelect(unlocked)
-        } catch {
-            unlockError = error.localizedDescription
-        }
     }
 }

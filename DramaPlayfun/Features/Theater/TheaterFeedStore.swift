@@ -9,7 +9,10 @@ struct TheaterFeedItem: Identifiable {
     var isFirstEpisodeLiked: Bool
     var isFavorited: Bool
 
-    var id: Drama.ID { drama.id }
+    var playbackID: String? = nil
+    var favoriteCount: Int? = nil
+
+    var id: String { playbackID ?? drama.id }
     var keyIdentity: HLSKeyIdentity? {
         guard let firstEpisode else { return nil }
         return HLSKeyIdentity(drama: drama, episode: firstEpisode)

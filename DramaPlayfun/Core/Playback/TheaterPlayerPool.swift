@@ -7,7 +7,7 @@ enum TheaterPlaybackState: Equatable {
     case unavailable(String)
 }
 
-/// Owns at most three players: the selected first episode and its immediate neighbors.
+/// Owns at most three players: the selected video and its immediate neighbors.
 @MainActor @Observable
 final class TheaterPlayerPool {
     private(set) var players: [TheaterFeedItem.ID: AVPlayer] = [:]
@@ -25,11 +25,16 @@ final class TheaterPlayerPool {
     @ObservationIgnored private var secondNextID: TheaterFeedItem.ID?
     @ObservationIgnored private var visible = false
     @ObservationIgnored private var items: [TheaterFeedItem] = []
+    var playbackRate: Float = 1 {
+        didSet { if visible && !isPaused && !hasEnded { players[currentID ?? ""]?.rate = playbackRate } }
+    }
+    private let resumesProgress: Bool
     private let library: LibraryStore
     private let cache: HLSOfflineCache
     private let progressReporter: TheaterProgressReporter?
 
-    init(library: LibraryStore, cache: HLSOfflineCache, progressReporter: TheaterProgressReporter? = nil) {
+    init(library: LibraryStore, cache: HLSOfflineCache, progressReporter: TheaterProgressReporter? = nil, resumesProgress: Bool = false) {
+        self.resumesProgress = resumesProgress
         self.library = library
         self.cache = cache
         self.progressReporter = progressReporter
@@ -88,10 +93,10 @@ final class TheaterPlayerPool {
             player.seek(to: .zero)
             hasEnded = false
             isPaused = false
-            player.play()
+            player.playImmediately(atRate: playbackRate)
         } else if isPaused {
             isPaused = false
-            player.play()
+            player.playImmediately(atRate: playbackRate)
         } else {
             isPaused = true
             player.pause()
@@ -107,7 +112,7 @@ final class TheaterPlayerPool {
         players[id] = player
         states[id] = .preparing
         guard let url = item.videoURL else {
-            states[id] = .unavailable("此剧暂无第一集播放资源。")
+            states[id] = .unavailable("本集暂未提供播放资源或尚未解锁。")
             return
         }
         guard let identity = item.keyIdentity else {
@@ -134,13 +139,21 @@ final class TheaterPlayerPool {
                 }
                 try Task.checkCancellation()
                 guard players[id] === player else { return }
+                if resumesProgress, let progress = library.progress[item.drama.id],
+                   progress.episodeID == item.firstEpisode?.id, progress.fraction < 0.98 {
+                    await player.seek(to: CMTime(seconds: progress.seconds, preferredTimescale: 600))
+                    try Task.checkCancellation()
+                    guard players[id] === player else { return }
+                }
                 states[id] = .ready
                 observePlayback(of: playerItem, id: id)
                 if currentID == id {
                     if visible { playCurrentIfReady() }
                 } else {
                     _ = await player.preroll(atRate: 1)
-                    player.pause()
+                    guard !Task.isCancelled, prepareVersions[id] == version, players[id] === player else { return }
+                    if currentID == id && visible { playCurrentIfReady() }
+                    else { player.pause() }
                 }
             } catch is CancellationError {
             } catch {
@@ -173,7 +186,7 @@ final class TheaterPlayerPool {
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             try AVAudioSession.sharedInstance().setActive(true)
-            player.play()
+            player.playImmediately(atRate: playbackRate)
             if let item = items.first(where: { $0.id == currentID }),
                let episodeID = item.firstEpisode?.id,
                let asset = player.currentItem?.asset as? AVURLAsset {
@@ -256,7 +269,7 @@ final class TheaterPlayerPool {
               let duration = player.currentItem?.duration.seconds, duration.isFinite, duration > 0 else { return }
         let seconds = player.currentTime().seconds
         guard seconds.isFinite else { return }
-        let progress = WatchProgress(dramaID: currentID, episodeID: episode.id,
+        let progress = WatchProgress(dramaID: item.drama.id, episodeID: episode.id,
                                      episodeNumber: episode.number, seconds: seconds,
                                      duration: duration, updatedAt: Date())
         library.save(progress)

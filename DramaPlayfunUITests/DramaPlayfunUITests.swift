@@ -183,10 +183,11 @@ final class DramaPlayfunUITests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
         second.tap()
+        XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))
+        app.buttons["player-episodes"].tap()
         XCTAssertTrue(app.navigationBars["选集"].waitForExistence(timeout: 5))
         app.buttons["第1集"].tap()
-        XCTAssertTrue(app.buttons["关闭播放"].waitForExistence(timeout: 5))
-        app.buttons["关闭播放"].tap()
+        app.buttons["返回"].tap()
         end.press(forDuration: 0.05, thenDragTo: start)
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: first)
         waitForExpectations(timeout: 5)
@@ -239,7 +240,10 @@ final class DramaPlayfunUITests: XCTestCase {
         let section = app.otherElements["home-continue-watching"]
         XCTAssertTrue(section.exists)
         app.buttons["history-111"].tap()
-        XCTAssertTrue(app.navigationBars["剧集详情"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))
+        expectation(for: NSPredicate(format: "value == %@", "第3集"), evaluatedWith: app.scrollViews["player-episode-feed"])
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(app.otherElements["player-episode-3"].isHittable)
         XCTAssertTrue(app.staticTexts["历史测试剧"].firstMatch.exists)
         app.terminate()
         app.launchArguments = ["-FeedUITestFixture"]
@@ -279,7 +283,7 @@ final class DramaPlayfunUITests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
         app.buttons["home-moment-51"].tap()
-        XCTAssertTrue(app.navigationBars["剧集详情"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -304,6 +308,48 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertEqual(text.frame.maxY, originalBottom, accuracy: 3)
         page.buttons["收起"].tap()
         XCTAssertEqual(page.staticTexts["theater-summary-text"].frame.height, originalHeight, accuracy: 2)
+    }
+
+    @MainActor
+    func testPlayerPagesThroughDramaAndSelectsEpisode() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-FeedUITestFixture"]
+        app.launch()
+        let banner = app.buttons["推荐剧集，推荐测试"]
+        XCTAssertTrue(banner.waitForExistence(timeout: 10))
+        banner.tap()
+        let feed = app.scrollViews["player-episode-feed"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 5))
+        let first = app.otherElements["player-episode-1"]
+        XCTAssertTrue(first.isHittable)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.7))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.2))
+        start.press(forDuration: 0.05, thenDragTo: end)
+        expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: app.otherElements["player-episode-2"])
+        waitForExpectations(timeout: 5)
+        app.buttons["player-episodes"].tap()
+        XCTAssertTrue(app.navigationBars["选集"].waitForExistence(timeout: 5))
+        app.buttons["第5集"].tap()
+        expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: app.otherElements["player-episode-5"])
+        waitForExpectations(timeout: 5)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "播放详情页第5集"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.buttons["返回"].tap()
+        XCTAssertTrue(banner.waitForExistence(timeout: 5))
+        let shelf = app.buttons["home-shelf-item-31"]
+        for _ in 0..<5 where !shelf.isHittable { start.press(forDuration: 0.05, thenDragTo: end) }
+        XCTAssertTrue(shelf.isHittable)
+        shelf.tap()
+        XCTAssertTrue(feed.waitForExistence(timeout: 5))
+        app.buttons["返回"].tap()
+        let hot = app.buttons["home-drama-item-32"]
+        for _ in 0..<5 where !hot.isHittable { start.press(forDuration: 0.05, thenDragTo: end) }
+        XCTAssertTrue(hot.isHittable)
+        hot.tap()
+        XCTAssertTrue(feed.waitForExistence(timeout: 5))
+        app.buttons["返回"].tap()
     }
 
     @MainActor

@@ -111,7 +111,15 @@ final class AppContainer {
             case "/mobile/v2/client/list":
                 response = #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":101,"rootDramaId":101,"dramaTitle":"剧场测试甲","tagNames":["剧情","古装","甜宠"],"dramaDesc":"这是剧场测试简介，展开后应按文字高度向上显示，不在底部预留空白。","episodePassed":12,"episodes":[{"episodeId":1001,"episodeNo":1,"videoUrl":"https://example.invalid/first.m3u8"}]},{"dramaId":102,"rootDramaId":102,"dramaTitle":"剧场测试乙","episodePassed":24,"episodes":[{"episodeId":1002,"episodeNo":1,"videoUrl":"https://example.invalid/second.m3u8"}]},{"dramaId":103,"rootDramaId":103,"dramaTitle":"剧场测试丙","episodePassed":36,"episodes":[{"episodeId":1003,"episodeNo":1,"videoUrl":"https://example.invalid/third.m3u8"}]}]}}"#
             case "/mobile/v1/client/drama/episode/list":
-                response = #"{"code":200,"data":{"episodes":[{"episodeId":1002,"episodeNo":1,"videoUrl":"https://example.invalid/second.m3u8","unlockCoin":0},{"episodeId":2002,"episodeNo":2,"videoUrl":"https://example.invalid/locked.m3u8","unlockCoin":10}]}}"#
+                let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
+                let dramaID = body?["dramaId"] ?? 101
+                let episodes: [[String: Any]] = (1...6).map { number in
+                    ["episodeId": dramaID == 111 && number == 3 ? 1111 : dramaID * 100 + number,
+                     "episodeNo": number, "unlockCoin": number == 6 ? 10 : 0,
+                     "isUnlocked": number != 6, "likeCount": number * 10]
+                }
+                response = String(data: try! JSONSerialization.data(withJSONObject:
+                    ["code": 200, "data": ["rootDramaId": dramaID, "episodes": episodes]]), encoding: .utf8)!
             default:
                 response = #"{"code":200,"data":{}}"#
             }

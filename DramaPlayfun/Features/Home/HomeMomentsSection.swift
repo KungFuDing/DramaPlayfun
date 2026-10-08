@@ -60,11 +60,12 @@ struct HomeMomentsSection: View {
 }
 
 private struct HomeMomentCard: View {
+    @Environment(AppRouter.self) private var router
     let moment: HomeMoment
     let isLarge: Bool
 
     var body: some View {
-        NavigationLink(value: AppRoute.drama(moment.drama)) {
+        Button { router.openPlayback(moment.drama) } label: {
             ZStack(alignment: .bottomLeading) {
                 CachedRemoteImage(url: isLarge ? moment.drama.coverURL : moment.landscapeURL ?? moment.drama.coverURL) {
                     ZStack {

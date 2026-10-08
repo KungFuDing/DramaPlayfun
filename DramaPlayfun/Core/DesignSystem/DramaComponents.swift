@@ -54,18 +54,28 @@ private struct HomeBadge: View {
 
 struct DramaCard: View {
     let drama: Drama
+    var onSelect: (() -> Void)? = nil
+
     var body: some View {
-        NavigationLink(value: AppRoute.drama(drama)) {
-            VStack(alignment: .leading, spacing: 8) {
-                DramaPoster(drama: drama)
-                Text(drama.title).font(.subheadline).lineLimit(2)
-                if !drama.displayTags.isEmpty || drama.episodeCount > 0 {
-                    Text([drama.displayTags, drama.episodeCount > 0 ? "全\(drama.episodeCount)集" : ""]
-                        .filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+        Group {
+            if let onSelect {
+                Button(action: onSelect) { content }
+            } else {
+                NavigationLink(value: AppRoute.drama(drama)) { content }
             }
         }.buttonStyle(.plain)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DramaPoster(drama: drama)
+            Text(drama.title).font(.subheadline).lineLimit(2)
+            if !drama.displayTags.isEmpty || drama.episodeCount > 0 {
+                Text([drama.displayTags, drama.episodeCount > 0 ? "全\(drama.episodeCount)集" : ""]
+                    .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 }
 

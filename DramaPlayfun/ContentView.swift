@@ -59,8 +59,7 @@ struct ContentView: View {
         .tint(Theme.accent)
         .preferredColorScheme(.dark)
         .fullScreenCover(item: $router.playback) { request in
-            PlayerView(request: request, repository: app.repository, library: app.library,
-                       cache: app.hlsCache)
+            PlayerView(request: request, app: app)
         }
         .sheet(isPresented: $router.membershipPresented) {
             NavigationStack { MembershipView().toolbar {

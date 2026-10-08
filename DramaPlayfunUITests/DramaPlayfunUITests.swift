@@ -531,9 +531,10 @@ final class DramaPlayfunUITests: XCTestCase {
         for _ in 0..<3 where !recommended.isHittable { app.swipeUp() }
         XCTAssertTrue(recommended.isHittable)
         recommended.tap()
-        XCTAssertTrue(app.staticTexts["详情测试202"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.buttons["short-drama-follow"].value as? String, "已追剧")
-        app.buttons["short-drama-back"].tap()
+        XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["drama-detail-title-202"].waitForExistence(timeout: 5))
+        try XCTUnwrap(app.buttons.matching(identifier: "player-back").allElementsBoundByIndex.first(where: \.isHittable)).tap()
+        XCTAssertTrue(app.buttons["short-drama-back"].waitForExistence(timeout: 5))
         app.buttons["short-drama-back"].tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertTrue(app.tabBars.buttons["剧场"].isHittable)
@@ -562,6 +563,14 @@ final class DramaPlayfunUITests: XCTestCase {
         screenshot.name = "短剧详情已追剧"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+        let recommended = app.buttons["short-drama-recommendation-201"]
+        for _ in 0..<3 where !recommended.isHittable { app.swipeUp() }
+        XCTAssertTrue(recommended.isHittable)
+        recommended.tap()
+        XCTAssertTrue(app.buttons["drama-detail-title-201"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.scrollViews["player-episode-feed"].exists)
+        try XCTUnwrap(app.buttons.matching(identifier: "player-back").allElementsBoundByIndex.first(where: \.isHittable)).tap()
+        XCTAssertTrue(app.buttons["short-drama-back"].waitForExistence(timeout: 5))
         app.buttons["short-drama-back"].tap()
         XCTAssertTrue(feed.waitForExistence(timeout: 5))
         XCTAssertEqual(feed.value as? String, "第3集")

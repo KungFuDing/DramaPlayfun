@@ -5,6 +5,7 @@ struct ShortDramaDetailView: View {
     @State private var store: ShortDramaDetailStore
     @State private var scoreIndex = Int.random(in: 0..<5)
     @State private var isExpanded = false
+    @State private var recommendedPlayback: PlaybackRequest?
     @Environment(\.dismiss) private var dismiss
     private let onFavoriteChanged: (Drama.ID, Bool, Int?) -> Void
 
@@ -48,6 +49,9 @@ struct ShortDramaDetailView: View {
         .background(Theme.background.ignoresSafeArea())
         .foregroundStyle(.white)
         .toolbar(.hidden, for: .navigationBar, .tabBar)
+        .fullScreenCover(item: $recommendedPlayback) { request in
+            PlayerView(request: request, app: store.app)
+        }
         .task {
             async let detail: Void = loadDetail()
             async let recommendations: Void = store.loadRecommendations()
@@ -104,8 +108,9 @@ struct ShortDramaDetailView: View {
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 16) {
                         ForEach(store.recommendations) { drama in
-                            NavigationLink {
-                                ShortDramaDetailView(drama: drama, app: store.app, onFavoriteChanged: onFavoriteChanged)
+                            Button {
+                                recommendedPlayback = PlaybackRequest(drama: drama,
+                                    episode: Episode(id: "", number: 1, title: "第1集", requiresMembership: false))
                             } label: {
                                 VStack(alignment: .leading, spacing: 8) {
                                     DramaPoster(drama: drama)

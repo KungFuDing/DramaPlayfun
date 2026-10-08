@@ -218,7 +218,7 @@ struct PlayerView: View {
             Button { playback.suspend(); dismiss() } label: {
                 Image("PlayerBack").resizable().scaledToFit().frame(width: 24, height: 24)
                     .frame(width: 44, height: 44)
-            }.accessibilityLabel("返回")
+            }.accessibilityLabel("返回").accessibilityIdentifier("player-back")
             Spacer()
             if !subtitleTracks.isEmpty {
                 Button { optionsKind = .subtitles } label: {

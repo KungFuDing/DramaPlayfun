@@ -63,7 +63,7 @@ final class DramaPlaybackStore {
                   seen.insert(String(id)).inserted else { return nil }
             let episode = Episode(id: String(id), number: number, title: "第\(number)集",
                 requiresMembership: false, unlockCoin: raw.unlockCoin ?? 0,
-                isUnlocked: raw.isUnlocked ?? false)
+                isUnlocked: raw.isUnlocked ?? false, looked: raw.looked)
             let url = raw.videoUrl.flatMap(URL.init(string:)).flatMap { url -> URL? in
                 url.scheme?.lowercased() == "https" && url.host != nil && !episode.requiresCoinUnlock ? url : nil
             }

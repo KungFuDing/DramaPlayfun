@@ -54,15 +54,17 @@ struct Episode: Identifiable, Hashable, Codable, Sendable {
     let requiresMembership: Bool
     let unlockCoin: Int64
     let isUnlocked: Bool
+    let looked: Bool?
 
     init(id: String, number: Int, title: String, requiresMembership: Bool,
-         unlockCoin: Int64 = 0, isUnlocked: Bool = true) {
+         unlockCoin: Int64 = 0, isUnlocked: Bool = true, looked: Bool? = nil) {
         self.id = id
         self.number = number
         self.title = title
         self.requiresMembership = requiresMembership
         self.unlockCoin = unlockCoin
         self.isUnlocked = isUnlocked
+        self.looked = looked
     }
 
     var requiresCoinUnlock: Bool { unlockCoin > 0 && !isUnlocked }

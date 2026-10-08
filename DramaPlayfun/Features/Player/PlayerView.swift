@@ -116,7 +116,16 @@ struct PlayerView: View {
             selectedID = store.items[index + 1].id
         }
         .onDisappear { playback.reset() }
-        .sheet(isPresented: $showEpisodes) { episodesSheet }
+        .overlay {
+            if showEpisodes {
+                PlayerEpisodesSheet(drama: currentItem?.drama ?? request.drama,
+                    episodes: store.items.compactMap(\.firstEpisode), selectedID: currentItem?.firstEpisode?.id,
+                    onClose: { showEpisodes = false }, onSelect: { episode in
+                        if episode.requiresCoinUnlock { pendingUnlock = episode }
+                        else { selectedID = episode.id; showEpisodes = false }
+                    })
+            }
+        }
         .fullScreenCover(item: $shareItem) { DramaShareView(item: $0) }
         .alert("解锁本集", isPresented: Binding(get: { pendingUnlock != nil },
             set: { if !$0 { pendingUnlock = nil } })) {
@@ -191,36 +200,6 @@ struct PlayerView: View {
             }.accessibilityLabel("播放速度")
         }.font(.system(size: 14)).padding(.horizontal, 12).padding(.vertical, 10)
             .background(Theme.background)
-    }
-
-    private var episodesSheet: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(currentItem?.drama.title ?? request.drama.title).font(.title3.bold())
-                    if isUnlocking { ProgressView("正在解锁…") }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 56))], spacing: 12) {
-                        ForEach(store.items) { item in
-                            if let episode = item.firstEpisode {
-                                Button {
-                                    if episode.requiresCoinUnlock { showEpisodes = false; pendingUnlock = episode }
-                                    else { selectedID = item.id; showEpisodes = false }
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Text("\(episode.number)")
-                                        if episode.requiresCoinUnlock { Text("\(episode.unlockCoin)币").font(.caption2) }
-                                    }.frame(maxWidth: .infinity, minHeight: 48)
-                                        .background(selectedID == item.id ? Theme.accent.opacity(0.3) : Theme.surface,
-                                            in: RoundedRectangle(cornerRadius: 8))
-                                }.disabled(isUnlocking)
-                                    .accessibilityLabel("第\(episode.number)集")
-                            }
-                        }
-                    }
-                }.padding()
-            }.screenBackground().navigationTitle("选集").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showEpisodes = false } } }
-        }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
 
     private func updatePlayback() {

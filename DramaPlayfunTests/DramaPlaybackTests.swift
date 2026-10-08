@@ -44,6 +44,31 @@ final class DramaPlaybackTests: XCTestCase {
         XCTAssertEqual(store.initialID(request: router.playback!), "1001", "Explicit episode selection overrides resume history")
     }
 
+    func testEpisodePageRangesCoverFinalPartialPage() {
+        let episodes = (1...80).map { Episode(id: "\($0)", number: $0, title: "", requiresMembership: false) }
+        let ranges = EpisodePageRange.pages(for: episodes)
+        XCTAssertEqual(ranges.map(\.title), ["1–30", "31–60", "61–80"])
+        XCTAssertTrue(ranges[1].contains(31))
+        XCTAssertFalse(ranges[0].contains(31))
+        XCTAssertTrue(EpisodePageRange.pages(for: []).isEmpty)
+    }
+
+    func testEpisodeUnlockAndWatchedFlagsAreMappedIndependently() {
+        let response = APIModels.V1GetDramaEpisodeListRes(episodes: [
+            .init(episodeId: 1, episodeNo: 1, isUnlocked: false, unlockCoin: 0, looked: true),
+            .init(episodeId: 2, episodeNo: 2, isUnlocked: true, unlockCoin: 0),
+            .init(episodeId: 3, episodeNo: 3, isUnlocked: false, unlockCoin: 10),
+            .init(episodeId: 4, episodeNo: 4, isUnlocked: true, unlockCoin: 10)
+        ])
+        let episodes = DramaPlaybackStore.makeItems(response, fallback: makeDrama()).compactMap(\.firstEpisode)
+        XCTAssertEqual(episodes[0].looked, true)
+        XCTAssertFalse(episodes[0].requiresCoinUnlock)
+        XCTAssertTrue(episodes[1].isUnlocked)
+        XCTAssertFalse(episodes[1].requiresCoinUnlock)
+        XCTAssertTrue(episodes[2].requiresCoinUnlock)
+        XCTAssertFalse(episodes[3].requiresCoinUnlock, "An unlocked episode must not require another payment")
+    }
+
     func testPoolUsesEpisodeIDsForMultipleEpisodesOfTheSameDrama() {
         let drama = makeDrama()
         let items = (1...6).map { number in

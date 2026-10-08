@@ -185,7 +185,7 @@ final class DramaPlayfunUITests: XCTestCase {
         second.tap()
         XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))
         app.buttons["player-episodes"].tap()
-        XCTAssertTrue(app.navigationBars["选集"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.otherElements["player-episodes-panel"].waitForExistence(timeout: 5))
         app.buttons["第1集"].tap()
         app.buttons["返回"].tap()
         end.press(forDuration: 0.05, thenDragTo: start)
@@ -328,7 +328,7 @@ final class DramaPlayfunUITests: XCTestCase {
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: app.otherElements["player-episode-2"])
         waitForExpectations(timeout: 5)
         app.buttons["player-episodes"].tap()
-        XCTAssertTrue(app.navigationBars["选集"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.otherElements["player-episodes-panel"].waitForExistence(timeout: 5))
         app.buttons["第5集"].tap()
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: app.otherElements["player-episode-5"])
         waitForExpectations(timeout: 5)
@@ -350,6 +350,49 @@ final class DramaPlayfunUITests: XCTestCase {
         hot.tap()
         XCTAssertTrue(feed.waitForExistence(timeout: 5))
         app.buttons["返回"].tap()
+    }
+
+    @MainActor
+    func testEpisodeSheetRangesAndUnlockStates() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-FeedUITestFixture", "-EpisodesUITestFixture"]
+        app.launch()
+        let banner = app.buttons["推荐剧集，推荐测试"]
+        XCTAssertTrue(banner.waitForExistence(timeout: 10))
+        banner.tap()
+        app.buttons["player-episodes"].tap()
+        let panel = app.otherElements["player-episodes-panel"]
+        let initialScreenshot = XCTAttachment(screenshot: app.screenshot())
+        initialScreenshot.name = "选集弹窗初始状态"
+        initialScreenshot.lifetime = .keepAlways
+        add(initialScreenshot)
+        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["episode-range-1"].isSelected)
+        XCTAssertEqual(app.buttons["episode-selection-2"].value as? String, "已观看")
+        XCTAssertEqual(app.buttons["episode-selection-11"].value as? String, "已解锁")
+        XCTAssertEqual(app.buttons["episode-selection-17"].value as? String, "需10金币解锁")
+        app.buttons["episode-selection-3"].tap()
+        XCTAssertFalse(panel.exists)
+        app.buttons["player-episodes"].tap()
+        XCTAssertEqual(app.buttons["episode-selection-3"].value as? String, "正在播放")
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = "选集弹窗设计还原"
+        image.lifetime = .keepAlways
+        add(image)
+        app.buttons["episode-range-31"].tap()
+        XCTAssertTrue(app.buttons["episode-selection-31"].exists)
+        XCTAssertFalse(app.buttons["episode-selection-1"].exists)
+        app.buttons["episode-range-61"].tap()
+        XCTAssertTrue(app.buttons["episode-selection-80"].exists)
+        app.buttons["episode-range-1"].tap()
+        app.buttons["episode-selection-17"].tap()
+        XCTAssertTrue(app.alerts["解锁本集"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts.buttons["花10金币解锁"].exists)
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(panel.exists)
+        app.buttons["关闭选集"].tap()
+        XCTAssertFalse(panel.exists)
+        XCTAssertTrue(app.scrollViews["player-episode-feed"].exists)
     }
 
     @MainActor

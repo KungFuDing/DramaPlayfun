@@ -112,6 +112,13 @@ final class DramaPlaybackStore {
         library.setFavorite(drama.id, isFavorite: value)
     }
 
+    func applyFavorite(_ id: Drama.ID, isFavorite: Bool, count: Int?) {
+        for index in items.indices where items[index].drama.id == id {
+            items[index].isFavorited = isFavorite
+            if let count { items[index].favoriteCount = count }
+        }
+    }
+
     func unlock(_ episode: Episode) async throws {
         guard let dramaID = Int64(drama.id), let episodeID = Int64(episode.id) else { throw CatalogError.notFound }
         let response = try await network.request(AppAPI.v1DramaEpisodeUnlock,

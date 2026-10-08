@@ -39,6 +39,10 @@ struct ContentView: View {
                         .navigationDestination(for: AppRoute.self) { route in
                             switch route {
                             case .drama(let drama): DramaDetailView(drama: drama)
+                            case .shortDrama(let drama):
+                                ShortDramaDetailView(drama: drama, app: app) { id, favorite, count in
+                                    app.theaterFeed.applyFavorite(id, isFavorite: favorite, count: count)
+                                }
                             }
                         }
                 }

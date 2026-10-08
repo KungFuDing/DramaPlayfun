@@ -34,7 +34,8 @@ struct TheaterView: View {
                                     topInset: geometry.safeAreaInsets.top,
                                     onRetry: { Task { await retryPlayback() } },
                                     onEpisodes: { router.openPlayback(item.drama, episode: item.firstEpisode) },
-                                    onShare: { shareItem = item }
+                                    onShare: { shareItem = item },
+                                    onDetail: { router.paths[.theater, default: []].append(.shortDrama(item.drama)) }
                                 )
                                 .frame(width: geometry.size.width, height: geometry.size.height)
                                 .id(item.id)
@@ -86,7 +87,7 @@ struct TheaterView: View {
 
     private var isTheaterVisible: Bool {
         router.selectedTab == .theater && scenePhase == .active && shareItem == nil
-            && router.playback == nil && !router.membershipPresented
+            && router.playback == nil && !router.membershipPresented && (router.paths[.theater] ?? []).isEmpty
     }
 
     private var playbackKey: String {
@@ -115,6 +116,7 @@ struct TheaterVideoPage: View {
     let onRetry: () -> Void
     let onEpisodes: () -> Void
     let onShare: () -> Void
+    let onDetail: () -> Void
     var isDetail = false
     var onLike: (() async throws -> Void)?
     var onFavorite: (() async throws -> Void)?
@@ -129,7 +131,7 @@ struct TheaterVideoPage: View {
 
     init(item: TheaterFeedItem, playback: TheaterPlayerPool, isActive: Bool,
          topInset: CGFloat, onRetry: @escaping () -> Void, onEpisodes: @escaping () -> Void,
-         onShare: @escaping () -> Void, isDetail: Bool = false,
+         onShare: @escaping () -> Void, onDetail: @escaping () -> Void, isDetail: Bool = false,
          onLike: (() async throws -> Void)? = nil, onFavorite: (() async throws -> Void)? = nil) {
         self.item = item
         self.playback = playback
@@ -138,6 +140,7 @@ struct TheaterVideoPage: View {
         self.onRetry = onRetry
         self.onEpisodes = onEpisodes
         self.onShare = onShare
+        self.onDetail = onDetail
         self.isDetail = isDetail
         self.onLike = onLike
         self.onFavorite = onFavorite
@@ -226,7 +229,11 @@ struct TheaterVideoPage: View {
 
     private var metadata: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(drama.title).font(.system(size: 18, weight: .semibold)).lineLimit(2)
+            Button(action: onDetail) {
+                Text(drama.title).font(.system(size: 18, weight: .semibold)).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityIdentifier("drama-detail-title-\(drama.id)")
             HStack(spacing: 6) {
                 tag("共\(drama.episodeCount)集")
                 tag("热度\(drama.heat.formatted())")

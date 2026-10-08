@@ -125,6 +125,13 @@ final class TheaterFeedStore {
         library.setFavorite(id, isFavorite: value)
     }
 
+    func applyFavorite(_ id: Drama.ID, isFavorite: Bool, count: Int?) {
+        for index in items.indices where items[index].drama.id == id {
+            items[index].isFavorited = isFavorite
+            if let count { items[index].favoriteCount = count }
+        }
+    }
+
     private static func makeItem(_ raw: APIModels.V2HomeListItem) -> TheaterFeedItem? {
         guard let dramaID = raw.dramaId ?? raw.rootDramaId ?? raw.id.map(Int64.init),
               let title = raw.dramaTitle, !title.isEmpty else { return nil }

@@ -68,6 +68,16 @@ final class AppContainer {
                 response = #"{"code":200,"data":{"accessToken":"ui-test-guest-token"}}"#
             case "/mobile/v1/client/drama/share/text":
                 response = #"{"code":200,"data":{"text":"https://example.invalid/drama/first-episode"}}"#
+            case "/mobile/v1/client/drama/detail":
+                let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
+                let id = body?["dramaId"] ?? 101
+                let summary = String(repeating: "这是详情接口返回的剧情简介，讲述主角重生后改变命运的故事。", count: 8)
+                response = String(data: try! JSONSerialization.data(withJSONObject: ["code": 200, "data": ["drama":
+                    ["dramaId": id, "dramaTitle": "详情测试\(id)", "dramaDesc": summary,
+                     "tagNames": ["剧情", "都市", "甜宠"], "episodePassed": 68,
+                     "isFavorited": id == 202, "favoriteCount": 20]]]), encoding: .utf8)!
+            case "/mobile/v1/client/drama/guess/like":
+                response = #"{"code":200,"data":{"list":[{"dramaId":201,"dramaTitle":"推荐短剧甲","tagNames":["剧情","都市","甜宠"],"badge":"hot"},{"dramaId":202,"dramaTitle":"推荐短剧乙","tagNames":["剧情","都市"],"badge":"new"},{"dramaId":203,"dramaTitle":"推荐短剧丙"}]}}"#
             case "/mobile/v1/client/drama/like":
                 let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Any]
                 let liked = body?["like"] as? Bool ?? false

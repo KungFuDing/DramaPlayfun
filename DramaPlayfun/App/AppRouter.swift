@@ -19,7 +19,7 @@ enum AppTab: String, CaseIterable, Identifiable {
     }
 }
 
-enum AppRoute: Hashable { case drama(Drama) }
+enum AppRoute: Hashable { case drama(Drama), shortDrama(Drama) }
 
 struct PlaybackRequest: Identifiable {
     let drama: Drama

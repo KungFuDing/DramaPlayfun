@@ -8,6 +8,7 @@ struct PlayerView: View {
     @State private var isReady = false
     @State private var selectedID: String?
     @State private var attempt = 0
+    @State private var completedAttempt: Int?
     @State private var showEpisodes = false
     @State private var shareItem: TheaterFeedItem?
     @State private var pendingUnlock: Episode?
@@ -26,6 +27,8 @@ struct PlayerView: View {
     @State private var preferredSubtitleLanguage: String?
     @State private var isLoadingSubtitles = false
     @State private var quality: Double = 0
+    @State private var detailPath: [Drama] = []
+    @Environment(AppContainer.self) private var app
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
@@ -38,6 +41,19 @@ struct PlayerView: View {
     }
 
     var body: some View {
+        NavigationStack(path: $detailPath) {
+            playerContent
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: Drama.self) { drama in
+                    ShortDramaDetailView(drama: drama, app: app) { id, favorite, count in
+                        store.applyFavorite(id, isFavorite: favorite, count: count)
+                        app.theaterFeed.applyFavorite(id, isFavorite: favorite, count: count)
+                    }
+                }
+        }
+    }
+
+    private var playerContent: some View {
         GeometryReader { geometry in
             ZStack {
                 Color.black
@@ -58,7 +74,7 @@ struct PlayerView: View {
                                     isActive: selectedID == item.id && isVisible,
                                     topInset: geometry.safeAreaInsets.top,
                                     onRetry: { retry(item) }, onEpisodes: { showEpisodes = true },
-                                    onShare: { shareItem = item }, isDetail: true,
+                                    onShare: { shareItem = item }, onDetail: { detailPath.append(item.drama) }, isDetail: true,
                                     onLike: { try await store.toggleLike(item.id) },
                                     onFavorite: { try await store.toggleFavorite() })
                                     .overlay {
@@ -107,11 +123,13 @@ struct PlayerView: View {
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .task(id: attempt) {
+            if isReady && completedAttempt == attempt { updatePlayback(); return }
             isReady = false
             playback.reset()
             await store.load()
             selectedID = store.initialID(request: request)
             isReady = true
+            completedAttempt = attempt
             presentUnlockIfNeeded()
             updatePlayback()
         }
@@ -129,7 +147,7 @@ struct PlayerView: View {
                   store.items.indices.contains(index + 1) else { return }
             selectedID = store.items[index + 1].id
         }
-        .onDisappear { playback.reset() }
+        .onDisappear { if detailPath.isEmpty { playback.reset() } else { playback.suspend() } }
         .overlay {
             if let kind = optionsKind {
                 PlayerOptionsSheet(kind: kind, options: options(for: kind), selectedID: selectedOptionID(for: kind),
@@ -187,7 +205,7 @@ struct PlayerView: View {
         } message: { Text("感谢你的反馈，我们会尽快处理。") }
     }
 
-    private var isVisible: Bool { scenePhase == .active && !showEpisodes && optionsKind == nil && shareItem == nil && !isUnlocking && pendingUnlock == nil && !showMembership && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
+    private var isVisible: Bool { detailPath.isEmpty && scenePhase == .active && !showEpisodes && optionsKind == nil && shareItem == nil && !isUnlocking && pendingUnlock == nil && !showMembership && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
     private var currentItem: TheaterFeedItem? { store.items.first(where: { $0.id == selectedID }) }
     private var mediaItem: AVPlayerItem? { playback.player(for: selectedID ?? "")?.currentItem }
     private var mediaItemID: ObjectIdentifier? { mediaItem.map(ObjectIdentifier.init) }

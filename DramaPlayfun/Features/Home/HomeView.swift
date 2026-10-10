@@ -425,8 +425,8 @@ private struct HomeWaterfallGrid: View {
                 .frame(maxWidth: .infinity).padding(.vertical, 36)
         } else {
             HStack(alignment: .top, spacing: 14) {
-                HomeWaterfallColumn(dramas: leftColumn, startsTall: true)
-                HomeWaterfallColumn(dramas: rightColumn, startsTall: false)
+                HomeWaterfallColumn(dramas: leftColumn)
+                HomeWaterfallColumn(dramas: rightColumn)
             }
         }
     }
@@ -434,12 +434,11 @@ private struct HomeWaterfallGrid: View {
 
 private struct HomeWaterfallColumn: View {
     let dramas: [Drama]
-    let startsTall: Bool
 
     var body: some View {
         LazyVStack(spacing: 16) {
-            ForEach(Array(dramas.enumerated()), id: \.element.id) { index, drama in
-                HomeWaterfallCard(drama: drama, posterRatio: (index.isMultiple(of: 2) == startsTall) ? 0.64 : 0.79)
+            ForEach(dramas) { drama in
+                HomeWaterfallCard(drama: drama)
             }
         }
         .frame(maxWidth: .infinity, alignment: .top)
@@ -449,20 +448,21 @@ private struct HomeWaterfallColumn: View {
 private struct HomeWaterfallCard: View {
     @Environment(AppRouter.self) private var router
     let drama: Drama
-    let posterRatio: CGFloat
 
     var body: some View {
         Button { router.openPlayback(drama) } label: {
             VStack(alignment: .leading, spacing: 0) {
-                DramaPoster(drama: drama).aspectRatio(posterRatio, contentMode: .fit)
+                DramaPoster(drama: drama, aspectRatio: 0.77)
                 VStack(alignment: .leading, spacing: 7) {
                     Text(drama.title).font(.subheadline.weight(.medium)).lineLimit(2)
                     if !drama.displayTags.isEmpty {
                         Text(drama.displayTags).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cornerRadius))
         }
         .buttonStyle(.plain)

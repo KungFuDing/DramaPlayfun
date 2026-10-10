@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DramaPoster: View {
     let drama: Drama
+    var aspectRatio: CGFloat = 0.72
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -16,7 +17,7 @@ struct DramaPoster: View {
                 DramaBadge(title: badge)
             }
         }
-        .aspectRatio(0.72, contentMode: .fit)
+        .aspectRatio(aspectRatio, contentMode: .fit)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius))
         .accessibilityHidden(true)

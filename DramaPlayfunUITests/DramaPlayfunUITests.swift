@@ -92,6 +92,35 @@ final class DramaPlayfunUITests: XCTestCase {
     }
 
     @MainActor
+    func testHomeWaterfallKeepsEqualWidthsAndFixedGaps() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-FeedUITestFixture", "-WaterfallUITestFixture"]
+        app.launch()
+        let heading = app.staticTexts["热播剧集"].firstMatch
+        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        for _ in 0..<6 {
+            if heading.isHittable && heading.frame.maxY < 250 { break }
+            bottom.press(forDuration: 0.05, thenDragTo: top)
+        }
+        let cards = (31...34).map { app.buttons["home-drama-item-\($0)"] }
+        for card in cards { XCTAssertTrue(card.waitForExistence(timeout: 5)) }
+        let frames = cards.map(\.frame)
+        for frame in frames { XCTAssertEqual(frame.width, frames[0].width, accuracy: 1) }
+        XCTAssertEqual(frames[1].minX - frames[0].maxX, 14, accuracy: 1)
+        XCTAssertEqual(frames[2].minX, frames[0].minX, accuracy: 1)
+        XCTAssertEqual(frames[3].minX, frames[1].minX, accuracy: 1)
+        XCTAssertEqual(frames[2].minY - frames[0].maxY, 16, accuracy: 1)
+        XCTAssertEqual(frames[3].minY - frames[1].maxY, 16, accuracy: 1)
+        XCTAssertGreaterThan(frames[1].height, frames[0].height,
+            "A wrapped title should change card height without changing its column width or gap")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "热播瀑布流固定间距"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
     func testFeaturedSwipeSelectsLiveAction() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-FeedUITestFixture")

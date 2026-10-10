@@ -1,5 +1,6 @@
 import AVFoundation
 import Observation
+import OSLog
 
 enum TheaterPlaybackState: Equatable {
     case preparing
@@ -15,29 +16,44 @@ final class TheaterPlayerPool {
     private(set) var currentID: TheaterFeedItem.ID?
     private(set) var isPaused = false
     private(set) var hasEnded = false
+    private(set) var isBuffering = false
 
     @ObservationIgnored private var sparePlayers: [AVPlayer] = []
     @ObservationIgnored private var prepareTasks: [TheaterFeedItem.ID: Task<Void, Never>] = [:]
     @ObservationIgnored private var prepareVersions: [TheaterFeedItem.ID: UUID] = [:]
     @ObservationIgnored private var itemObservers: [TheaterFeedItem.ID: [NSObjectProtocol]] = [:]
     @ObservationIgnored private var progressTask: Task<Void, Never>?
-    @ObservationIgnored private var secondNextTask: Task<Void, Never>?
-    @ObservationIgnored private var secondNextID: TheaterFeedItem.ID?
+    @ObservationIgnored private var timeObservers: [TheaterFeedItem.ID: NSKeyValueObservation] = [:]
+    @ObservationIgnored private var audioSessionReady = false
+    @ObservationIgnored private let cacheOwner = UUID()
+    @ObservationIgnored private let logger = Logger(subsystem: "com.video.test.DramaPlayfun.playback", category: "player")
     @ObservationIgnored private var visible = false
     @ObservationIgnored private var items: [TheaterFeedItem] = []
     var playbackRate: Float = 1 {
-        didSet { if visible && !isPaused && !hasEnded { players[currentID ?? ""]?.rate = playbackRate } }
+        didSet {
+            guard oldValue != playbackRate else { return }
+            if let player = players[currentID ?? ""] {
+                configureBuffer(player, isCurrent: true)
+                if visible && !isPaused && !hasEnded { playCurrentIfReady() }
+            }
+        }
     }
     private let resumesProgress: Bool
     private let library: LibraryStore
     private let cache: HLSOfflineCache
     private let progressReporter: TheaterProgressReporter?
+    private let assetLoader: (TheaterFeedItem) async throws -> AVURLAsset
 
-    init(library: LibraryStore, cache: HLSOfflineCache, progressReporter: TheaterProgressReporter? = nil, resumesProgress: Bool = false) {
+    init(library: LibraryStore, cache: HLSOfflineCache, progressReporter: TheaterProgressReporter? = nil,
+         resumesProgress: Bool = false, assetLoader: ((TheaterFeedItem) async throws -> AVURLAsset)? = nil) {
         self.resumesProgress = resumesProgress
         self.library = library
         self.cache = cache
         self.progressReporter = progressReporter
+        self.assetLoader = assetLoader ?? { item in
+            guard let url = item.videoURL, let identity = item.keyIdentity else { throw HLSKeyError.invalidIdentity }
+            return try await cache.asset(for: item.firstEpisode?.id ?? item.id, remoteURL: url, identity: identity)
+        }
     }
 
     var playerCount: Int { players.count + sparePlayers.count }
@@ -50,9 +66,11 @@ final class TheaterPlayerPool {
             saveProgress()
             hasEnded = false
             isPaused = false
+            isBuffering = false
         }
         self.items = items
         self.visible = visible
+        cache.setPlaybackActive(visible, owner: cacheOwner)
         currentID = selectedID
 
         guard let index = items.firstIndex(where: { $0.id == selectedID }) else {
@@ -66,7 +84,7 @@ final class TheaterPlayerPool {
             let item = items[position]
             if players[item.id] == nil { prepare(item) }
         }
-        warmSecondNext(visible && index + 2 < items.count ? items[index + 2] : nil)
+        for (id, player) in players { configureBuffer(player, isCurrent: id == selectedID) }
         if visible { playCurrentIfReady() }
         else { pauseAll() }
     }
@@ -74,7 +92,8 @@ final class TheaterPlayerPool {
     func suspend() {
         visible = false
         pauseAll()
-        warmSecondNext(nil)
+        cache.setPlaybackActive(false, owner: cacheOwner)
+        isBuffering = false
     }
 
     func reset() {
@@ -93,12 +112,13 @@ final class TheaterPlayerPool {
             player.seek(to: .zero)
             hasEnded = false
             isPaused = false
-            player.playImmediately(atRate: playbackRate)
+            playCurrentIfReady()
         } else if isPaused {
             isPaused = false
-            player.playImmediately(atRate: playbackRate)
+            playCurrentIfReady()
         } else {
             isPaused = true
+            isBuffering = false
             player.pause()
             saveProgress()
         }
@@ -109,25 +129,35 @@ final class TheaterPlayerPool {
         let version = UUID()
         prepareVersions[id] = version
         let player = sparePlayers.popLast() ?? AVPlayer()
+        player.automaticallyWaitsToMinimizeStalling = true
         players[id] = player
         states[id] = .preparing
-        guard let url = item.videoURL else {
+        guard item.videoURL != nil else {
             states[id] = .unavailable("本集暂未提供播放资源或尚未解锁。")
             return
         }
-        guard let identity = item.keyIdentity else {
+        guard item.keyIdentity != nil else {
             states[id] = .unavailable(HLSKeyError.invalidIdentity.localizedDescription)
             return
         }
         prepareTasks[id] = Task {
             do {
-                let asset = try await cache.asset(for: item.firstEpisode?.id ?? id,
-                                                  remoteURL: url, identity: identity)
-                guard try await asset.load(.isPlayable) else { throw TheaterPlayerError.unplayable }
+                // Only preload the next episode after the visible one has a healthy buffer.
+                // If this neighbor becomes selected, it immediately gains foreground priority.
+                while !canPrepare(id) {
+                    try await Task.sleep(for: .milliseconds(250))
+                }
                 try Task.checkCancellation()
-                guard players[id] === player else { return }
+                let started = Date()
+                logger.info("preparing episode=\(id, privacy: .public) foreground=\(self.currentID == id)")
+                let asset = try await assetLoader(item)
+                // AVPlayerItem loads and validates HLS itself. A separate isPlayable
+                // load can wait on CDN metadata before the player even sees the asset.
+                try Task.checkCancellation()
+                guard prepareVersions[id] == version, players[id] === player else { return }
                 let playerItem = AVPlayerItem(asset: asset)
-                playerItem.preferredForwardBufferDuration = 2
+                playerItem.preferredForwardBufferDuration = id == currentID ? Double(max(12, playbackRate * 8)) : 2
+                playerItem.preferredPeakBitRate = id == currentID ? 0 : 800_000
                 player.replaceCurrentItem(with: playerItem)
                 let deadline = Date().addingTimeInterval(20)
                 while playerItem.status == .unknown {
@@ -138,14 +168,15 @@ final class TheaterPlayerPool {
                     throw playerItem.error ?? TheaterPlayerError.unplayable
                 }
                 try Task.checkCancellation()
-                guard players[id] === player else { return }
+                guard prepareVersions[id] == version, players[id] === player else { return }
                 if resumesProgress, let progress = library.progress[item.drama.id],
                    progress.episodeID == item.firstEpisode?.id, progress.fraction < 0.98 {
                     await player.seek(to: CMTime(seconds: progress.seconds, preferredTimescale: 600))
                     try Task.checkCancellation()
-                    guard players[id] === player else { return }
+                    guard prepareVersions[id] == version, players[id] === player else { return }
                 }
                 states[id] = .ready
+                logger.info("prepared episode=\(id, privacy: .public) ms=\(Int(Date().timeIntervalSince(started) * 1000)) foreground=\(self.currentID == id)")
                 observePlayback(of: playerItem, id: id)
                 if currentID == id {
                     if visible { playCurrentIfReady() }
@@ -157,7 +188,14 @@ final class TheaterPlayerPool {
                 }
             } catch is CancellationError {
             } catch {
-                if players[id] === player { states[id] = .unavailable(error.localizedDescription) }
+                if prepareVersions[id] == version, players[id] === player {
+                    states[id] = .unavailable(error.localizedDescription)
+                    player.pause()
+                    logger.info("prepare failed episode=\(id, privacy: .public) code=\((error as NSError).code)")
+                    if let event = player.currentItem?.errorLog()?.events.last {
+                        logger.info("item error status=\(event.errorStatusCode) domain=\(event.errorDomain, privacy: .public)")
+                    }
+                }
             }
             if prepareVersions[id] == version {
                 prepareTasks[id] = nil
@@ -166,17 +204,35 @@ final class TheaterPlayerPool {
         }
     }
 
-    private func warmSecondNext(_ item: TheaterFeedItem?) {
-        guard secondNextID != item?.id else { return }
-        secondNextTask?.cancel()
-        secondNextTask = nil
-        secondNextID = item?.id
-        guard let item, let url = item.videoURL, let identity = item.keyIdentity else { return }
-        secondNextTask = Task {
-            guard let asset = try? await cache.asset(for: item.firstEpisode?.id ?? item.id,
-                                                     remoteURL: url, identity: identity) else { return }
-            _ = try? await asset.load(.isPlayable)
-        }
+    private func canPrepare(_ id: TheaterFeedItem.ID) -> Bool {
+        guard visible else { return false }
+        if currentID == id { return true }
+        guard !isPaused, !hasEnded,
+              let index = items.firstIndex(where: { $0.id == currentID }),
+              items.indices.contains(index + 1), items[index + 1].id == id,
+              let player = players[currentID ?? ""], player.timeControlStatus == .playing,
+              let item = player.currentItem else { return false }
+        let seconds = player.currentTime().seconds
+        let duration = item.duration.seconds
+        let remaining = duration.isFinite ? max(0, duration - seconds) : 8
+        return bufferedSeconds(player) >= min(Double(max(8, playbackRate * 8)), remaining)
+    }
+
+    private func bufferedSeconds(_ player: AVPlayer) -> Double {
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite else { return 0 }
+        return player.currentItem?.loadedTimeRanges.reduce(0) { result, value in
+            let range = value.timeRangeValue
+            let start = range.start.seconds
+            let end = CMTimeRangeGetEnd(range).seconds
+            return start <= seconds + 0.1 && end >= seconds ? max(result, end - seconds) : result
+        } ?? 0
+    }
+
+    private func configureBuffer(_ player: AVPlayer, isCurrent: Bool) {
+        player.defaultRate = playbackRate
+        player.currentItem?.preferredForwardBufferDuration = isCurrent ? Double(max(12, playbackRate * 8)) : 2
+        player.currentItem?.preferredPeakBitRate = isCurrent ? 0 : 800_000
     }
 
     private func playCurrentIfReady() {
@@ -184,9 +240,12 @@ final class TheaterPlayerPool {
         guard visible, !isPaused, !hasEnded, let currentID,
               states[currentID] == .ready, let player = players[currentID] else { return }
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-            try AVAudioSession.sharedInstance().setActive(true)
-            player.playImmediately(atRate: playbackRate)
+            if !audioSessionReady {
+                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+                try AVAudioSession.sharedInstance().setActive(true)
+                audioSessionReady = true
+            }
+            player.play()
             if let item = items.first(where: { $0.id == currentID }),
                let episodeID = item.firstEpisode?.id,
                let asset = player.currentItem?.asset as? AVURLAsset {
@@ -212,16 +271,39 @@ final class TheaterPlayerPool {
     private func release(_ id: TheaterFeedItem.ID) {
         prepareTasks.removeValue(forKey: id)?.cancel()
         prepareVersions[id] = nil
+        timeObservers[id] = nil
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
         states[id] = nil
         guard let player = players.removeValue(forKey: id) else { return }
         player.pause()
+        player.cancelPendingPrerolls()
+        player.currentItem?.asset.cancelLoading()
         player.replaceCurrentItem(with: nil)
         sparePlayers.append(player)
     }
 
     private func observePlayback(of item: AVPlayerItem, id: TheaterFeedItem.ID) {
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
+        if let player = players[id] {
+            timeObservers[id] = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.currentID == id, self.players[id]?.currentItem === item else { return }
+                    self.isBuffering = self.visible && !self.isPaused && player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                }
+            }
+        }
+        let stalled = NotificationCenter.default.addObserver(forName: .AVPlayerItemPlaybackStalled, object: item, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.currentID == id else { return }
+                self.logger.info("stalled episode=\(id, privacy: .public) buffer=\(self.players[id].map(self.bufferedSeconds) ?? 0)")
+            }
+        }
+        let access = NotificationCenter.default.addObserver(forName: .AVPlayerItemNewAccessLogEntry, object: item, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let event = item.accessLog()?.events.last else { return }
+                self.logger.debug("access episode=\(id, privacy: .public) stalls=\(event.numberOfStalls) bitrate=\(event.observedBitrate) bytes=\(event.numberOfBytesTransferred)")
+            }
+        }
         let ended = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
@@ -244,7 +326,7 @@ final class TheaterPlayerPool {
                 self.players[id]?.pause()
             }
         }
-        itemObservers[id] = [ended, failed]
+        itemObservers[id] = [ended, failed, stalled, access]
     }
 
     private func startSavingProgress() {

@@ -20,6 +20,7 @@ final class HLSOfflineCache: NSObject, AVAssetDownloadDelegate, @unchecked Senda
     private var entries: [String: Entry]
     private var pendingLocations: [String: String]
     private var activeEpisodeIDs: Set<String> = []
+    private var playbackOwners: Set<UUID> = []
     private var session: AVAssetDownloadURLSession!
 
     init(defaults: UserDefaults = .standard) {
@@ -79,7 +80,27 @@ final class HLSOfflineCache: NSObject, AVAssetDownloadDelegate, @unchecked Senda
         let configuration = AVAssetDownloadConfiguration(asset: asset, title: title)
         let task = session.makeAssetDownloadTask(downloadConfiguration: configuration)
         task.taskDescription = episodeID
-        task.resume()
+        lock.lock()
+        if playbackOwners.isEmpty { task.resume() }
+        lock.unlock()
+    }
+
+    /// Keep full-episode caching from competing with any foreground player.
+    func setPlaybackActive(_ active: Bool, owner: UUID) {
+        lock.lock()
+        let changed = active ? playbackOwners.insert(owner).inserted : playbackOwners.remove(owner) != nil
+        lock.unlock()
+        guard changed else { return }
+        session.getAllTasks { [weak self] tasks in
+            guard let self else { return }
+            self.lock.lock()
+            let shouldPause = !self.playbackOwners.isEmpty
+            for task in tasks {
+                if shouldPause, task.state == .running { task.suspend() }
+                else if !shouldPause, task.state == .suspended { task.resume() }
+            }
+            self.lock.unlock()
+        }
     }
 
     func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask,

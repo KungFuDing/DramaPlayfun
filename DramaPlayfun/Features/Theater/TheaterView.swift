@@ -211,7 +211,7 @@ struct TheaterVideoPage: View {
             }
             .padding(24).background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal, 48)
-        } else if isActive && playback.states[item.id] != .ready {
+        } else if isActive && (playback.states[item.id] != .ready || playback.isBuffering) {
             ProgressView().tint(.white)
         } else if isActive && (playback.isPaused || playback.hasEnded) {
             Button { togglePlayback() } label: {
@@ -374,7 +374,9 @@ struct TheaterPlayerSurface: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: PlayerSurface, context: Context) { view.layerPlayer.player = player }
+    func updateUIView(_ view: PlayerSurface, context: Context) {
+        if view.layerPlayer.player !== player { view.layerPlayer.player = player }
+    }
     static func dismantleUIView(_ view: PlayerSurface, coordinator: ()) { view.layerPlayer.player = nil }
 
     final class PlayerSurface: UIView {

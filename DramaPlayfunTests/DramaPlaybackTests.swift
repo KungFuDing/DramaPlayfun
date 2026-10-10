@@ -4,6 +4,33 @@ import Moya
 
 @MainActor
 final class DramaPlaybackTests: XCTestCase {
+    func testForegroundPreparationPrecedesPreloadAndHiddenPagesDoNotFetch() async throws {
+        var loadedIDs: [String] = []
+        let pool = TheaterPlayerPool(library: LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            cache: .shared, assetLoader: { item in
+                loadedIDs.append(item.id)
+                try await _Concurrency.Task<Never, Never>.sleep(for: .seconds(60))
+                throw URLError(.cancelled)
+            })
+        defer { pool.reset() }
+        let drama = makeDrama()
+        let items = (1...4).map { number in
+            TheaterFeedItem(drama: drama, firstEpisode: Episode(id: String(number), number: number,
+                title: "", requiresMembership: false), videoURL: URL(string: "https://example.invalid/master.m3u8"),
+                firstEpisodeLikeCount: 0, isFirstEpisodeLiked: false, isFavorited: false, playbackID: String(number))
+        }
+        pool.update(items: items, selectedID: "1", visible: true)
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(350))
+        XCTAssertEqual(loadedIDs, ["1"], "Next-episode prefetch must not compete with a still-loading foreground episode")
+        pool.update(items: items, selectedID: "2", visible: true)
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(350))
+        XCTAssertEqual(loadedIDs, ["1", "2"], "Swiping makes the selected episode load without waiting for its neighbor")
+        pool.update(items: items, selectedID: "4", visible: false)
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(350))
+        XCTAssertEqual(loadedIDs, ["1", "2"], "A hidden playback page must not start another network load")
+        XCTAssertEqual(pool.playerCount, 3)
+    }
+
     private func makeDrama() -> Drama {
         Drama(id: "101", title: "测试剧", summary: "简介", category: .drama,
               episodeCount: 3, heat: 0, badge: nil, coverURL: nil, rootDramaID: 100)

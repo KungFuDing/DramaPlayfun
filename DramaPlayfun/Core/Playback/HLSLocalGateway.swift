@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import Network
 import ObjectiveC
+import OSLog
 
 /// Proxies HLS only on the loopback interface so every CDN request carries X-Media-Token.
 /// AES-128 key requests are answered locally; encrypted media bytes remain encrypted in transit.
@@ -20,7 +21,8 @@ final class HLSLocalGateway: @unchecked Sendable {
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "drama.hls.gateway", qos: .userInitiated)
     private let listener: NWListener
-    private let network = URLSession(configuration: .ephemeral)
+    private let logger = Logger(subsystem: "com.video.test.DramaPlayfun.playback", category: "manifest")
+    private let mediaTransport = HLSMediaTransport()
     private var routes: [String: Route] = [:]
     private var startWaiters: [CheckedContinuation<UInt16, Error>] = []
     private var port: UInt16?
@@ -35,6 +37,7 @@ final class HLSLocalGateway: @unchecked Sendable {
     private func trace(_ event: String) {
         lock.lock()
         events.append(event)
+        if events.count > 512 { events.removeFirst(events.count - 512) }
         lock.unlock()
     }
     #else
@@ -131,6 +134,7 @@ final class HLSLocalGateway: @unchecked Sendable {
         lock.lock()
         routes = routes.filter { $0.value.group != group }
         lock.unlock()
+        mediaTransport.cancel(group: group)
     }
 
     private func handle(_ connection: NWConnection) {
@@ -194,28 +198,30 @@ final class HLSLocalGateway: @unchecked Sendable {
             upstream.setValue(range.dropFirst(6).trimmingCharacters(in: .whitespaces),
                               forHTTPHeaderField: "Range")
         }
+        if route.kind == .media {
+            upstream.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            mediaTransport.start(upstream, group: route.group, connection: connection)
+            return
+        }
         do {
-            let (body, response) = try await network.data(for: upstream)
+            let started = Date()
+            upstream.timeoutInterval = 20
+            let (body, response) = try await mediaTransport.data(for: upstream)
             trace("upstream received")
             guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+            logger.debug("manifest status=\(http.statusCode) bytes=\(body.count) ms=\(Int(Date().timeIntervalSince(started) * 1000))")
             guard (200..<300).contains(http.statusCode) else {
                 send(Data(), status: http.statusCode, contentType: "text/plain", to: connection)
                 return
             }
-            if route.kind == .manifest {
-                guard let manifest = String(data: body, encoding: .utf8) else {
-                    throw URLError(.cannotDecodeContentData)
-                }
-                let rewritten = rewrite(manifest, base: http.url ?? remoteURL, route: route)
-                send(Data(rewritten.utf8), status: 200,
-                     contentType: "application/vnd.apple.mpegurl", to: connection)
-            } else {
-                let range = http.value(forHTTPHeaderField: "Content-Range")
-                send(body, status: http.statusCode,
-                     contentType: http.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream",
-                     extraHeaders: range.map { ["Content-Range": $0] } ?? [:], to: connection)
+            guard let manifest = String(data: body, encoding: .utf8) else {
+                throw URLError(.cannotDecodeContentData)
             }
+            let rewritten = rewrite(manifest, base: http.url ?? remoteURL, route: route)
+            send(Data(rewritten.utf8), status: 200,
+                 contentType: "application/vnd.apple.mpegurl", to: connection)
         } catch {
+            logger.info("manifest failed code=\((error as NSError).code)")
             trace("upstream failed")
             send(Data(), status: 502, contentType: "text/plain", to: connection)
         }

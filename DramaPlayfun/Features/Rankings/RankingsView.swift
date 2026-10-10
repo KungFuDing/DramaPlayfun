@@ -3,6 +3,9 @@ import SwiftUI
 struct RankingsView: View {
     @Environment(AppContainer.self) private var app
     @State private var viewportHeight: CGFloat = 700
+    @State private var viewportWidth: CGFloat = 375
+
+    private var scale: CGFloat { viewportWidth / 375 }
 
     var body: some View {
         @Bindable var feed = app.rankings
@@ -17,117 +20,130 @@ struct RankingsView: View {
             },
             onLoadMore: { await feed.loadMore() }
         ) {
-            VStack(alignment: .leading, spacing: 10) {
-                Image("RankingsHeader")
-                    .resizable().scaledToFit()
-                    .mask(LinearGradient(stops: [.init(color: .clear, location: 0),
-                                                .init(color: .white, location: 0.04),
-                                                .init(color: .white, location: 0.90),
-                                                .init(color: .clear, location: 1)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .accessibilityLabel("短剧排行榜，真实榜单、精品热播、神作推荐")
-                VStack(alignment: .leading, spacing: 18) {
-                    RankingTabPicker(tabs: feed.tabs, selection: $feed.selectedID)
+            VStack(alignment: .leading, spacing: 0) {
+                RankingHeader(scale: scale)
+                VStack(alignment: .leading, spacing: 12 * scale) {
+                    RankingTabPicker(tabs: feed.tabs, selection: $feed.selectedID, scale: scale)
                     FeedTabsStatus(feed: feed)
                     RankingCategoryPager(feed: feed, selection: $feed.selectedID,
-                                         minimumHeight: max(1, viewportHeight - 240))
+                                         minimumHeight: max(1, viewportHeight - 203 * scale))
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 12 * scale)
                 .padding(.bottom, 24)
             }
         }
         .background(alignment: .top) {
             ZStack {
                 Theme.background
-                LinearGradient(colors: [Color(red: 0.71, green: 0.57, blue: 0.35),
-                                        Color(red: 0.37, green: 0.13, blue: 0.11)],
-                               startPoint: .topLeading, endPoint: .topTrailing)
-                    .frame(height: 280)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                LinearGradient(colors: [.clear, Theme.background], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 280)
+                Image("RankingBackground")
+                    .resizable().scaledToFit()
                     .frame(maxHeight: .infinity, alignment: .top)
             }.ignoresSafeArea()
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
         .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            RankingBottomNavigation()
+        }
         .task { await feed.loadTabsIfNeeded() }
         .task(id: feed.selectedID) { await feed.loadSelectedIfNeeded() }
+    }
+}
+
+private struct RankingBottomNavigation: View {
+    @Environment(AppRouter.self) private var router
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(AppTab.allCases) { tab in
+                let selected = router.selectedTab == tab
+                Button { router.selectedTab = tab } label: {
+                    VStack(spacing: 4) {
+                        Image(tab.iconAsset(isSelected: selected))
+                            .resizable().scaledToFit().frame(width: 22, height: 22)
+                        Text(tab.rawValue).font(.system(size: 10))
+                    }
+                    .foregroundStyle(selected ? Theme.accent : .white.opacity(0.5))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .background {
+            Rectangle().fill(.ultraThinMaterial)
+                .overlay(Theme.surface.opacity(0.7))
+                .ignoresSafeArea(edges: .bottom)
+        }
+    }
+}
+
+private struct RankingHeader: View {
+    let scale: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Image("RankingTrophy")
+                .resizable().scaledToFit()
+                .frame(width: 163 * scale, height: 126 * scale)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .offset(y: 12 * scale)
+            VStack(spacing: 7 * scale) {
+                Image("RankingTitle")
+                    .resizable().scaledToFit()
+                    .frame(width: 204 * scale, height: 36 * scale)
+                Text("真实榜单   精品热播   神作推荐")
+                    .font(.system(size: 12 * scale))
+                    .foregroundStyle(Color(red: 0.85, green: 0.83, blue: 0.81))
+            }
+            .padding(.leading, 20 * scale)
+            .padding(.top, 38 * scale)
+        }
+        .frame(height: 140 * scale, alignment: .top)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("短剧排行榜，真实榜单、精品热播、神作推荐")
     }
 }
 
 private struct RankingTabPicker: View {
     let tabs: [DramaFeedTab]
     @Binding var selection: String
+    let scale: CGFloat
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 20) {
+                HStack(spacing: 20 * scale) {
                     ForEach(tabs) { tab in
                         let selected = selection == tab.id
                         Button {
                             withAnimation(.easeInOut(duration: 0.25)) { selection = tab.id }
                         } label: {
                             Text(tab.title)
-                                .font(.system(size: 20, weight: .bold))
+                                .font(.system(size: 16 * scale, weight: .bold))
                                 .lineLimit(1).minimumScaleFactor(0.7)
-                                .foregroundStyle(.white.opacity(selected ? 1 : 0.65))
-                                .frame(width: 86, height: 50)
-                                .padding(.bottom, 7)
-                                .background {
-                                    RankingTabShape(hasTail: selected)
-                                        .fill(LinearGradient(colors: [Color(red: 0.65, green: 0.47, blue: 0.17),
-                                                                      Color(red: 0.30, green: 0.15, blue: 0.10),
-                                                                      Color(red: 0.48, green: 0.14, blue: 0.21)],
-                                                             startPoint: .topLeading, endPoint: .bottomTrailing))
-                                        .opacity(selected ? 1 : 0.5)
-                                }
-                                .overlay {
-                                    if selected {
-                                        RankingTabShape(hasTail: true)
-                                            .stroke(LinearGradient(colors: [Color(red: 1, green: 0.95, blue: 0.69),
-                                                                            .white.opacity(0.8),
-                                                                            Color(red: 0.78, green: 0.63, blue: 0.39)],
-                                                                   startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
-                                    }
+                                .foregroundStyle(.white.opacity(selected ? 1 : 0.7))
+                                .frame(width: 82 * scale, height: 40 * scale)
+                                .frame(height: 47 * scale, alignment: .top)
+                                .background(alignment: .top) {
+                                    Image(selected ? "RankingTabSelected" : "RankingTabNormal")
+                                        .resizable()
+                                        .frame(width: 82 * scale, height: (selected ? 47 : 40) * scale)
                                 }
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(selected ? .isSelected : [])
                         .id(tab.id)
                     }
-                }.padding(.horizontal, 1).padding(.vertical, 1)
+                }
             }
             .onChange(of: selection, initial: true) { _, id in
                 withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(id, anchor: .center) }
             }
         }
-    }
-}
-
-private struct RankingTabShape: Shape {
-    let hasTail: Bool
-
-    func path(in rect: CGRect) -> Path {
-        let bottom = rect.maxY - 7
-        let radius: CGFloat = 7
-        var path = Path()
-        path.move(to: CGPoint(x: radius, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: radius), control: CGPoint(x: rect.maxX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: bottom - radius))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX - radius, y: bottom), control: CGPoint(x: rect.maxX, y: bottom))
-        path.addLine(to: CGPoint(x: hasTail ? 14 : radius, y: bottom))
-        if hasTail {
-            path.addLine(to: CGPoint(x: 0, y: rect.maxY))
-        } else {
-            path.addQuadCurve(to: CGPoint(x: 0, y: bottom - radius), control: CGPoint(x: 0, y: bottom))
-        }
-        path.addLine(to: CGPoint(x: 0, y: radius))
-        path.addQuadCurve(to: CGPoint(x: radius, y: 0), control: .zero)
-        path.closeSubpath()
-        return path
     }
 }
 
@@ -147,10 +163,9 @@ private struct RankingCategoryPager: View {
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 0) {
                     ForEach(feed.tabs) { tab in
-                        RankingCategoryContent(state: feed.page(for: tab.id), width: geometry.size.width - 12) {
+                        RankingCategoryContent(state: feed.page(for: tab.id), width: geometry.size.width) {
                             await feed.refreshSelected()
                         }
-                        .padding(.horizontal, 6)
                         .frame(width: geometry.size.width, alignment: .topLeading)
                         .fixedSize(horizontal: false, vertical: true)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heights[tab.id] = $0 }
@@ -179,11 +194,12 @@ private struct RankingCategoryContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             FeedPageStatus(state: state, onRetry: onRetry)
-            LazyVStack(spacing: 16) {
+            LazyVStack(spacing: 12 * width / 351) {
                 ForEach(Array(state.dramas.enumerated()), id: \.element.id) { index, drama in
-                    RankingDramaRow(drama: drama, rank: index + 1, posterWidth: min(112, width * 0.27))
+                    RankingDramaRow(drama: drama, rank: index + 1, posterWidth: 95 * width / 351)
                 }
             }
+            .padding(.top, 4 * width / 351)
         }
     }
 }

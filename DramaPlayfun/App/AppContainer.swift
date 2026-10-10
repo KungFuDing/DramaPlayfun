@@ -126,10 +126,14 @@ final class AppContainer {
                 let expanded = ProcessInfo.processInfo.arguments.contains("-EpisodesUITestFixture")
                 let episodes: [[String: Any]] = (1...(expanded ? 80 : 6)).map { number in
                     let locked = expanded ? number >= 17 : number == 6
-                    return ["episodeId": dramaID == 111 && number == 3 ? 1111 : dramaID * 100 + number,
+                    var episode: [String: Any] = ["episodeId": dramaID == 111 && number == 3 ? 1111 : dramaID * 100 + number,
                             "episodeNo": number, "unlockCoin": (expanded ? number >= 11 : locked) ? 10 : 0,
                             "isUnlocked": expanded ? (3...16).contains(number) : !locked,
                             "looked": expanded && number <= 2, "likeCount": number * 10]
+                    if ProcessInfo.processInfo.arguments.contains("-PlaybackProgressUITestFixture") {
+                        episode["videoUrl"] = "https://example.invalid/progress.m3u8"
+                    }
+                    return episode
                 }
                 response = String(data: try! JSONSerialization.data(withJSONObject:
                     ["code": 200, "data": ["rootDramaId": dramaID, "episodes": episodes]]), encoding: .utf8)!

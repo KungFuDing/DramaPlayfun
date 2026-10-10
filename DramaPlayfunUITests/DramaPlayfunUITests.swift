@@ -164,6 +164,61 @@ final class DramaPlayfunUITests: XCTestCase {
     }
 
     @MainActor
+    func testTheaterAndPlayerProgressCanScrubAboveTheVisibleTrack() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TheaterUITestFixture", "-PlaybackProgressUITestFixture"]
+        app.launch()
+        app.tabBars.buttons["剧场"].tap()
+        let theaterProgress = app.sliders["theater-progress-101"]
+        XCTAssertTrue(theaterProgress.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: theaterProgress)
+        waitForExpectations(timeout: 10)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.buttons["播放视频"].waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(theaterProgress.frame.height, 44)
+        let theaterPage = app.otherElements["theater-video-101"]
+        XCTAssertLessThanOrEqual(theaterProgress.frame.maxY - 10 - theaterPage.staticTexts["theater-summary-text"].frame.maxY, 18,
+            "The expanded touch area must not add space below the drama introduction")
+        theaterProgress.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.25))
+            .press(forDuration: 0.1, thenDragTo: theaterProgress.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.25)))
+        expectation(for: NSPredicate { _, _ in
+            let value = Double((theaterProgress.value as? String ?? "").replacingOccurrences(of: "%", with: "")) ?? -1
+            return value > 65 && value < 85
+        }, evaluatedWith: theaterProgress)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.buttons["播放视频"].exists, "Scrubbing must preserve the paused state")
+        theaterPage.buttons["展开"].tap()
+        XCTAssertTrue(theaterPage.buttons["收起"].waitForExistence(timeout: 5))
+        theaterPage.buttons["收起"].tap()
+        let episodes = app.buttons["更多剧集，剧场测试甲"]
+        XCTAssertTrue(episodes.isHittable, "Horizontal scrubbing must not change the feed page")
+        episodes.tap()
+
+        let playerProgress = app.sliders["player-progress-1"]
+        XCTAssertTrue(playerProgress.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: playerProgress)
+        waitForExpectations(timeout: 10)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.buttons["播放视频"].waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(playerProgress.frame.height, 44)
+        let playerPage = app.otherElements["player-episode-1"]
+        XCTAssertLessThanOrEqual(playerProgress.frame.maxY - 10 - playerPage.staticTexts["theater-summary-text"].frame.maxY, 18)
+        // Start above the track, away from the introduction's expand button.
+        playerProgress.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.25))
+            .press(forDuration: 0.1, thenDragTo: playerProgress.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.25)))
+        expectation(for: NSPredicate { _, _ in
+            let value = Double((playerProgress.value as? String ?? "").replacingOccurrences(of: "%", with: "")) ?? -1
+            return value > 20 && value < 40
+        }, evaluatedWith: playerProgress)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.buttons["播放视频"].exists)
+        playerPage.buttons["展开"].tap()
+        XCTAssertTrue(playerPage.buttons["收起"].waitForExistence(timeout: 5))
+        playerPage.buttons["收起"].tap()
+        XCTAssertEqual(app.scrollViews["player-episode-feed"].value as? String, "第1集")
+    }
+
+    @MainActor
     func testTheaterPagesVerticallyAndOpensEpisodes() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-TheaterUITestFixture")

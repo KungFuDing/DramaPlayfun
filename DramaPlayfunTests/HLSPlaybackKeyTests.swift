@@ -4,6 +4,68 @@ import Network
 @testable import DramaPlayfun
 
 final class HLSPlaybackKeyTests: XCTestCase {
+    @MainActor
+    func testScrubbingSeeksSavesProgressAndPreservesPauseState() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
+        let server = try HLSFixtureServer(directory: directory)
+        let ready = expectation(description: "Scrubbing fixture ready")
+        server.listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+        server.listener.start(queue: server.queue)
+        defer { server.listener.cancel() }
+        await fulfillment(of: [ready], timeout: 5)
+        let port = try XCTUnwrap(server.listener.port)
+        let remote = URL(string: "http://127.0.0.1:\(port.rawValue)/master.m3u8?X-Media-Token=fixture-token")!
+        let drama = Drama(id: "107", title: "拖动测试", summary: "", category: .drama,
+            episodeCount: 1, heat: 0, badge: nil, coverURL: nil, rootDramaID: 107)
+        let feedItem = TheaterFeedItem(drama: drama,
+            firstEpisode: Episode(id: "2531", number: 1, title: "", requiresMembership: false), videoURL: remote,
+            firstEpisodeLikeCount: 0, isFirstEpisodeLiked: false, isFavorited: false)
+        let library = LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let pool = TheaterPlayerPool(library: library, cache: .shared, assetLoader: { _ in
+            try await HLSLocalGateway.shared.asset(remoteURL: remote,
+                identity: HLSKeyIdentity(rootDramaID: 107, episodeID: 2531), secret: Data("test-secret".utf8))
+        })
+        defer { pool.reset() }
+        pool.update(items: [feedItem], selectedID: feedItem.id, visible: true)
+        for _ in 0..<100 where pool.states[feedItem.id] != .ready { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(pool.states[feedItem.id], .ready)
+        let player = try XCTUnwrap(pool.player(for: feedItem.id))
+        let layer = AVPlayerLayer(player: player)
+        layer.frame = CGRect(x: 0, y: 0, width: 160, height: 240)
+        let window = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first(where: \.isKeyWindow))
+        window.layer.addSublayer(layer)
+        defer { layer.removeFromSuperlayer(); layer.player = nil }
+        let duration = try XCTUnwrap(player.currentItem).duration.seconds
+        XCTAssertFalse(pool.beginScrubbing("another-episode"))
+        pool.toggle()
+        XCTAssertTrue(pool.isPaused)
+        XCTAssertTrue(pool.beginScrubbing(feedItem.id))
+        XCTAssertEqual(player.rate, 0)
+        pool.endScrubbing(feedItem.id, fraction: 0.75)
+        for _ in 0..<500 where pool.isScrubbing { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertFalse(pool.isScrubbing)
+        XCTAssertTrue(pool.isPaused, "Dragging must preserve a user's paused playback")
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertEqual(player.currentTime().seconds, duration * 0.75, accuracy: 0.05)
+        XCTAssertEqual(try XCTUnwrap(library.progress[drama.id]).seconds, duration * 0.75, accuracy: 0.05)
+
+        pool.toggle()
+        XCTAssertFalse(pool.isPaused)
+        XCTAssertTrue(pool.beginScrubbing(feedItem.id))
+        pool.endScrubbing(feedItem.id, fraction: 0.25)
+        for _ in 0..<500 where pool.isScrubbing { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertFalse(pool.isScrubbing)
+        XCTAssertFalse(pool.isPaused)
+        XCTAssertNotEqual(player.timeControlStatus, .paused, "An initially playing video must resume after seeking")
+
+        XCTAssertTrue(pool.beginScrubbing(feedItem.id))
+        pool.suspend()
+        pool.endScrubbing(feedItem.id, fraction: 0.5)
+        XCTAssertFalse(pool.isScrubbing)
+        XCTAssertEqual(player.rate, 0, "A late gesture completion must not restart a hidden player")
+    }
+
     func testGatewayResumesInterruptedSegmentWithoutDuplicatingBytes() async throws {
         let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
         let server = try HLSFixtureServer(directory: directory, disconnectMediaOnce: true)

@@ -45,6 +45,12 @@ final class HLSOfflineCache: NSObject, AVAssetDownloadDelegate, @unchecked Senda
 
     func asset(for episodeID: String, remoteURL: URL,
                identity: HLSKeyIdentity) async throws -> AVURLAsset {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-PlaybackProgressUITestFixture"),
+           let url = Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4") {
+            return AVURLAsset(url: url)
+        }
+        #endif
         if let url = localURL(for: episodeID) { return AVURLAsset(url: url) }
         return try await HLSLocalGateway.shared.asset(remoteURL: remoteURL, identity: identity,
                                                        secret: HLSPlaybackKey.configuredSecret())

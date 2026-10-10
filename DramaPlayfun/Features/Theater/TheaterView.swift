@@ -167,6 +167,7 @@ struct TheaterVideoPage: View {
                     metadata.frame(maxWidth: .infinity, alignment: .leading)
                     actions.padding(.bottom, 64)
                 }
+                .zIndex(1) // Keep introduction buttons above the expanded progress touch area.
                 progressBar
             }
             .padding(.horizontal, 14)
@@ -327,22 +328,8 @@ struct TheaterVideoPage: View {
     }
 
     private var progressBar: some View {
-        TimelineView(.animation(minimumInterval: 0.5, paused: !isActive || playback.isPaused)) { _ in
-            let player = playback.player(for: item.id)
-            let duration = player?.currentItem?.duration.seconds ?? 0
-            let seconds = player?.currentTime().seconds ?? 0
-            let fraction = duration.isFinite && duration > 0 && seconds.isFinite ? min(max(seconds / duration, 0), 1) : 0
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.25))
-                    Capsule().fill(Theme.accent).frame(width: proxy.size.width * fraction)
-                    Circle().fill(Theme.accent).frame(width: 6, height: 6)
-                        .offset(x: max(0, min(proxy.size.width - 6, proxy.size.width * fraction - 3)))
-                }
-            }.frame(height: 2)
-        }
-        .padding(.top, 4).padding(.bottom, 4)
-        .accessibilityLabel("播放进度")
+        PlaybackProgressBar(playback: playback, itemID: item.id, isActive: isActive,
+            identifier: isDetail ? "player-progress-\(item.firstEpisode?.number ?? 1)" : "theater-progress-\(item.id)")
     }
 
     private func togglePlayback() {

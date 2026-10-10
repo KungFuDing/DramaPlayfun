@@ -17,12 +17,16 @@ final class TheaterPlayerPool {
     private(set) var isPaused = false
     private(set) var hasEnded = false
     private(set) var isBuffering = false
+    private(set) var isScrubbing = false
 
     @ObservationIgnored private var sparePlayers: [AVPlayer] = []
     @ObservationIgnored private var prepareTasks: [TheaterFeedItem.ID: Task<Void, Never>] = [:]
     @ObservationIgnored private var prepareVersions: [TheaterFeedItem.ID: UUID] = [:]
     @ObservationIgnored private var itemObservers: [TheaterFeedItem.ID: [NSObjectProtocol]] = [:]
     @ObservationIgnored private var progressTask: Task<Void, Never>?
+    @ObservationIgnored private var seekTask: Task<Void, Never>?
+    @ObservationIgnored private var scrubbingID: TheaterFeedItem.ID?
+    @ObservationIgnored private var seekVersion = UUID()
     @ObservationIgnored private var timeObservers: [TheaterFeedItem.ID: NSKeyValueObservation] = [:]
     @ObservationIgnored private var audioSessionReady = false
     @ObservationIgnored private let cacheOwner = UUID()
@@ -62,6 +66,7 @@ final class TheaterPlayerPool {
 
     func update(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID?, visible: Bool) {
         let previousID = currentID
+        if previousID != selectedID || !visible { resetScrubbing() }
         if previousID != selectedID {
             saveProgress()
             hasEnded = false
@@ -91,6 +96,7 @@ final class TheaterPlayerPool {
 
     func suspend() {
         visible = false
+        resetScrubbing()
         pauseAll()
         cache.setPlaybackActive(false, owner: cacheOwner)
         isBuffering = false
@@ -107,7 +113,7 @@ final class TheaterPlayerPool {
     }
 
     func toggle() {
-        guard let currentID, let player = players[currentID], states[currentID] == .ready else { return }
+        guard !isScrubbing, let currentID, let player = players[currentID], states[currentID] == .ready else { return }
         if hasEnded {
             player.seek(to: .zero)
             hasEnded = false
@@ -122,6 +128,58 @@ final class TheaterPlayerPool {
             player.pause()
             saveProgress()
         }
+    }
+
+    @discardableResult
+    func beginScrubbing(_ id: TheaterFeedItem.ID) -> Bool {
+        guard visible, currentID == id, states[id] == .ready, let player = players[id],
+              let duration = player.currentItem?.duration.seconds, duration.isFinite, duration > 0 else { return false }
+        resetScrubbing()
+        scrubbingID = id
+        isScrubbing = true
+        isBuffering = false
+        player.pause()
+        progressTask?.cancel()
+        progressTask = nil
+        return true
+    }
+
+    func endScrubbing(_ id: TheaterFeedItem.ID, fraction: Double) {
+        guard scrubbingID == id, currentID == id, let player = players[id],
+              let duration = player.currentItem?.duration.seconds, duration.isFinite, duration > 0,
+              fraction.isFinite else { cancelScrubbing(id); return }
+        let seconds = min(max(fraction, 0) * duration, max(0, duration - 0.05))
+        let version = UUID()
+        seekVersion = version
+        seekTask?.cancel()
+        player.currentItem?.cancelPendingSeeks()
+        seekTask = Task { [weak self] in
+            await player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
+                              toleranceBefore: .zero, toleranceAfter: .zero)
+            guard let self, !Task.isCancelled, self.seekVersion == version,
+                  self.currentID == id, self.players[id] === player else { return }
+            self.seekTask = nil
+            self.scrubbingID = nil
+            self.isScrubbing = false
+            self.hasEnded = false
+            self.saveProgress()
+            self.playCurrentIfReady()
+        }
+    }
+
+    func cancelScrubbing(_ id: TheaterFeedItem.ID) {
+        guard scrubbingID == id else { return }
+        resetScrubbing()
+        playCurrentIfReady()
+    }
+
+    private func resetScrubbing() {
+        seekVersion = UUID()
+        seekTask?.cancel()
+        seekTask = nil
+        if let scrubbingID { players[scrubbingID]?.currentItem?.cancelPendingSeeks() }
+        scrubbingID = nil
+        isScrubbing = false
     }
 
     private func prepare(_ item: TheaterFeedItem) {
@@ -207,7 +265,7 @@ final class TheaterPlayerPool {
     private func canPrepare(_ id: TheaterFeedItem.ID) -> Bool {
         guard visible else { return false }
         if currentID == id { return true }
-        guard !isPaused, !hasEnded,
+        guard !isPaused, !hasEnded, !isScrubbing,
               let index = items.firstIndex(where: { $0.id == currentID }),
               items.indices.contains(index + 1), items[index + 1].id == id,
               let player = players[currentID ?? ""], player.timeControlStatus == .playing,
@@ -237,7 +295,7 @@ final class TheaterPlayerPool {
 
     private func playCurrentIfReady() {
         pauseOtherPlayers()
-        guard visible, !isPaused, !hasEnded, let currentID,
+        guard visible, !isPaused, !hasEnded, !isScrubbing, let currentID,
               states[currentID] == .ready, let player = players[currentID] else { return }
         do {
             if !audioSessionReady {
@@ -269,6 +327,7 @@ final class TheaterPlayerPool {
     }
 
     private func release(_ id: TheaterFeedItem.ID) {
+        if scrubbingID == id { resetScrubbing() }
         prepareTasks.removeValue(forKey: id)?.cancel()
         prepareVersions[id] = nil
         timeObservers[id] = nil
@@ -308,7 +367,8 @@ final class TheaterPlayerPool {
             forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.currentID == id else { return }
+                guard let self, !self.isScrubbing, self.currentID == id,
+                      self.players[id]?.currentItem === item else { return }
                 self.hasEnded = true
                 self.progressTask?.cancel()
                 self.progressTask = nil
@@ -322,6 +382,7 @@ final class TheaterPlayerPool {
                 .localizedDescription ?? "视频播放失败，请重试。"
             Task { @MainActor [weak self] in
                 guard let self, self.players[id]?.currentItem === item else { return }
+                if self.scrubbingID == id { self.resetScrubbing() }
                 self.states[id] = .unavailable(message)
                 self.players[id]?.pause()
             }

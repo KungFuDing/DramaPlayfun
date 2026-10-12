@@ -35,4 +35,11 @@ final class LibraryStore {
     }
 
     var recentProgress: [WatchProgress] { progress.values.sorted { $0.updatedAt > $1.updatedAt } }
+
+    func clearAccountData() {
+        favoriteIDs = []
+        progress = [:]
+        defaults.removeObject(forKey: Self.favoritesKey)
+        defaults.removeObject(forKey: Self.progressKey)
+    }
 }

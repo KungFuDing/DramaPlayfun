@@ -19,13 +19,15 @@ final class AppContainer {
     let hlsCache: HLSOfflineCache
     let theaterPlayback: TheaterPlayerPool
     let membership: MembershipStore
+    let profile: ProfileStore
 
     init(network: APIClient? = nil,
          repository: (any DramaRepository)? = nil,
          subscriptions: (any SubscriptionService)? = nil,
          defaults: UserDefaults = .standard) {
         #if DEBUG
-        let fixture = (ProcessInfo.processInfo.arguments.contains("-TheaterUITestFixture") ||
+        let fixture = (ProcessInfo.processInfo.arguments.contains("-ProfileUITestFixture") ||
+                       ProcessInfo.processInfo.arguments.contains("-TheaterUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-FeedUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture"))
             ? Self.theaterUITestClient() : nil
@@ -43,6 +45,7 @@ final class AppContainer {
             })
         }()
         guestSession = GuestSessionStore(network: self.network, defaults: defaults)
+        profile = ProfileStore(network: self.network)
         let repository = repository ?? APIDramaRepository(network: self.network,
                                                           fallback: DemoDramaRepository())
         self.repository = repository
@@ -66,6 +69,17 @@ final class AppContainer {
             switch target.path {
             case "/mobile/v1/auth/guest/login":
                 response = #"{"code":200,"data":{"accessToken":"ui-test-guest-token"}}"#
+            case "/mobile/v1/client/me":
+                let vip = ProcessInfo.processInfo.arguments.contains("-ProfileVIPUITestFixture")
+                response = String(data: try! JSONSerialization.data(withJSONObject: ["code": 200, "data":
+                    ["userNo": "143143257", "nickname": "晚风放映厅", "coinAmount": 360,
+                     "vipExpireAt": vip ? 1893456000000 : 0]]), encoding: .utf8)!
+            case "/mobile/v1/client/app/config":
+                response = #"{"code":200,"data":{"customerServiceEmail":"contact@idoltimeltd.co.uk","privacyPolicyUrl":"https://example.invalid/privacy","userAgreementUrl":"https://example.invalid/terms"}}"#
+            case "/mobile/v1/client/language/list":
+                response = #"{"code":200,"data":{"list":[{"languageCode":"zh","translatedName":"中文","sortOrder":0},{"languageCode":"en","translatedName":"English","sortOrder":1},{"languageCode":"ja","translatedName":"にほんご","sortOrder":2},{"languageCode":"ko","translatedName":"한국어","sortOrder":3},{"languageCode":"es","translatedName":"Español","sortOrder":4},{"languageCode":"fr","translatedName":"Français","sortOrder":5},{"languageCode":"de","translatedName":"Deutsch","sortOrder":6}]}}"#
+            case "/mobile/v1/client/me/favorites", "/mobile/v1/client/me/likes":
+                response = #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":101,"dramaTitle":"重生之我和白月光","episodeText":"剧情  都市  甜宠"},{"dramaId":102,"dramaTitle":"重生之我和白月光的日常生活","episodeText":"剧情  都市  甜宠"},{"dramaId":103,"dramaTitle":"重生之我和白月光的日常生活","episodeText":"剧情  都市  甜宠"},{"dramaId":104,"dramaTitle":"重生之我和白月光","episodeText":"剧情  都市  甜宠"}]}}"#
             case "/mobile/v1/client/drama/share/text":
                 response = #"{"code":200,"data":{"text":"https://example.invalid/drama/first-episode"}}"#
             case "/mobile/v1/client/drama/detail":

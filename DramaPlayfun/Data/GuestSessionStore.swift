@@ -8,16 +8,18 @@ final class GuestSessionStore {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private let network: APIClient
-    private let loginRequest: APIModels.V1GuestLoginReq
+    private var loginRequest: APIModels.V1GuestLoginReq
+    private let defaults: UserDefaults
 
     init(network: APIClient, defaults: UserDefaults = .standard) {
         self.network = network
+        self.defaults = defaults
         let headers = network.configuredHeaders(for: AppAPI.v1AuthGuestLogin.path)
         let version = Self.nonempty(headers["appVersion"])
             ?? Self.nonempty(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0"
         let deviceKey = "guest.deviceIdentifier.v1"
-        let identifier = Self.nonempty(headers["deviceId"])
-            ?? Self.nonempty(defaults.string(forKey: deviceKey))
+        let identifier = Self.nonempty(defaults.string(forKey: deviceKey))
+            ?? Self.nonempty(headers["deviceId"])
             ?? UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
         defaults.set(identifier, forKey: deviceKey)
         loginRequest = .init(currentVersion: version, deviceIdentifier: identifier)
@@ -43,6 +45,16 @@ final class GuestSessionStore {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func startNewSession() async {
+        network.setAccessToken("")
+        isReady = false
+        let identifier = UUID().uuidString
+        defaults.set(identifier, forKey: "guest.deviceIdentifier.v1")
+        loginRequest.deviceIdentifier = identifier
+        network.setClientIdentity(version: loginRequest.currentVersion, deviceIdentifier: identifier)
+        await signInIfNeeded()
     }
 
     private static func nonempty(_ text: String?) -> String? {

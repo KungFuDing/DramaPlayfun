@@ -1,0 +1,262 @@
+import SwiftUI
+import Kingfisher
+import SafariServices
+
+private enum SettingsPanel: String, Identifiable {
+    case language, contact, deactivate
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .language: "语言切换"
+        case .contact: "联系客服"
+        case .deactivate: "确定要注销帐户吗？"
+        }
+    }
+}
+
+struct ProfileSettingsView: View {
+    @Environment(AppContainer.self) private var app
+    @Environment(\.dismiss) private var dismiss
+    @State private var panel: SettingsPanel?
+    @State private var cacheBytes: UInt = 0
+    @State private var clearingCache = false
+    @State private var document: SettingsDocument?
+    @State private var message: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left").font(.system(size: 21, weight: .light))
+                        .frame(width: 22, height: 44)
+                }.accessibilityLabel("返回").accessibilityIdentifier("settings-back")
+                Text("设置").font(.system(size: 18, weight: .semibold))
+                Spacer()
+            }.padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 18)
+            ScrollView {
+                VStack(spacing: 10) {
+                    SettingsRow(title: "清理缓存", icon: "paintbrush", detail: clearingCache ? "清理中…" : "\(cacheBytes / 1_000_000)mb") {
+                        Task { await clearCache() }
+                    }.disabled(clearingCache).frame(height: 48)
+                        .background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 12))
+                    VStack(spacing: 0) {
+                        SettingsRow(title: "联系客服", icon: "headphones") { panel = .contact }
+                        rowDivider
+                        SettingsRow(title: "语言切换", icon: "globe") { panel = .language }
+                        rowDivider
+                        SettingsRow(title: "隐私政策", icon: "checkmark.shield") { openDocument(app.profile.config.privacyPolicyUrl, title: "隐私政策") }
+                        rowDivider
+                        SettingsRow(title: "用户协议", icon: "text.bubble") { openDocument(app.profile.config.userAgreementUrl, title: "用户协议") }
+                        rowDivider
+                        SettingsRow(title: "注销账号", icon: "power") { panel = .deactivate }
+                    }.background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 12))
+                }.padding(.horizontal, 12)
+            }.scrollIndicators(.hidden)
+            Text("v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")版本")
+                .font(.system(size: 12)).foregroundStyle(Color(white: 0.58)).padding(.bottom, 58)
+        }
+        .foregroundStyle(.white).background(Theme.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar).toolbar(.hidden, for: .tabBar)
+        .buttonStyle(.plain)
+        .overlay {
+            if let panel {
+                SettingsBottomPanel(kind: panel) { self.panel = nil }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.22), value: panel)
+        .sheet(item: $document) { SettingsWebDocument(url: $0.url).ignoresSafeArea() }
+        .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("确定", role: .cancel) { message = nil }
+        } message: { Text(message ?? "") }
+        .task {
+            await updateCacheSize()
+            await app.profile.loadSettings()
+        }
+    }
+
+    private var rowDivider: some View { Rectangle().fill(Color(white: 0.25)).frame(height: 0.5).padding(.horizontal, 14) }
+
+    private func updateCacheSize() async {
+        cacheBytes = (try? await ImageCache.default.diskStorageSize) ?? 0
+    }
+
+    private func clearCache() async {
+        guard !clearingCache else { return }
+        clearingCache = true
+        ImageCache.default.clearMemoryCache()
+        await withCheckedContinuation { continuation in
+            ImageCache.default.clearDiskCache { continuation.resume() }
+        }
+        await updateCacheSize()
+        clearingCache = false
+    }
+
+    private func openDocument(_ text: String?, title: String) {
+        guard let text, let url = URL(string: text), ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
+            message = "暂未配置\(title)，请联系客服。"
+            return
+        }
+        document = SettingsDocument(url: url)
+    }
+}
+
+private struct SettingsRow: View {
+    let title: String
+    let icon: String
+    var detail: String? = nil
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(Color(white: 0.67)).frame(width: 20)
+                Text(title).font(.system(size: 16))
+                Spacer()
+                if let detail { Text(detail).font(.system(size: 13)).foregroundStyle(Color(white: 0.58)) }
+                Image("ProfileChevron").resizable().frame(width: 16, height: 16)
+            }.padding(.horizontal, 14).frame(minHeight: 51.5).contentShape(Rectangle())
+        }.accessibilityIdentifier("settings-\(title)")
+    }
+}
+
+private struct SettingsBottomPanel: View {
+    @Environment(AppContainer.self) private var app
+    let kind: SettingsPanel
+    let onClose: () -> Void
+    @AppStorage("profile.language.v1") private var selectedLanguage = "zh"
+    @State private var isDeactivating = false
+    @State private var error: String?
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.45).contentShape(Rectangle())
+                    .onTapGesture { if !isDeactivating { onClose() } }
+                    .accessibilityLabel("关闭\(kind.title)弹窗")
+                VStack(spacing: 0) {
+                    Text(kind.title).font(.system(size: 16, weight: .semibold)).frame(height: 24)
+                        .padding(.top, 32)
+                    switch kind {
+                    case .language: languageOptions.padding(.top, 20)
+                    case .contact: contact.padding(.top, 12)
+                    case .deactivate: deactivation.padding(.top, 18)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, max(geometry.safeAreaInsets.bottom, 20))
+                .frame(maxWidth: .infinity)
+                .frame(height: min(panelHeight(bottomInset: geometry.safeAreaInsets.bottom), geometry.size.height * 0.9))
+                .background(Color(white: 0.16)).clipShape(PlayerBottomPanelShape())
+                .overlay(alignment: .top) {
+                    Button { if !isDeactivating { onClose() } } label: {
+                        Capsule().fill(Color(white: 0.55)).frame(width: 43, height: 6)
+                            .padding(.top, 2).frame(width: 76, height: 24, alignment: .top).contentShape(Rectangle())
+                    }.accessibilityLabel("收起\(kind.title)")
+                        .gesture(DragGesture(minimumDistance: 10).onEnded { value in
+                            if value.translation.height > 30, !isDeactivating { onClose() }
+                        })
+                }
+                .overlay(alignment: .topTrailing) {
+                    if kind == .contact {
+                        Button(action: onClose) {
+                            Image(systemName: "xmark").font(.system(size: 23, weight: .regular))
+                                .foregroundStyle(Color(white: 0.7)).frame(width: 44, height: 44)
+                        }.padding(.top, 2).padding(.trailing, 2).accessibilityLabel("关闭联系客服")
+                    }
+                }
+                .accessibilityElement(children: .contain).accessibilityIdentifier("settings-\(kind.rawValue)-panel")
+            }
+        }
+        .ignoresSafeArea().buttonStyle(.plain)
+        .alert("注销失败", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("确定", role: .cancel) { error = nil }
+        } message: { Text(error ?? "") }
+    }
+
+    private func panelHeight(bottomInset: CGFloat) -> CGFloat {
+        switch kind {
+        case .language: max(354, CGFloat((app.profile.languages.count + 1) / 2) * 56 + 122)
+        case .contact: 124 + max(bottomInset, 34)
+        case .deactivate: 320 + max(bottomInset, 34)
+        }
+    }
+
+    private var languageOptions: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 11), GridItem(.flexible(), spacing: 11)], spacing: 10) {
+                ForEach(app.profile.languages) { language in
+                    Button { selectedLanguage = language.id } label: {
+                        Text(language.title).font(.system(size: 14)).frame(maxWidth: .infinity).frame(height: 46)
+                            .foregroundStyle(language.id == selectedLanguage ? Color(white: 0.18) : Color(white: 0.87))
+                            .background(language.id == selectedLanguage ? Theme.accent : Color(white: 0.23), in: RoundedRectangle(cornerRadius: 8))
+                    }.accessibilityIdentifier("settings-language-\(language.id)")
+                        .accessibilityAddTraits(language.id == selectedLanguage ? .isSelected : [])
+                }
+            }
+        }.scrollIndicators(.hidden)
+    }
+
+    private var contact: some View {
+        Text("邮箱:\(app.profile.config.customerServiceEmail ?? "contact@idoltimeltd.co.uk")")
+            .font(.system(size: 14)).foregroundStyle(Color(white: 0.7))
+            .textSelection(.enabled).frame(maxWidth: .infinity).frame(height: 46)
+            .background(Color(white: 0.23), in: RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 30)
+    }
+
+    private var deactivation: some View {
+        VStack(spacing: 20) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("注销后，您将放弃以下权益且**无法找回**：")
+                    Text("1. **虚拟财产清空：** 帐户内剩余的**看剧金币、充值余额及未过期的会员VIP权益**将自动失效。")
+                    Text("2. **观看记录清除：** 您的追剧历史、收藏列表、点赞数据将被永久删除。")
+                    Text("3. **帐号关系解除：** 帐号绑定关系及个人资料将全部清空。")
+                    Text("请确保所有订单已完成，注销后将无法处理相关售后问题。")
+                        .italic()
+                }
+                .font(.system(size: 14)).foregroundStyle(Color(white: 0.7)).lineSpacing(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }.scrollIndicators(.hidden)
+            HStack(spacing: 16) {
+                Button("我再想想", action: onClose).font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color(white: 0.7)).frame(maxWidth: .infinity).frame(height: 46)
+                    .overlay { Capsule().strokeBorder(Color(white: 0.58), lineWidth: 0.5) }
+                    .disabled(isDeactivating).accessibilityIdentifier("settings-deactivate-cancel")
+                Button { Task { await deactivateAccount() } } label: {
+                    Group {
+                        if isDeactivating { ProgressView().tint(Color(white: 0.18)) }
+                        else { Text("确认注销").font(.system(size: 16, weight: .medium)) }
+                    }.foregroundStyle(Color(white: 0.18)).frame(maxWidth: .infinity).frame(height: 46)
+                        .background(Theme.accent, in: Capsule())
+                }.disabled(isDeactivating).accessibilityIdentifier("settings-deactivate-confirm")
+            }
+        }
+    }
+
+    private func deactivateAccount() async {
+        guard !isDeactivating else { return }
+        isDeactivating = true
+        defer { isDeactivating = false }
+        do {
+            try await app.profile.deactivate()
+            app.library.clearAccountData()
+            app.watchHistory.clearAccountData()
+            onClose()
+            await app.guestSession.startNewSession()
+        } catch { self.error = error.localizedDescription }
+    }
+}
+
+private struct SettingsDocument: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+private struct SettingsWebDocument: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> SFSafariViewController { SFSafariViewController(url: url) }
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) { }
+}

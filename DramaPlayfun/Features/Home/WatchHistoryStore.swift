@@ -47,6 +47,15 @@ final class WatchHistoryStore {
 
     init(network: APIClient) { self.network = network }
 
+    func clearAccountData() {
+        generation += 1
+        items = []
+        page = 0
+        hasMore = false
+        errorMessage = nil
+        loadMoreErrorMessage = nil
+    }
+
     func reload() async {
         guard !isLoading else { return }
         generation += 1

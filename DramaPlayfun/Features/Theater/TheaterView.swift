@@ -7,6 +7,8 @@ struct TheaterView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedID: Drama.ID?
     @State private var shareItem: TheaterFeedItem?
+    @State private var replayAfterPlaybackID: Drama.ID?
+    @State private var continuation: PlaybackPreparation?
 
     var body: some View {
         GeometryReader { geometry in
@@ -32,7 +34,10 @@ struct TheaterView: View {
                                     isActive: selectedID == item.id && isTheaterVisible,
                                     topInset: geometry.safeAreaInsets.top,
                                     onRetry: { app.theaterPlayback.retry(item.id) },
-                                    onEpisodes: { router.openPlayback(item.drama, episode: item.firstEpisode) },
+                                    onEpisodes: {
+                                        replayAfterPlaybackID = item.id
+                                        router.openPlayback(item.drama, episode: item.firstEpisode)
+                                    },
                                     onShare: { shareItem = item },
                                     onDetail: { router.paths[.theater, default: []].append(.shortDrama(item.drama)) }
                                 )
@@ -67,8 +72,35 @@ struct TheaterView: View {
         .toolbar(.hidden, for: .navigationBar)
         .task { await app.theaterFeed.loadIfNeeded() }
         .task(id: playbackKey) {
+            if !isTheaterVisible || continuation?.store.drama.id != selectedID {
+                cancelContinuation()
+            }
+            if isTheaterVisible, replayAfterPlaybackID == selectedID, replayAfterPlaybackID != nil {
+                app.theaterPlayback.reset()
+                replayAfterPlaybackID = nil
+            }
             app.theaterPlayback.update(items: app.theaterFeed.items,
                                        selectedID: selectedID, visible: isTheaterVisible)
+            guard isTheaterVisible else { return }
+            while !Task.isCancelled {
+                prepareContinuationIfNeeded()
+                do { try await Task.sleep(for: .milliseconds(500)) }
+                catch { return }
+            }
+        }
+        .onChange(of: app.theaterPlayback.hasEnded) { _, ended in
+            guard ended, isTheaterVisible,
+                  let item = app.theaterFeed.items.first(where: { $0.id == selectedID }),
+                  item.firstEpisode?.number == 1, item.drama.episodeCount > 1 else { return }
+            replayAfterPlaybackID = item.id
+            let prepared = continuation
+            prepared?.handoff()
+            continuation = nil
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                router.openPlayback(item.drama, episodeNumber: 2, preparation: prepared)
+            }
         }
         .onChange(of: app.theaterFeed.items.map(\.id), initial: true) { _, ids in
             if !ids.contains(where: { $0 == selectedID }) { selectedID = ids.first }
@@ -78,7 +110,10 @@ struct TheaterView: View {
                   index >= app.theaterFeed.items.count - 3 else { return }
             Task { await app.theaterFeed.loadMore() }
         }
-        .onDisappear { app.theaterPlayback.suspend() }
+        .onDisappear {
+            cancelContinuation()
+            app.theaterPlayback.suspend()
+        }
         .fullScreenCover(item: $shareItem) { item in
             DramaShareView(item: item)
         }
@@ -91,6 +126,31 @@ struct TheaterView: View {
 
     private var playbackKey: String {
         "\(selectedID ?? "none")|\(isTheaterVisible)|\(app.theaterFeed.items.map(\.id).joined(separator: ","))"
+    }
+
+    private func prepareContinuationIfNeeded() {
+        guard isTheaterVisible, app.theaterPlayback.isApproachingEnd,
+              let item = app.theaterFeed.items.first(where: { $0.id == selectedID }),
+              item.firstEpisode?.number == 1, item.drama.episodeCount > 1 else {
+            // Keep a completed handoff intact while the presentation begins.
+            if !app.theaterPlayback.hasEnded { cancelContinuation() }
+            return
+        }
+        if continuation == nil {
+            let prepared = PlaybackPreparation(drama: item.drama, app: app)
+            continuation = prepared
+            prepared.beginLoading()
+        }
+        let canPreload = app.theaterPlayback.canPreloadContinuation
+        app.theaterPlayback.prioritizeContinuation(canPreload)
+        if canPreload { continuation?.preloadVideo() }
+        else { continuation?.stopPreloadingVideo() }
+    }
+
+    private func cancelContinuation() {
+        continuation?.cancel()
+        continuation = nil
+        app.theaterPlayback.prioritizeContinuation(false)
     }
 
 }

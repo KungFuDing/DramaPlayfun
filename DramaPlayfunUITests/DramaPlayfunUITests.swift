@@ -193,6 +193,73 @@ final class DramaPlayfunUITests: XCTestCase {
     }
 
     @MainActor
+    func testTheaterFinishedPreviewOpensSecondEpisodeAndReturnsToFirstEpisodeStart() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TheaterUITestFixture", "-PlaybackProgressUITestFixture"]
+        app.launch()
+        app.tabBars.buttons["剧场"].tap()
+        let theaterProgress = app.sliders["theater-progress-101"]
+        XCTAssertTrue(theaterProgress.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: theaterProgress)
+        waitForExpectations(timeout: 10)
+
+        // Leave history halfway through episode 2 before finishing the preview.
+        app.buttons["更多剧集，剧场测试甲"].tap()
+        app.buttons["player-episodes"].tap()
+        app.buttons["episode-selection-2"].tap()
+        let secondProgress = app.sliders["player-progress-2"]
+        XCTAssertTrue(secondProgress.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: secondProgress)
+        waitForExpectations(timeout: 10)
+        secondProgress.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.25))
+            .press(forDuration: 0.1, thenDragTo: secondProgress.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+        expectation(for: NSPredicate { _, _ in
+            let value = Double((secondProgress.value as? String ?? "").replacingOccurrences(of: "%", with: "")) ?? -1
+            return value > 45 && value < 65
+        }, evaluatedWith: secondProgress)
+        waitForExpectations(timeout: 10)
+        app.buttons["player-back"].tap()
+        XCTAssertTrue(theaterProgress.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate { _, _ in
+            let value = Double((theaterProgress.value as? String ?? "").replacingOccurrences(of: "%", with: "")) ?? -1
+            return theaterProgress.isEnabled && value >= 0 && value < 20
+        }, evaluatedWith: theaterProgress)
+        waitForExpectations(timeout: 10)
+
+        // Use the lower part of the control so the introduction's expand button
+        // above the track cannot intercept this gesture. Let the final seconds play.
+        theaterProgress.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.8))
+            .press(forDuration: 0.1, thenDragTo: theaterProgress.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.8)))
+        let feed = app.scrollViews["player-episode-feed"]
+        let opened = feed.waitForExistence(timeout: 15)
+        if !opened {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "首集完成跳转状态"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+        }
+        XCTAssertTrue(opened, app.debugDescription)
+        expectation(for: NSPredicate(format: "value == %@", "第2集"), evaluatedWith: feed)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(secondProgress.waitForExistence(timeout: 10))
+        XCTAssertTrue(secondProgress.isEnabled, "The preloaded second episode must be ready when its page opens")
+        expectation(for: NSPredicate { _, _ in
+            let value = Double((secondProgress.value as? String ?? "").replacingOccurrences(of: "%", with: "")) ?? -1
+            return secondProgress.isEnabled && value > 0 && value < 25
+        }, evaluatedWith: secondProgress)
+        waitForExpectations(timeout: 10)
+        app.buttons["player-back"].tap()
+        XCTAssertTrue(app.otherElements["theater-video-101"].waitForExistence(timeout: 10))
+        expectation(for: NSPredicate { _, _ in
+            let value = Double((theaterProgress.value as? String ?? "").replacingOccurrences(of: "%", with: "")) ?? -1
+            return theaterProgress.isEnabled && value > 0 && value < 20
+        }, evaluatedWith: theaterProgress)
+        waitForExpectations(timeout: 10)
+        XCTAssertFalse(feed.exists, "Returning must not immediately open episode 2 again")
+        XCTAssertTrue(app.tabBars.buttons["剧场"].isSelected)
+    }
+
+    @MainActor
     func testTheaterAndPlayerProgressCanScrubAboveTheVisibleTrack() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TheaterUITestFixture", "-PlaybackProgressUITestFixture"]

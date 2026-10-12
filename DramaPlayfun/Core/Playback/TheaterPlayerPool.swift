@@ -32,6 +32,8 @@ final class TheaterPlayerPool {
     @ObservationIgnored private let cacheOwner = UUID()
     @ObservationIgnored private let logger = Logger(subsystem: "com.video.test.DramaPlayfun.playback", category: "player")
     @ObservationIgnored private var visible = false
+    @ObservationIgnored private var preloadingID: TheaterFeedItem.ID?
+    @ObservationIgnored private var continuationPriority = false
     @ObservationIgnored private var items: [TheaterFeedItem] = []
     @ObservationIgnored private var renewalAttempts: Set<String> = []
     @ObservationIgnored private var renewingIDs: Set<String> = []
@@ -73,6 +75,49 @@ final class TheaterPlayerPool {
 
     func player(for id: TheaterFeedItem.ID) -> AVPlayer? { players[id] }
 
+    var isApproachingEnd: Bool {
+        guard visible, !hasEnded, let player = players[currentID ?? ""],
+              let duration = player.currentItem?.duration.seconds else { return false }
+        return Self.isContinuationWindow(seconds: player.currentTime().seconds, duration: duration)
+    }
+
+    static func isContinuationWindow(seconds: Double, duration: Double) -> Bool {
+        seconds.isFinite && duration.isFinite && duration > 0 && seconds > 0 &&
+            duration - seconds > 0 && duration - seconds <= 10
+    }
+
+    var canPreloadContinuation: Bool {
+        guard isApproachingEnd, !isPaused, !isScrubbing, !isBuffering,
+              let player = players[currentID ?? ""], player.timeControlStatus == .playing,
+              let item = player.currentItem else { return false }
+        let remaining = item.duration.seconds - player.currentTime().seconds
+        let buffer = bufferedSeconds(player)
+        let event = item.accessLog()?.events.last
+        return buffer >= remaining || Self.hasPreloadCapacity(bufferedSeconds: buffer, remaining: remaining,
+            rate: playbackRate, observedBitrate: event?.observedBitrate ?? 0,
+            requiredBitrate: event?.indicatedBitrate ?? 0)
+    }
+
+    func prioritizeContinuation(_ active: Bool) {
+        guard continuationPriority != active else { return }
+        continuationPriority = active
+        if active {
+            for id in Array(players.keys) where id != currentID { release(id) }
+        } else {
+            update(items: items, selectedID: currentID, visible: visible)
+        }
+    }
+
+    /// Explicit preloading is silent and prepares only the continuation episode.
+    func preload(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID) {
+        guard !visible, let item = items.first(where: { $0.id == selectedID }),
+              item.videoURL != nil, item.firstEpisode?.requiresCoinUnlock == false else { return }
+        self.items = items
+        currentID = selectedID
+        preloadingID = selectedID
+        if players[selectedID] == nil { prepare(item) }
+    }
+
     func update(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID?, visible: Bool) {
         let previousID = currentID
         if previousID != selectedID || !visible { resetScrubbing() }
@@ -87,6 +132,7 @@ final class TheaterPlayerPool {
         }
         self.items = items
         self.visible = visible
+        if visible { preloadingID = nil }
         cache.setPlaybackActive(visible, owner: cacheOwner)
         currentID = selectedID
 
@@ -121,6 +167,8 @@ final class TheaterPlayerPool {
 
     func reset() {
         suspend()
+        preloadingID = nil
+        continuationPriority = false
         for id in Array(players.keys) { release(id) }
         sparePlayers.removeAll()
         currentID = nil
@@ -273,6 +321,12 @@ final class TheaterPlayerPool {
                 observePlayback(of: playerItem, id: id)
                 if currentID == id {
                     if visible { playCurrentIfReady() }
+                    else if preloadingID == id {
+                        _ = await player.preroll(atRate: 1)
+                        guard !Task.isCancelled, prepareVersions[id] == version, players[id] === player else { return }
+                        if visible { playCurrentIfReady() }
+                        else { player.pause() }
+                    }
                 } else {
                     _ = await player.preroll(atRate: 1)
                     guard !Task.isCancelled, prepareVersions[id] == version, players[id] === player else { return }
@@ -360,9 +414,10 @@ final class TheaterPlayerPool {
     }
 
     private func canPrepare(_ id: TheaterFeedItem.ID) -> Bool {
+        if preloadingID == id { return true }
         guard visible else { return false }
         if currentID == id { return true }
-        guard !isPaused, !hasEnded, !isScrubbing,
+        guard !continuationPriority, !isPaused, !hasEnded, !isScrubbing,
               let index = items.firstIndex(where: { $0.id == currentID }),
               items.indices.contains(index + 1), items[index + 1].id == id,
               let player = players[currentID ?? ""], player.timeControlStatus == .playing,
@@ -578,7 +633,7 @@ final class TheaterPlayerPool {
     }
 
     private func saveProgress(force: Bool = true) {
-        guard let currentID, let item = items.first(where: { $0.id == currentID }),
+        guard preloadingID == nil, let currentID, let item = items.first(where: { $0.id == currentID }),
               let episode = item.firstEpisode, let player = players[currentID],
               let duration = player.currentItem?.duration.seconds, duration.isFinite, duration > 0 else { return }
         let seconds = player.currentTime().seconds

@@ -24,7 +24,9 @@ enum AppRoute: Hashable { case drama(Drama), shortDrama(Drama) }
 struct PlaybackRequest: Identifiable {
     let drama: Drama
     let episode: Episode
-    var id: String { "\(drama.id):\(episode.id)" }
+    var startsFromBeginning = false
+    var preparation: PlaybackPreparation?
+    var id: String { "\(drama.id):\(episode.id.isEmpty ? String(episode.number) : episode.id)" }
 }
 
 @MainActor @Observable
@@ -37,6 +39,12 @@ final class AppRouter {
     func openPlayback(_ drama: Drama, episode: Episode? = nil) {
         playback = PlaybackRequest(drama: drama, episode: episode ??
             Episode(id: "", number: 1, title: "第1集", requiresMembership: false))
+    }
+
+    func openPlayback(_ drama: Drama, episodeNumber: Int, preparation: PlaybackPreparation? = nil) {
+        playback = PlaybackRequest(drama: drama,
+            episode: Episode(id: "", number: episodeNumber, title: "第\(episodeNumber)集", requiresMembership: false),
+            startsFromBeginning: true, preparation: preparation)
     }
 
     func path(for tab: AppTab) -> Binding<[AppRoute]> {

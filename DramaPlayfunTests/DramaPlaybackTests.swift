@@ -37,6 +37,12 @@ final class DramaPlaybackTests: XCTestCase {
         pool.update(items: items, selectedID: "1", visible: true)
         try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(350))
         XCTAssertEqual(loadedIDs, ["1"], "Next-episode prefetch must not compete with a still-loading foreground episode")
+        let first = pool.player(for: "1")
+        pool.prioritizeContinuation(true)
+        XCTAssertEqual(Set(pool.players.keys), ["1"], "Continuation preloading must release competing theater neighbors")
+        pool.prioritizeContinuation(false)
+        XCTAssertTrue(pool.player(for: "1") === first)
+        XCTAssertEqual(Set(pool.players.keys), ["1", "2"], "Canceling the continuation must restore normal neighbor preparation")
         pool.update(items: items, selectedID: "2", visible: true)
         try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(350))
         XCTAssertEqual(loadedIDs, ["1", "2"], "Swiping makes the selected episode load without waiting for its neighbor")
@@ -84,6 +90,14 @@ final class DramaPlaybackTests: XCTestCase {
         XCTAssertEqual(store.initialID(request: router.playback!), "1002")
         router.openPlayback(drama, episode: store.items[0].firstEpisode)
         XCTAssertEqual(store.initialID(request: router.playback!), "1001", "Explicit episode selection overrides resume history")
+        library.save(WatchProgress(dramaID: drama.id, episodeID: "1003", episodeNumber: 3,
+            seconds: 20, duration: 60, updatedAt: Date()))
+        router.openPlayback(drama, episodeNumber: 2)
+        XCTAssertEqual(store.initialID(request: router.playback!), "1002", "A completed theater preview must continue with episode 2 regardless of history")
+        XCTAssertTrue(router.playback!.startsFromBeginning)
+        router.openPlayback(drama)
+        XCTAssertEqual(store.initialID(request: router.playback!), "1003", "Ordinary entry must still resume history")
+        XCTAssertFalse(router.playback!.startsFromBeginning)
     }
 
     func testEpisodePageRangesCoverFinalPartialPage() {

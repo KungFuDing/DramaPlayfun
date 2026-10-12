@@ -34,11 +34,20 @@ struct PlayerView: View {
 
     init(request: PlaybackRequest, app: AppContainer) {
         self.request = request
+        if let preparation = request.preparation {
+            _store = State(initialValue: preparation.store)
+            _playback = State(initialValue: preparation.playback)
+            let loaded = !preparation.store.items.isEmpty
+            _isReady = State(initialValue: loaded)
+            _selectedID = State(initialValue: preparation.store.initialID(request: request))
+            _completedAttempt = State(initialValue: loaded ? 0 : nil)
+            return
+        }
         let store = DramaPlaybackStore(drama: request.drama, network: app.network,
             repository: app.repository, library: app.library)
         _store = State(initialValue: store)
         _playback = State(initialValue: TheaterPlayerPool(library: app.library, cache: app.hlsCache,
-            progressReporter: TheaterProgressReporter(network: app.network), resumesProgress: true,
+            progressReporter: TheaterProgressReporter(network: app.network), resumesProgress: !request.startsFromBeginning,
             refreshURLs: { item in try await store.refreshPlaybackURLs(for: item) }))
     }
 
@@ -125,10 +134,21 @@ struct PlayerView: View {
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .task(id: attempt) {
-            if isReady && completedAttempt == attempt { updatePlayback(); return }
+            if isReady && completedAttempt == attempt {
+                presentUnlockIfNeeded()
+                updatePlayback()
+                return
+            }
             isReady = false
-            playback.reset()
-            await store.load()
+            if attempt == 0, let preparation = request.preparation {
+                await preparation.load()
+                // A speculative request can fail; entry gets one normal loading attempt.
+                if store.items.isEmpty && !Task.isCancelled { await store.load() }
+            } else {
+                playback.reset()
+                await store.load()
+            }
+            guard !Task.isCancelled else { return }
             selectedID = store.initialID(request: request)
             isReady = true
             completedAttempt = attempt

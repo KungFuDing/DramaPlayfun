@@ -20,6 +20,8 @@ final class AppContainer {
     let theaterPlayback: TheaterPlayerPool
     let membership: MembershipStore
     let profile: ProfileStore
+    let wallet: WalletStore
+    let welfare: WelfareStore
 
     init(network: APIClient? = nil,
          repository: (any DramaRepository)? = nil,
@@ -29,7 +31,8 @@ final class AppContainer {
         let fixture = (ProcessInfo.processInfo.arguments.contains("-ProfileUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-TheaterUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-FeedUITestFixture") ||
-                       ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture"))
+                       ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture") ||
+                       ProcessInfo.processInfo.arguments.contains("-WelfareUITestFixture"))
             ? Self.theaterUITestClient() : nil
         #endif
         self.network = network ?? {
@@ -46,6 +49,8 @@ final class AppContainer {
         }()
         guestSession = GuestSessionStore(network: self.network, defaults: defaults)
         profile = ProfileStore(network: self.network)
+        wallet = WalletStore(network: self.network, profile: profile)
+        welfare = WelfareStore(network: self.network, wallet: wallet)
         let repository = repository ?? APIDramaRepository(network: self.network,
                                                           fallback: DemoDramaRepository())
         self.repository = repository
@@ -65,6 +70,7 @@ final class AppContainer {
 
     #if DEBUG
     private static func theaterUITestClient() -> APIClient {
+        let welfareAccount = WelfareUITestAccount()
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             let response: String
             switch target.path {
@@ -73,8 +79,57 @@ final class AppContainer {
             case "/mobile/v1/client/me":
                 let vip = ProcessInfo.processInfo.arguments.contains("-ProfileVIPUITestFixture")
                 response = String(data: try! JSONSerialization.data(withJSONObject: ["code": 200, "data":
-                    ["userNo": "143143257", "nickname": "晚风放映厅", "coinAmount": 360,
+                    ["userNo": "143143257", "nickname": "晚风放映厅",
+                     "coinAmount": ProcessInfo.processInfo.arguments.contains("-WelfareUITestFixture") ? welfareAccount.snapshot.balance : 360,
+                     "autoPlayNext": welfareAccount.snapshot.autoPlayNext,
                      "vipExpireAt": vip ? 1893456000000 : 0]]), encoding: .utf8)!
+            case "/mobile/v1/wallet/info":
+                response = "{\"code\":200,\"data\":{\"balanceCoin\":\(welfareAccount.snapshot.balance)}}"
+            case "/mobile/v1/client/me/autoPlayNext/set":
+                let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: String]
+                welfareAccount.setAutoPlay(body?["autoPlayNext"] ?? "on")
+                response = "{\"code\":200,\"data\":{\"autoPlayNext\":\"\(body?["autoPlayNext"] ?? "on")\"}}"
+            case "/mobile/v1/welfare/sign/popup/status":
+                let account = welfareAccount.snapshot
+                response = "{\"code\":200,\"data\":{\"hasReceivedToday\":\(account.signed),\"signDay\":\(account.signed ? account.signDays : account.signDays + 1)}}"
+            case "/mobile/v1/welfare/sign/receive":
+                let received = welfareAccount.signIn()
+                let account = welfareAccount.snapshot
+                response = "{\"code\":200,\"data\":{\"received\":\(received),\"rewardCoin\":30,\"walletBalance\":\(account.balance),\"signDay\":\(account.signDays)}}"
+            case "/mobile/v1/welfare/task/list":
+                let account = welfareAccount.snapshot
+                let rewards: [[String: Any]] = [20, 30, 40, 50, 60, 70, 120].enumerated().map { index, coins in
+                    ["signDay": index + 1, "rewardCoin": coins, "status": index < account.signDays]
+                }
+                let tasks: [[String: Any]] = [
+                    ["taskCode": "daily_sign_in", "signRewards": rewards],
+                    ["taskCode": "share_video", "taskName": "分享视频", "completedCount": 10, "dailyLimit": 10, "rewardCoin": 100],
+                    ["taskCode": "watch_drama", "taskName": "观看视频", "completedCount": 9, "dailyLimit": 15, "rewardCoin": 100],
+                    ["taskCode": "like_video", "taskName": "点赞视频", "completedCount": 0, "dailyLimit": 10, "rewardCoin": 100],
+                    ["taskCode": "collect_video", "taskName": "收藏视频", "completedCount": 0, "dailyLimit": 10, "rewardCoin": 100]]
+                response = String(data: try! JSONSerialization.data(withJSONObject:
+                    ["code": 200, "data": ["continuousSignDays": account.signDays, "list": tasks]]), encoding: .utf8)!
+            case "/mobile/v1/order/recharge/list":
+                let records: [[String: Any]] = (0..<8).map { index in
+                    ["productName": "订阅周会员", "payAmount": 98, "currency": "USD",
+                     "transactionTime": index < 4 ? 1789171200000 : 1791763200000]
+                }
+                response = String(data: try! JSONSerialization.data(withJSONObject:
+                    ["code": 200, "data": ["total": 8, "list": records]]), encoding: .utf8)!
+            case "/mobile/v1/wallet/bill/list":
+                let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Any]
+                let expense = body?["billType"] as? String == "expense"
+                let groups: [[String: Any]] = ["2026-09", "2026-10"].enumerated().map { month, yearMonth in
+                    let records: [[String: Any]] = (0..<4).map { index in
+                        ["bizType": expense ? "unlock_episode" : "reward",
+                         "sourceTitle": expense ? (index == 1 ? "我的女儿谁害的我的女儿谁害的我的女儿" : "我的女儿谁害的") : ["充值500金币", "充值500金币", "观看视频", "点赞视频"][index],
+                         "episodeNo": index == 1 ? 12 : 2, "changeCoin": expense ? -20 : 100,
+                         "createdAt": month == 0 ? 1789171200000 : 1791763200000]
+                    }
+                    return ["yearMonth": yearMonth, "items": records]
+                }
+                response = String(data: try! JSONSerialization.data(withJSONObject:
+                    ["code": 200, "data": ["total": 8, "list": groups]]), encoding: .utf8)!
             case "/mobile/v1/client/app/config":
                 response = #"{"code":200,"data":{"customerServiceEmail":"contact@idoltimeltd.co.uk","privacyPolicyUrl":"https://example.invalid/privacy","userAgreementUrl":"https://example.invalid/terms"}}"#
             case "/mobile/v1/client/language/list":

@@ -457,9 +457,9 @@
 				DEBUG_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyTm8iOiI5NjExMjY4MjE3Iiwibmlja25hbWUiOiLlm7Top4Lpq5jog73njKvnjKsiLCJpc3MiOiJtb2JpbGUtYXV0aCIsInN1YiI6Ijk2MTEyNjgyMTciLCJuYmYiOjE3OTA2NjQzNzUsImlhdCI6MTc5MDY2NDM3NSwianRpIjoiYWNjZXNzLTE3OTA2NjQzNzUxOTU3MjA4OTMifQ.A1zC6bC-UudB-DO1AON6ej2ffXWotWrF7gyDfO117c8";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
+				EXCLUDED_SOURCE_FILE_NAMES = PlaybackProgressFixture.mp4;
 				GENERATE_INFOPLIST_FILE = YES;
 				HLS_SHARED_SECRET = "";
-				EXCLUDED_SOURCE_FILE_NAMES = PlaybackProgressFixture.mp4;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

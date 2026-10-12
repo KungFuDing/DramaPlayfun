@@ -111,7 +111,7 @@ struct ProfileView: View {
     private var shortcuts: some View {
         HStack(spacing: 14) {
             VStack(spacing: 10) {
-                Button { message = "福利活动即将上线" } label: {
+                NavigationLink { WelfareView() } label: {
                     VStack(alignment: .leading, spacing: 7) {
                         HStack(spacing: 4) {
                             Text("福利").font(.system(size: 14, weight: .medium))
@@ -120,7 +120,7 @@ struct ProfileView: View {
                         }
                         Text("去领取海量金币").font(.system(size: 12)).foregroundStyle(Color(white: 0.5))
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                }.frame(height: 72).profileShortcutBackground()
+                }.frame(height: 72).profileShortcutBackground().accessibilityIdentifier("profile-welfare")
                 NavigationLink { ProfileHistoryView() } label: {
                     VStack(alignment: .leading, spacing: 7) {
                         HStack(spacing: 4) { Text("历史记录").font(.system(size: 14, weight: .medium)); chevron }
@@ -129,14 +129,16 @@ struct ProfileView: View {
                 }.frame(height: 72).profileShortcutBackground().accessibilityIdentifier("profile-history")
             }
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 4) { Text("我的钱包").font(.system(size: 14, weight: .medium)); chevron }
+                NavigationLink { WalletView() } label: {
+                    HStack(spacing: 4) { Text("我的钱包").font(.system(size: 14, weight: .medium)); chevron; Spacer() }
+                }.accessibilityIdentifier("profile-wallet")
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Image("ProfileCoin").resizable().frame(width: 21, height: 21).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
                     Text(app.profile.profile.coinAmount.map(String.init) ?? "—").font(.system(size: 21, weight: .medium))
                     Text("金币").font(.system(size: 12)).foregroundStyle(Color(white: 0.5))
                 }.padding(.top, 15)
                 Spacer()
-                Button { message = "金币充值即将上线" } label: {
+                NavigationLink { WalletView() } label: {
                     Text("充值").font(.system(size: 15, weight: .medium)).foregroundStyle(Color(white: 0.2))
                         .frame(maxWidth: .infinity).frame(height: 33).background(Theme.accent, in: Capsule())
                 }

@@ -165,7 +165,8 @@ struct PlayerView: View {
         }
         .task(id: mediaItemID) { await loadSubtitleOptions() }
         .onChange(of: playback.hasEnded) { _, ended in
-            guard ended, isVisible, let index = store.items.firstIndex(where: { $0.id == selectedID }),
+            guard ended, isVisible, app.profile.autoPlaysNext,
+                  let index = store.items.firstIndex(where: { $0.id == selectedID }),
                   store.items.indices.contains(index + 1) else { return }
             selectedID = store.items[index + 1].id
         }

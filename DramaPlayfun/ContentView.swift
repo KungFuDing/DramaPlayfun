@@ -73,6 +73,7 @@ struct ContentView: View {
             } }
         }
         .task { await app.catalog.loadIfNeeded() }
+        .task { await app.profile.reloadProfile() }
         .task { await app.membership.observeTransactions() }
         .task(id: scenePhase) {
             if scenePhase == .active { await app.membership.refresh() }

@@ -29,6 +29,15 @@ final class ProfileStore {
     init(network: APIClient) { self.network = network }
 
     var nickname: String { profile.nickname.flatMap { $0.isEmpty ? nil : $0 } ?? "短剧爱好者" }
+    var autoPlaysNext: Bool { profile.autoPlayNext != "off" }
+
+    func setAutoPlayNext(_ enabled: Bool) async throws {
+        let result = try await network.request(AppAPI.v1ClientMeAutoPlayNextSet,
+            body: .init(autoPlayNext: enabled ? "on" : "off"), unwrapEnvelope: true)
+        profile.autoPlayNext = result.autoPlayNext ?? (enabled ? "on" : "off")
+    }
+
+    func updateCoinBalance(_ balance: Int64) { profile.coinAmount = balance }
     var hasVIP: Bool {
         guard let expiry = profile.vipExpireAt else { return false }
         return Date(timeIntervalSince1970: Double(expiry) / 1000) > Date()

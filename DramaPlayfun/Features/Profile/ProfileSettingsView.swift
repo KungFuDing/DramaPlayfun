@@ -27,7 +27,8 @@ struct ProfileSettingsView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Button { dismiss() } label: {
-                    Image(systemName: "chevron.left").font(.system(size: 21, weight: .light))
+                    Image("SettingsBack").renderingMode(.original).resizable().scaledToFit()
+                        .frame(width: 22, height: 22)
                         .frame(width: 22, height: 44)
                 }.accessibilityLabel("返回").accessibilityIdentifier("settings-back")
                 Text("设置").font(.system(size: 18, weight: .semibold))
@@ -35,20 +36,20 @@ struct ProfileSettingsView: View {
             }.padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 18)
             ScrollView {
                 VStack(spacing: 10) {
-                    SettingsRow(title: "清理缓存", icon: "paintbrush", detail: clearingCache ? "清理中…" : "\(cacheBytes / 1_000_000)mb") {
+                    SettingsRow(title: "清理缓存", icon: "SettingsCache", detail: clearingCache ? "清理中…" : "\(cacheBytes / 1_000_000)mb") {
                         Task { await clearCache() }
                     }.disabled(clearingCache).frame(height: 48)
                         .background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 12))
                     VStack(spacing: 0) {
-                        SettingsRow(title: "联系客服", icon: "headphones") { panel = .contact }
+                        SettingsRow(title: "联系客服", icon: "SettingsContact") { panel = .contact }
                         rowDivider
-                        SettingsRow(title: "语言切换", icon: "globe") { panel = .language }
+                        SettingsRow(title: "语言切换", icon: "SettingsLanguage") { panel = .language }
                         rowDivider
-                        SettingsRow(title: "隐私政策", icon: "checkmark.shield") { openDocument(app.profile.config.privacyPolicyUrl, title: "隐私政策") }
+                        SettingsRow(title: "隐私政策", icon: "SettingsPrivacy") { openDocument(app.profile.config.privacyPolicyUrl, title: "隐私政策") }
                         rowDivider
-                        SettingsRow(title: "用户协议", icon: "text.bubble") { openDocument(app.profile.config.userAgreementUrl, title: "用户协议") }
+                        SettingsRow(title: "用户协议", icon: "SettingsAgreement") { openDocument(app.profile.config.userAgreementUrl, title: "用户协议") }
                         rowDivider
-                        SettingsRow(title: "注销账号", icon: "power") { panel = .deactivate }
+                        SettingsRow(title: "注销账号", icon: "SettingsDeactivate") { panel = .deactivate }
                     }.background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 12))
                 }.padding(.horizontal, 12)
             }.scrollIndicators(.hidden)
@@ -109,8 +110,8 @@ private struct SettingsRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: icon).font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(Color(white: 0.67)).frame(width: 20)
+                Image(icon).renderingMode(.original).resizable().scaledToFit()
+                    .frame(width: 16, height: 16).frame(width: 20).accessibilityHidden(true)
                 Text(title).font(.system(size: 16))
                 Spacer()
                 if let detail { Text(detail).font(.system(size: 13)).foregroundStyle(Color(white: 0.58)) }

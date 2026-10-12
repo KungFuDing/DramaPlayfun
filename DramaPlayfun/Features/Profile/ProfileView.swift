@@ -213,9 +213,10 @@ private extension View {
 }
 
 struct ProfileDramaCard: View {
+    @Environment(AppRouter.self) private var router
     let drama: Drama
     var body: some View {
-        NavigationLink(value: AppRoute.shortDrama(drama)) {
+        Button { router.openPlayback(drama) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 CachedRemoteImage(url: drama.coverURL) {
                     Rectangle().fill(Theme.surface).overlay { Image(systemName: "film").foregroundStyle(Theme.accent) }

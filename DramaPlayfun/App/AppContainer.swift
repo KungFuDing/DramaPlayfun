@@ -58,7 +58,8 @@ final class AppContainer {
         library = LibraryStore(defaults: defaults)
         hlsCache = .shared
         theaterPlayback = TheaterPlayerPool(library: library, cache: hlsCache,
-            progressReporter: TheaterProgressReporter(network: self.network))
+            progressReporter: TheaterProgressReporter(network: self.network),
+            refreshURLs: { [theaterFeed] item in try await theaterFeed.refreshPlaybackURLs(for: item) })
         membership = MembershipStore(service: subscriptions ?? StoreKitSubscriptionService(productIDs: []))
     }
 

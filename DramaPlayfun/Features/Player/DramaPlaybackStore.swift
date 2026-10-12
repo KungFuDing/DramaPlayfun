@@ -9,6 +9,7 @@ final class DramaPlaybackStore {
     private(set) var likingIDs: Set<String> = []
     private(set) var isFavoriting = false
     private let network: APIClient
+    private let urlRefresher: PlaybackURLRefresher
     private let repository: any DramaRepository
     private let library: LibraryStore
     let drama: Drama
@@ -16,8 +17,23 @@ final class DramaPlaybackStore {
     init(drama: Drama, network: APIClient, repository: any DramaRepository, library: LibraryStore) {
         self.drama = drama
         self.network = network
+        urlRefresher = PlaybackURLRefresher(network: network)
         self.repository = repository
         self.library = library
+    }
+
+    func refreshPlaybackURLs(for item: TheaterFeedItem) async throws -> [TheaterFeedItem] {
+        let snapshot = items
+        let urls = try await urlRefresher.refresh(snapshot, requiredID: item.firstEpisode?.id)
+        try Task.checkCancellation()
+        for index in items.indices {
+            let episodeID = items[index].firstEpisode?.id ?? ""
+            guard let url = urls[episodeID],
+                  snapshot.contains(where: { $0.id == items[index].id && $0.videoURL == items[index].videoURL }),
+                  items[index].firstEpisode?.requiresCoinUnlock == false else { continue }
+            items[index].videoURL = url
+        }
+        return items
     }
 
     func load() async {

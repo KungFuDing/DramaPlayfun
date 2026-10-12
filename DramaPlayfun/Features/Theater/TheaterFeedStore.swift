@@ -4,7 +4,7 @@ import Observation
 struct TheaterFeedItem: Identifiable {
     let drama: Drama
     let firstEpisode: Episode?
-    let videoURL: URL?
+    var videoURL: URL?
     var firstEpisodeLikeCount: Int
     var isFirstEpisodeLiked: Bool
     var isFavorited: Bool
@@ -33,11 +33,28 @@ final class TheaterFeedStore {
     private(set) var favoritingIDs: Set<Drama.ID> = []
 
     private let network: APIClient
+    private let urlRefresher: PlaybackURLRefresher
     private let pageSize = 20
     private var page = 0
     private var generation = 0
 
-    init(network: APIClient) { self.network = network }
+    init(network: APIClient) {
+        self.network = network
+        urlRefresher = PlaybackURLRefresher(network: network)
+    }
+
+    func refreshPlaybackURLs(for item: TheaterFeedItem) async throws -> [TheaterFeedItem] {
+        guard let current = items.first(where: { $0.id == item.id }),
+              current.firstEpisode?.number == 1 else { throw CatalogError.notFound }
+        let requestGeneration = generation
+        let urls = try await urlRefresher.refresh([current], requiredID: current.firstEpisode?.id)
+        try Task.checkCancellation()
+        guard requestGeneration == generation else { throw CancellationError() }
+        for index in items.indices where items[index].id == current.id && items[index].videoURL == current.videoURL {
+            items[index].videoURL = urls[items[index].firstEpisode?.id ?? ""]
+        }
+        return items
+    }
 
     func loadIfNeeded() async {
         guard !hasLoaded else { return }

@@ -7,7 +7,6 @@ struct TheaterView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedID: Drama.ID?
     @State private var shareItem: TheaterFeedItem?
-    @State private var retryingPlayback = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -32,7 +31,7 @@ struct TheaterView: View {
                                     playback: app.theaterPlayback,
                                     isActive: selectedID == item.id && isTheaterVisible,
                                     topInset: geometry.safeAreaInsets.top,
-                                    onRetry: { Task { await retryPlayback() } },
+                                    onRetry: { app.theaterPlayback.retry(item.id) },
                                     onEpisodes: { router.openPlayback(item.drama, episode: item.firstEpisode) },
                                     onShare: { shareItem = item },
                                     onDetail: { router.paths[.theater, default: []].append(.shortDrama(item.drama)) }
@@ -94,18 +93,6 @@ struct TheaterView: View {
         "\(selectedID ?? "none")|\(isTheaterVisible)|\(app.theaterFeed.items.map(\.id).joined(separator: ","))"
     }
 
-    private func retryPlayback() async {
-        guard !retryingPlayback else { return }
-        retryingPlayback = true
-        defer { retryingPlayback = false }
-        await app.theaterFeed.reload()
-        app.theaterPlayback.reset()
-        if !app.theaterFeed.items.contains(where: { $0.id == selectedID }) {
-            selectedID = app.theaterFeed.items.first?.id
-        }
-        app.theaterPlayback.update(items: app.theaterFeed.items,
-                                   selectedID: selectedID, visible: isTheaterVisible)
-    }
 }
 
 struct TheaterVideoPage: View {

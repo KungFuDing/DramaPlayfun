@@ -4,6 +4,21 @@ import Moya
 
 @MainActor
 final class DramaPlaybackTests: XCTestCase {
+    func testPreloadRequiresBandwidthHeadroomAndBufferAtPlaybackRate() {
+        XCTAssertFalse(TheaterPlayerPool.hasPreloadCapacity(bufferedSeconds: 15, remaining: 60,
+            rate: 1, observedBitrate: 500_000, requiredBitrate: 400_000),
+            "An existing buffer must not hide a connection too slow to load two videos")
+        XCTAssertTrue(TheaterPlayerPool.hasPreloadCapacity(bufferedSeconds: 15, remaining: 60,
+            rate: 1, observedBitrate: 1_000_000, requiredBitrate: 400_000))
+        XCTAssertFalse(TheaterPlayerPool.hasPreloadCapacity(bufferedSeconds: 15, remaining: 60,
+            rate: 3, observedBitrate: 1_000_000, requiredBitrate: 400_000),
+            "Fast playback consumes the buffer sooner and needs more bandwidth")
+        XCTAssertFalse(TheaterPlayerPool.hasPreloadCapacity(bufferedSeconds: 2, remaining: 60,
+            rate: 1, observedBitrate: 10_000_000, requiredBitrate: 400_000))
+        XCTAssertTrue(TheaterPlayerPool.hasPreloadCapacity(bufferedSeconds: 3, remaining: 3,
+            rate: 1, observedBitrate: 500_000, requiredBitrate: 400_000),
+            "A fully buffered ending can preload the next video without delaying playback")
+    }
     func testForegroundPreparationPrecedesPreloadAndHiddenPagesDoNotFetch() async throws {
         var loadedIDs: [String] = []
         let pool = TheaterPlayerPool(library: LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),

@@ -4,6 +4,23 @@ import Network
 import ObjectiveC
 import OSLog
 
+/// Set by the CDN transport, including segment failures that AVPlayer may only report as a stall.
+nonisolated final class HLSAuthorizationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var expired = false
+    var isExpired: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return expired
+    }
+    func record(status: Int) {
+        guard status == 401 || status == 403 else { return }
+        lock.lock()
+        expired = true
+        lock.unlock()
+    }
+}
+
 /// Proxies HLS only on the loopback interface so every CDN request carries X-Media-Token.
 /// AES-128 key requests are answered locally; encrypted media bytes remain encrypted in transit.
 final class HLSLocalGateway: @unchecked Sendable {
@@ -16,6 +33,7 @@ final class HLSLocalGateway: @unchecked Sendable {
         let token: String
         let key: Data
         let kind: Kind
+        let authorization: HLSAuthorizationState
     }
 
     private let lock = NSLock()
@@ -61,12 +79,17 @@ final class HLSLocalGateway: @unchecked Sendable {
         let key = try HLSPlaybackKey.derive(identity, secret: secret)
         let port = try await readyPort()
         let group = UUID()
+        let authorization = HLSAuthorizationState()
         let path = register(Route(group: group, remoteURL: remoteURL, token: token,
-                                  key: key, kind: .manifest), suffix: "m3u8")
+                                  key: key, kind: .manifest, authorization: authorization), suffix: "m3u8")
         let asset = AVURLAsset(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
-        objc_setAssociatedObject(asset, &Self.leaseKey, Lease(gateway: self, group: group),
+        objc_setAssociatedObject(asset, &Self.leaseKey, Lease(gateway: self, group: group, authorization: authorization),
                                  .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return asset
+    }
+
+    static func authorizationExpired(for asset: AVAsset) -> Bool {
+        (objc_getAssociatedObject(asset, &leaseKey) as? Lease)?.authorization.isExpired == true
     }
 
     static func mediaToken(from url: URL) -> String? {
@@ -200,7 +223,7 @@ final class HLSLocalGateway: @unchecked Sendable {
         }
         if route.kind == .media {
             upstream.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-            mediaTransport.start(upstream, group: route.group, connection: connection)
+            mediaTransport.start(upstream, group: route.group, connection: connection, authorization: route.authorization)
             return
         }
         do {
@@ -209,6 +232,7 @@ final class HLSLocalGateway: @unchecked Sendable {
             let (body, response) = try await mediaTransport.data(for: upstream)
             trace("upstream received")
             guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+            route.authorization.record(status: http.statusCode)
             logger.debug("manifest status=\(http.statusCode) bytes=\(body.count) ms=\(Int(Date().timeIntervalSince(started) * 1000))")
             guard (200..<300).contains(http.statusCode) else {
                 send(Data(), status: http.statusCode, contentType: "text/plain", to: connection)
@@ -233,7 +257,7 @@ final class HLSLocalGateway: @unchecked Sendable {
                line.contains("METHOD=AES-128") {
                 return replacingURIs(in: line) { _ in
                     let path = register(Route(group: route.group, remoteURL: nil, token: route.token,
-                                              key: route.key, kind: .key), suffix: "key")
+                                              key: route.key, kind: .key, authorization: route.authorization), suffix: "key")
                     return "http://127.0.0.1:\(currentPort())\(path)"
                 }
             }
@@ -262,7 +286,7 @@ final class HLSLocalGateway: @unchecked Sendable {
         let kind: Kind = ["m3u8", "m3u"].contains(url.pathExtension.lowercased()) ? .manifest : .media
         let suffix = kind == .manifest ? "m3u8" : (url.pathExtension.isEmpty ? "bin" : url.pathExtension)
         let path = register(Route(group: route.group, remoteURL: url, token: route.token,
-                                  key: route.key, kind: kind), suffix: suffix)
+                                  key: route.key, kind: kind, authorization: route.authorization), suffix: suffix)
         return "http://127.0.0.1:\(currentPort())\(path)"
     }
 
@@ -288,7 +312,10 @@ final class HLSLocalGateway: @unchecked Sendable {
     private final class Lease {
         let gateway: HLSLocalGateway
         let group: UUID
-        init(gateway: HLSLocalGateway, group: UUID) { self.gateway = gateway; self.group = group }
+        let authorization: HLSAuthorizationState
+        init(gateway: HLSLocalGateway, group: UUID, authorization: HLSAuthorizationState) {
+            self.gateway = gateway; self.group = group; self.authorization = authorization
+        }
         deinit { gateway.release(group) }
     }
 }

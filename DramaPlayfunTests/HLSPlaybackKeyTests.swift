@@ -5,6 +5,87 @@ import Network
 
 final class HLSPlaybackKeyTests: XCTestCase {
     @MainActor
+    func testExpiredManifestRenewsAndPreservesPositionAndPauseState() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
+        let server = try HLSFixtureServer(directory: directory)
+        let ready = expectation(description: "Renewal fixture ready")
+        server.listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+        server.listener.start(queue: server.queue)
+        defer { server.listener.cancel() }
+        await fulfillment(of: [ready], timeout: 5)
+        let port = try XCTUnwrap(server.listener.port).rawValue
+        let drama = Drama(id: "107", title: "续期测试", summary: "", category: .drama,
+            episodeCount: 1, heat: 0, badge: nil, coverURL: nil, rootDramaID: 107)
+        let feedItem = TheaterFeedItem(drama: drama,
+            firstEpisode: Episode(id: "2531", number: 1, title: "", requiresMembership: false),
+            videoURL: URL(string: "http://127.0.0.1:\(port)/master.m3u8?X-Media-Token=expired"),
+            firstEpisodeLikeCount: 0, isFirstEpisodeLiked: false, isFavorited: false)
+        var renewals = 0
+        let pool = TheaterPlayerPool(library: LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            cache: .shared, assetLoader: { item in
+                try await HLSLocalGateway.shared.asset(remoteURL: item.videoURL!,
+                    identity: item.keyIdentity!, secret: Data("test-secret".utf8))
+            }, refreshURLs: { item in
+                renewals += 1
+                var renewed = item
+                renewed.videoURL = URL(string: "http://127.0.0.1:\(port)/master.m3u8?X-Media-Token=fixture-token")
+                return [renewed]
+            })
+        defer { pool.reset() }
+        pool.update(items: [feedItem], selectedID: feedItem.id, visible: true)
+        for _ in 0..<200 where pool.states[feedItem.id] != .ready { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(pool.states[feedItem.id], .ready)
+        XCTAssertEqual(renewals, 1)
+        XCTAssertTrue(server.unauthorizedPaths.contains(where: { $0.contains("expired") }))
+        let player = try XCTUnwrap(pool.player(for: feedItem.id))
+        let layer = AVPlayerLayer(player: player)
+        layer.frame = CGRect(x: 0, y: 0, width: 160, height: 240)
+        let window = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first(where: \.isKeyWindow))
+        window.layer.addSublayer(layer)
+        defer { layer.removeFromSuperlayer(); layer.player = nil }
+        pool.toggle()
+        XCTAssertTrue(pool.beginScrubbing(feedItem.id))
+        pool.endScrubbing(feedItem.id, fraction: 0.25)
+        for _ in 0..<200 where pool.isScrubbing { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertFalse(pool.isScrubbing)
+        let position = player.currentTime().seconds
+        pool.retry(feedItem.id)
+        for _ in 0..<200 where pool.states[feedItem.id] != .ready { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(renewals, 2)
+        XCTAssertEqual(pool.states[feedItem.id], .ready)
+        XCTAssertTrue(pool.player(for: feedItem.id) === player)
+        XCTAssertEqual(player.currentTime().seconds, position, accuracy: 0.1)
+        XCTAssertTrue(pool.isPaused)
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertEqual(pool.playerCount, 1)
+    }
+
+    @MainActor
+    func testExpiredSegmentIsRecordedBeforeAVPlayerReportsFailure() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
+        let server = try HLSFixtureServer(directory: directory, rejectMedia: true)
+        let ready = expectation(description: "Expired segment fixture ready")
+        server.listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+        server.listener.start(queue: server.queue)
+        defer { server.listener.cancel() }
+        await fulfillment(of: [ready], timeout: 5)
+        let port = try XCTUnwrap(server.listener.port).rawValue
+        let asset = try await HLSLocalGateway.shared.asset(
+            remoteURL: URL(string: "http://127.0.0.1:\(port)/master.m3u8?X-Media-Token=fixture-token")!,
+            identity: HLSKeyIdentity(rootDramaID: 107, episodeID: 2531), secret: Data("test-secret".utf8))
+        let (master, _) = try await URLSession.shared.data(from: asset.url)
+        let playlistURL = try XCTUnwrap(String(decoding: master, as: UTF8.self).components(separatedBy: .newlines)
+            .first { $0.hasPrefix("http://") }.flatMap(URL.init(string:)))
+        let (playlist, _) = try await URLSession.shared.data(from: playlistURL)
+        let segmentURL = try XCTUnwrap(String(decoding: playlist, as: UTF8.self).components(separatedBy: .newlines)
+            .first { $0.hasPrefix("http://") }.flatMap(URL.init(string:)))
+        XCTAssertFalse(HLSLocalGateway.authorizationExpired(for: asset))
+        let (_, response) = try await URLSession.shared.data(from: segmentURL)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 403)
+        XCTAssertTrue(HLSLocalGateway.authorizationExpired(for: asset))
+    }
+    @MainActor
     func testScrubbingSeeksSavesProgressAndPreservesPauseState() async throws {
         let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
         let server = try HLSFixtureServer(directory: directory)
@@ -275,6 +356,7 @@ private final class HLSFixtureServer {
     private let disconnectMediaOnce: Bool
     private var disconnectedMedia = false
     private var sentMediaTail = false
+    private let rejectMedia: Bool
 
     var hasSentMediaTail: Bool {
         lock.lock()
@@ -295,11 +377,12 @@ private final class HLSFixtureServer {
     }
 
     init(directory: URL, mediaTailDelay: TimeInterval = 0, chunkedMedia: Bool = false,
-         disconnectMediaOnce: Bool = false) throws {
+         disconnectMediaOnce: Bool = false, rejectMedia: Bool = false) throws {
         self.directory = directory
         self.mediaTailDelay = mediaTailDelay
         self.chunkedMedia = chunkedMedia
         self.disconnectMediaOnce = disconnectMediaOnce
+        self.rejectMedia = rejectMedia
         listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { return }
@@ -312,7 +395,8 @@ private final class HLSFixtureServer {
                 self.paths.append(name)
                 let authorized = firstLine.isEmpty == false &&
                     String(data: data ?? Data(), encoding: .utf8)?
-                        .lowercased().contains("x-media-token: fixture-token") == true
+                        .lowercased().contains("x-media-token: fixture-token") == true &&
+                    !(self.rejectMedia && name.components(separatedBy: "?")[0].hasSuffix(".ts"))
                 if !authorized { self.unauthorized.append(name) }
                 self.lock.unlock()
                 let allowed = ["master.m3u8", "index.m3u8", "seg_00000.ts", "seg_00001.ts",

@@ -67,3 +67,5 @@ Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴�
 Debug 专用请求头从本机 `Config/Debug.local.xcconfig` 注入（可参考 `Config/Debug.local.example.xcconfig`）；启动游客登录后，返回的令牌覆盖 `accessToken` 和 `Authorization: Bearer <token>`；登录完成后再加载业务页面，失败可重试。本机配置文件已忽略提交。Xcode 控制台会脱敏显示 accessToken、deviceId 和 IP。
 
 剧场首集已接入点赞、收藏、观看进度和分享接口。分享弹窗使用接口文案生成二维码，封面、标题和标签合成同一海报，可保存相册或调起系统图片分享。详见 [网络模块接入](接口文档/网络模块接入.md#剧场互动与分享)。
+
+视频授权失效时通过 `POST /mobile/v1/client/XMToken` 续期：剧场首页只刷新当前剧首集，播放详情页批量刷新当前剧所有已有播放地址的集，不改变未解锁集的权限。续期复用播放器并恢复进度和暂停状态，合并并发请求且限制自动重试次数。预加载按当前缓冲与实测带宽放行，缓冲不足时暂停邻页加载；持续缓冲超过 8 秒会用当前地址重新加载一次，普通网络卡顿不调用授权刷新。`PlaybackRenewalTests`、`DramaPlaybackTests`、`HLSPlaybackKeyTests` 覆盖刷新范围、锁定集、并发合并、关闭取消、失败次数、带宽余量、真实加密 HLS 及进度恢复。

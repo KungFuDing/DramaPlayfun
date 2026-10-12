@@ -11,7 +11,8 @@ struct PlaybackProgressBar: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 0.5,
-            paused: !isActive || playback.isPaused || playback.isScrubbing)) { _ in
+            paused: !isActive || playback.states[itemID] != .ready || playback.isPaused ||
+                playback.isScrubbing || playback.isBuffering || playback.hasEnded)) { _ in
             let player = playback.player(for: itemID)
             let duration = player?.currentItem?.duration.seconds ?? 0
             let seconds = player?.currentTime().seconds ?? 0

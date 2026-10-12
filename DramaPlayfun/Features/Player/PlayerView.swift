@@ -34,10 +34,12 @@ struct PlayerView: View {
 
     init(request: PlaybackRequest, app: AppContainer) {
         self.request = request
-        _store = State(initialValue: DramaPlaybackStore(drama: request.drama, network: app.network,
-            repository: app.repository, library: app.library))
+        let store = DramaPlaybackStore(drama: request.drama, network: app.network,
+            repository: app.repository, library: app.library)
+        _store = State(initialValue: store)
         _playback = State(initialValue: TheaterPlayerPool(library: app.library, cache: app.hlsCache,
-            progressReporter: TheaterProgressReporter(network: app.network), resumesProgress: true))
+            progressReporter: TheaterProgressReporter(network: app.network), resumesProgress: true,
+            refreshURLs: { item in try await store.refreshPlaybackURLs(for: item) }))
     }
 
     var body: some View {
@@ -292,7 +294,7 @@ struct PlayerView: View {
 
     private func retry(_ item: TheaterFeedItem) {
         if item.firstEpisode?.requiresCoinUnlock == true { pendingUnlock = item.firstEpisode }
-        else { playback.reset(); updatePlayback() }
+        else { playback.retry(item.id) }
     }
 
     private func submitFeedback(_ episode: Episode, categoryCode: String) async {

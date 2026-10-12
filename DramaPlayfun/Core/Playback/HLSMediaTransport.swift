@@ -18,11 +18,13 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         var rangeStart: Int64 = 0
         var validator: String?
         var retries = 0
+        let authorization: HLSAuthorizationState
 
-        init(group: UUID, connection: NWConnection, task: URLSessionDataTask) {
+        init(group: UUID, connection: NWConnection, task: URLSessionDataTask, authorization: HLSAuthorizationState) {
             self.group = group
             self.connection = connection
             self.task = task
+            self.authorization = authorization
         }
     }
 
@@ -43,10 +45,10 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         session = URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
     }
 
-    func start(_ request: URLRequest, group: UUID, connection: NWConnection) {
+    func start(_ request: URLRequest, group: UUID, connection: NWConnection, authorization: HLSAuthorizationState) {
         let task = session.dataTask(with: request)
         lock.lock()
-        transfers[task.taskIdentifier] = Transfer(group: group, connection: connection, task: task)
+        transfers[task.taskIdentifier] = Transfer(group: group, connection: connection, task: task, authorization: authorization)
         lock.unlock()
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             switch state {
@@ -95,6 +97,7 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
             completionHandler(.cancel)
             return
         }
+        transfer.authorization.record(status: http.statusCode)
         if transfer.retries > 0 {
             let start = transfer.rangeStart + Int64(transfer.receivedBytes)
             let end = transfer.rangeStart + transfer.expectedBytes - 1

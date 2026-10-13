@@ -43,6 +43,7 @@ struct ContentView: View {
                                 ShortDramaDetailView(drama: drama, app: app) { id, favorite, count in
                                     app.theaterFeed.applyFavorite(id, isFavorite: favorite, count: count)
                                 }
+                            case .search: SearchView(network: app.network)
                             }
                         }
                 }

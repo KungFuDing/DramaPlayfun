@@ -32,7 +32,8 @@ final class AppContainer {
                        ProcessInfo.processInfo.arguments.contains("-TheaterUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-FeedUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture") ||
-                       ProcessInfo.processInfo.arguments.contains("-WelfareUITestFixture"))
+                       ProcessInfo.processInfo.arguments.contains("-WelfareUITestFixture") ||
+                       ProcessInfo.processInfo.arguments.contains("-SearchUITestFixture"))
             ? Self.theaterUITestClient() : nil
         #endif
         self.network = network ?? {
@@ -72,6 +73,7 @@ final class AppContainer {
     #if DEBUG
     private static func theaterUITestClient() -> APIClient {
         let welfareAccount = WelfareUITestAccount()
+        var searchHistory = ["重生之我和白月光", "不是哥们,你开局玩这么大", "炎帝", "我是祖国人", "都市甜宠", "白月光的日常生活", "重生", "我以异能斩规则"]
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             let response: String
             switch target.path {
@@ -188,11 +190,30 @@ final class AppContainer {
             case "/mobile/v1/theater/home":
                 response = #"{"code":200,"data":{"banners":[{"id":31,"dramaTitle":"推荐测试"}],"rank":[{"dramaId":41,"dramaTitle":"今日片刻甲","lastEpisodeNo":3},{"dramaId":42,"dramaTitle":"今日片刻乙"},{"dramaId":43,"dramaTitle":"今日片刻丙"},{"dramaId":44,"dramaTitle":"第四项不展示"}],"list":[{"categoryName":"最新发布","list":[{"dramaId":31,"dramaTitle":"推荐测试"}]}]}}"#
             case "/mobile/v1/theater/home/hot/page":
-                if ProcessInfo.processInfo.arguments.contains("-WaterfallUITestFixture") {
+                if ProcessInfo.processInfo.arguments.contains("-SearchUITestFixture") {
+                    response = #"{"code":200,"data":{"hasMore":false,"list":[{"dramaId":31,"dramaTitle":"重生之我和白月光","tagNames":["剧情","都市","甜宠"],"badge":"new"},{"dramaId":32,"dramaTitle":"重生之我和白月光的日常生活","tagNames":["剧情","都市","甜宠"],"badge":"new"},{"dramaId":33,"dramaTitle":"重生之我和白月光的日常生活","tagNames":["剧情","都市","甜宠"],"badge":"hot"},{"dramaId":34,"dramaTitle":"重生之我和白月光","tagNames":["剧情","都市","甜宠"]}]}}"#
+                } else if ProcessInfo.processInfo.arguments.contains("-WaterfallUITestFixture") {
                     response = #"{"code":200,"data":{"hasMore":false,"list":[{"dramaId":31,"dramaTitle":"短标题","tagNames":["剧情","都市","甜宠"]},{"dramaId":32,"dramaTitle":"这是一个需要换行展示的较长短剧标题","tagNames":["剧情","甜宠"]},{"dramaId":33,"dramaTitle":"第二个短标题","tagNames":["都市"]},{"dramaId":34,"dramaTitle":"另一部需要两行展示名称的短剧","tagNames":["剧情","都市","甜宠"]},{"dramaId":35,"dramaTitle":"第三个短标题"},{"dramaId":36,"dramaTitle":"长标题继续测试瀑布流的固定间距"}]}}"#
                 } else {
                     response = #"{"code":200,"data":{"hasMore":false,"list":[{"dramaId":31,"dramaTitle":"推荐测试"},{"dramaId":32,"dramaTitle":"热门测试"}]}}"#
                 }
+            case "/mobile/v1/theater/search/history":
+                response = String(data: try! JSONSerialization.data(withJSONObject:
+                    ["code": 200, "data": ["list": searchHistory]]), encoding: .utf8)!
+            case "/mobile/v1/theater/search/history/clear":
+                searchHistory = []
+                response = #"{"code":200,"data":{}}"#
+            case "/mobile/v1/theater/search", "/mobile/v1/theater/search/guess":
+                let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Any]
+                let keyword = body?["keyword"] as? String ?? ""
+                if target.path == "/mobile/v1/theater/search" {
+                    searchHistory = [keyword] + searchHistory.filter { $0 != keyword }
+                }
+                let items: [[String: Any]] = keyword == "不存在" ? [] : [
+                    ["dramaId": 801, "rootDramaId": 801, "dramaTitle": keyword,
+                     "tagNames": ["剧情", "都市", "甜宠"], "dramaDesc": "什么忍者卡卡西，拙劣模仿五条悟大人的可笑货色罢了！"]]
+                response = String(data: try! JSONSerialization.data(withJSONObject:
+                    ["code": 200, "data": ["list": items, "page": 1, "hasMore": false]]), encoding: .utf8)!
             case "/mobile/v2/client/list":
                 response = #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":101,"rootDramaId":101,"dramaTitle":"剧场测试甲","tagNames":["剧情","古装","甜宠"],"dramaDesc":"这是剧场测试简介，展开后应按文字高度向上显示，不在底部预留空白。","episodePassed":12,"episodes":[{"episodeId":1001,"episodeNo":1,"videoUrl":"https://example.invalid/first.m3u8"}]},{"dramaId":102,"rootDramaId":102,"dramaTitle":"剧场测试乙","episodePassed":24,"episodes":[{"episodeId":1002,"episodeNo":1,"videoUrl":"https://example.invalid/second.m3u8"}]},{"dramaId":103,"rootDramaId":103,"dramaTitle":"剧场测试丙","episodePassed":36,"episodes":[{"episodeId":1003,"episodeNo":1,"videoUrl":"https://example.invalid/third.m3u8"}]}]}}"#
             case "/mobile/v1/client/drama/episode/list":

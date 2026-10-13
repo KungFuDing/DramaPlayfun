@@ -14,7 +14,8 @@ DramaPlayfun/
 │   ├── Playback/           AVPlayer 生命周期、播放错误、断点与进度保存
 │   └── Subscriptions/      订阅协议、StoreKit 2 实现、会员权益状态
 └── Features/
-    ├── Home/               推荐、分类、搜索、继续观看
+    ├── Home/               推荐、分类、搜索入口、继续观看
+    ├── Search/             最近搜索、输入联想、搜索结果分页、热播推荐
     ├── Theater/            首集短视频、点赞收藏、进度上报及分享海报
     ├── Rankings/           热度榜单
     ├── Membership/         商品展示、购买、恢复、管理订阅
@@ -70,6 +71,8 @@ Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴�
 `AppContainer` 注入 `APIPayloadCipher`，对约定 password 的 UTF-8 字节计算 SHA-256 得到 32 字节密钥。启用加密时，每次请求生成随机 12 字节 nonce，将 `nonce + 密文 + 16 字节认证标签` 二进制数据编码为 Base64，直接作为 HTTP Body 发送，设置 `Content-Type: text/plain; charset=utf-8`、`Accept: text/plain`，不发送 `X-Payload-Encryption` 请求头；成功 HTTP 响应必须先解码 Base64，再通过 GCM 解密及完整性校验，最后按原来的 JSON、业务码及模型规则解析，校验失败不会降级接收明文。Debug 日志使用加密前、解密后的脱敏 JSON。`APIPayloadCipherTests`、`EncryptedNetworkTests` 和 `TransportEncryptionConfigTests` 覆盖跨实现向量、防篡改、Base64 传输、开关配置、并发合并、刷新、重试与取消；本地 JSON stub 可不注入 cipher，且不启用服务端配置读取。
 
 Debug 专用请求头从本机 `Config/Debug.local.xcconfig` 注入（可参考 `Config/Debug.local.example.xcconfig`）；启动游客登录后，返回的令牌覆盖 `accessToken` 和 `Authorization: Bearer <token>`；登录完成后再加载业务页面，失败可重试。本机配置文件已忽略提交。Xcode 控制台会脱敏显示 accessToken、deviceId 和 IP。
+
+首页顶部搜索进入独立搜索页，隐藏底部 Tab。最近搜索使用 `AppAPI.v1TheaterSearchHistory`，清空成功后移除记录；输入联想以 250ms 防抖调用 `AppAPI.v1TheaterSearchGuess`，点击搜索或历史词条调用 `AppAPI.v1TheaterSearch` 并支持分页，旧输入响应不会覆盖新结果。热播推荐复用首页热播数据，剧集点击进入播放器。搜索图标使用提供的 2x/3x 切图，海报与文案取接口数据。`SearchStoreTests` 覆盖接口契约、分页去重、取消与过期响应；`SearchUITests` 覆盖入口、历史复搜/清空、输入联想、结果与播放跳转。
 
 剧场首集已接入点赞、收藏、观看进度和分享接口。分享弹窗使用接口文案生成二维码，封面、标题和标签合成同一海报，可保存相册或调起系统图片分享。详见 [网络模块接入](接口文档/网络模块接入.md#剧场互动与分享)。
 

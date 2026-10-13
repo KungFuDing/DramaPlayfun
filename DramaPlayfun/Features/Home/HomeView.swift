@@ -3,11 +3,9 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AppContainer.self) private var app
     @Environment(AppRouter.self) private var router
-    @State private var query = ""
     @State private var scrollOffset: CGFloat = 0
     @State private var viewportHeight: CGFloat = 700
     @State private var categoryContentY: CGFloat = .greatestFiniteMagnitude
-    @FocusState private var isSearchFocused: Bool
 
     private var navbarOpacity: Double {
         let fadeDistance = HomeBannerCarousel.height - HomeTopControls.navbarHeight
@@ -23,7 +21,7 @@ struct HomeView: View {
         let featured = categories.selectedID == DramaFeedTab.featured.id
         ZStack(alignment: .top) {
             RefreshLoadScrollView(
-                hasMore: query.isEmpty && (featured ? app.homeFeed.hasMoreHot : categories.selectedPage.hasMore),
+                hasMore: featured ? app.homeFeed.hasMoreHot : categories.selectedPage.hasMore,
                 isLoadingMore: featured ? app.homeFeed.isLoadingMore : categories.selectedPage.isLoadingMore,
                 loadError: featured ? app.homeFeed.hotErrorMessage : categories.selectedPage.loadMoreErrorMessage,
                 coordinateSpaceName: "homeScroll",
@@ -60,7 +58,7 @@ struct HomeView: View {
                             }
                             .opacity(isCategoryPinned ? 0 : 1)
                         FeedTabsStatus(feed: categories)
-                        HomeCategoryPager(tabs: categories.tabs, selection: $categories.selectedID, query: query,
+                        HomeCategoryPager(tabs: categories.tabs, selection: $categories.selectedID,
                                           minimumHeight: max(1, viewportHeight - HomeTopControls.pinnedCategoryTop))
                     }
                     .padding(.top, 22)
@@ -71,8 +69,7 @@ struct HomeView: View {
             }
 
             HomeTopControls(
-                query: $query,
-                isSearchFocused: $isSearchFocused,
+                onSearchTap: { router.paths[.home, default: []].append(.search) },
                 tabs: categories.tabs,
                 category: $categories.selectedID,
                 isCategoryPinned: isCategoryPinned,
@@ -101,7 +98,6 @@ struct HomeView: View {
 private struct HomeCategoryPager: View {
     let tabs: [DramaFeedTab]
     @Binding var selection: String
-    let query: String
     let minimumHeight: CGFloat
     @State private var pageHeights: [String: CGFloat] = [:]
 
@@ -118,7 +114,7 @@ private struct HomeCategoryPager: View {
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 0) {
                     ForEach(tabs) { category in
-                        HomeCategoryContent(category: category, query: query)
+                        HomeCategoryContent(category: category)
                             .frame(width: geometry.size.width, alignment: .topLeading)
                             .fixedSize(horizontal: false, vertical: true)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
@@ -144,13 +140,12 @@ private struct HomeCategoryPager: View {
 
 private struct HomeCategoryContent: View {
     let category: DramaFeedTab
-    let query: String
     @Environment(AppContainer.self) private var app
     @Environment(AppRouter.self) private var router
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
-            if category.id == DramaFeedTab.featured.id && query.isEmpty {
+            if category.id == DramaFeedTab.featured.id {
                 if app.homeFeed.hasLoaded {
                     HomeMomentsSection(feed: app.homeFeed)
                     ForEach(app.homeFeed.shelves) { shelf in
@@ -166,13 +161,10 @@ private struct HomeCategoryContent: View {
                 } else if app.homeFeed.isLoading {
                     ProgressView("加载首页…").frame(maxWidth: .infinity).padding(.vertical, 36)
                 }
-            } else if category.id == DramaFeedTab.featured.id {
-                let dramas = app.homeFeed.hotDramas.filter { $0.title.localizedStandardContains(query) || $0.displayTags.localizedStandardContains(query) }
-                HomeWaterfallGrid(dramas: dramas)
             } else {
                 let state = app.homeCategories.page(for: category.id)
                 FeedPageStatus(state: state) { await app.homeCategories.refreshSelected() }
-                let dramas = state.dramas.filter { query.isEmpty || $0.title.localizedStandardContains(query) || $0.displayTags.localizedStandardContains(query) }
+                let dramas = state.dramas
                 if !dramas.isEmpty { HomeWaterfallGrid(dramas: dramas) }
             }
         }
@@ -185,8 +177,7 @@ private struct HomeTopControls: View {
     static let navbarHeight = searchTop + searchHeight
     static let pinnedCategoryTop = searchTop + searchHeight + 10
 
-    @Binding var query: String
-    var isSearchFocused: FocusState<Bool>.Binding
+    let onSearchTap: () -> Void
     let tabs: [DramaFeedTab]
     @Binding var category: String
     let isCategoryPinned: Bool
@@ -195,7 +186,7 @@ private struct HomeTopControls: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            HomeSearchBar(query: $query, isSearchFocused: isSearchFocused, onGiftTap: onGiftTap)
+            HomeSearchBar(onSearchTap: onSearchTap, onGiftTap: onGiftTap)
             if isCategoryPinned {
                 CategoryPicker(tabs: tabs, selection: $category)
                     .padding(.vertical, 2)
@@ -332,22 +323,25 @@ private struct HomeBannerArtwork: View {
 }
 
 private struct HomeSearchBar: View {
-    @Binding var query: String
-    var isSearchFocused: FocusState<Bool>.Binding
+    let onSearchTap: () -> Void
     let onGiftTap: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 9) {
-                Image("HomeSearch")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 16, height: 16)
-                TextField("请输入剧名、类型", text: $query).focused(isSearchFocused).foregroundStyle(.white).submitLabel(.search)
+            Button(action: onSearchTap) {
+                HStack(spacing: 9) {
+                    Image("HomeSearch")
+                        .resizable().scaledToFit().frame(width: 16, height: 16)
+                    Text("请输入剧名、类型").foregroundStyle(.white.opacity(0.6))
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 13).frame(height: 44)
+                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 11))
+                .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.26)))
             }
-            .padding(.horizontal, 13).frame(height: 44)
-            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.26)))
+            .buttonStyle(.plain)
+            .accessibilityLabel("搜索剧集")
+            .accessibilityIdentifier("home-search")
 
             Button(action: onGiftTap) {
                 Image("HomeGift")

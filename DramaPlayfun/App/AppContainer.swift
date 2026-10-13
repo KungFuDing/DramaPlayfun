@@ -91,7 +91,7 @@ final class AppContainer {
                 response = "{\"code\":200,\"data\":{\"autoPlayNext\":\"\(body?["autoPlayNext"] ?? "on")\"}}"
             case "/mobile/v1/welfare/sign/popup/status":
                 let account = welfareAccount.snapshot
-                response = "{\"code\":200,\"data\":{\"hasReceivedToday\":\(account.signed),\"signDay\":\(account.signed ? account.signDays : account.signDays + 1)}}"
+                response = "{\"code\":200,\"data\":{\"shouldPopup\":\(!account.signed),\"hasReceivedToday\":\(account.signed),\"rewardCoin\":30,\"signDay\":\(account.signed ? account.signDays : account.signDays + 1)}}"
             case "/mobile/v1/welfare/sign/receive":
                 let received = welfareAccount.signIn()
                 let account = welfareAccount.snapshot

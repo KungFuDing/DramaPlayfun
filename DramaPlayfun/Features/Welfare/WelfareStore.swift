@@ -38,6 +38,12 @@ final class WelfareStore {
     private(set) var isSigning = false
     private(set) var error: String?
     private(set) var hasLoaded = false
+    private(set) var shouldPopup = false
+    private(set) var signPopupRewardCoin: Int64?
+    private(set) var hasLoadedSignPopupStatus = false
+    private(set) var isLoadingSignPopupStatus = false
+
+    var shouldShowSignPopup: Bool { shouldPopup && !hasReceivedToday }
 
     init(network: APIClient, wallet: WalletStore) {
         self.network = network
@@ -45,7 +51,7 @@ final class WelfareStore {
     }
 
     func reload() async {
-        guard !isLoading else { return }
+        guard !isLoading, !isSigning else { return }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -54,7 +60,7 @@ final class WelfareStore {
             let (result, status) = try await (taskRequest, statusRequest)
             try Task.checkCancellation()
             continuousDays = result.continuousSignDays ?? 0
-            hasReceivedToday = status.hasReceivedToday ?? false
+            applySignPopupStatus(status)
             today = max(1, min(7, status.signDay ?? (hasReceivedToday ? continuousDays : continuousDays + 1)))
             let items = result.list ?? []
             days = (items.first { $0.taskCode == "daily_sign_in" }?.signRewards ?? []).compactMap { item in
@@ -73,18 +79,48 @@ final class WelfareStore {
         } catch { self.error = error.localizedDescription }
     }
 
-    func signIn() async {
-        guard hasLoaded, !hasReceivedToday, !isSigning, !isLoading else { return }
+    func reloadSignPopupStatus() async {
+        guard !isLoadingSignPopupStatus, !isLoading, !isSigning else { return }
+        isLoadingSignPopupStatus = true
+        shouldPopup = false
+        defer { isLoadingSignPopupStatus = false }
+        do {
+            let status = try await network.request(AppAPI.v1WelfareSignPopupStatus,
+                body: .init(), unwrapEnvelope: true)
+            try Task.checkCancellation()
+            applySignPopupStatus(status)
+        } catch is CancellationError {
+        } catch {
+            // Leave the optional theater banner hidden when its status cannot be confirmed.
+        }
+    }
+
+    private func applySignPopupStatus(_ status: APIModels.V1GetSignInPopupStatusRes) {
+        shouldPopup = status.shouldPopup == true
+        hasReceivedToday = status.hasReceivedToday ?? false
+        signPopupRewardCoin = status.rewardCoin
+        if let day = status.signDay { today = max(1, min(7, day)) }
+        hasLoadedSignPopupStatus = true
+    }
+
+    func signIn(popupScene: String = "manual") async {
+        guard hasLoaded || hasLoadedSignPopupStatus,
+              !hasReceivedToday, !isSigning, !isLoading, !isLoadingSignPopupStatus else { return }
         isSigning = true
+        error = nil
         defer { isSigning = false }
         do {
             let result = try await network.request(AppAPI.v1WelfareSignReceive,
-                body: .init(popupScene: "manual"), unwrapEnvelope: true)
+                body: .init(popupScene: popupScene), unwrapEnvelope: true)
             guard result.received == true else {
-                await reload()
+                let status = try await network.request(AppAPI.v1WelfareSignPopupStatus,
+                    body: .init(), unwrapEnvelope: true)
+                applySignPopupStatus(status)
+                if !hasReceivedToday { error = "签到未成功，请稍后重试。" }
                 return
             }
             hasReceivedToday = true
+            shouldPopup = false
             today = max(1, min(7, result.signDay ?? today))
             continuousDays = result.signDay ?? continuousDays + 1
             days = days.map { WelfareDay(id: $0.id, coins: $0.coins, received: $0.id == today || $0.received) }

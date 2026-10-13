@@ -9,6 +9,7 @@ struct TheaterView: View {
     @State private var shareItem: TheaterFeedItem?
     @State private var replayAfterPlaybackID: Drama.ID?
     @State private var continuation: PlaybackPreparation?
+    @State private var checkInError: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -32,7 +33,6 @@ struct TheaterView: View {
                                     item: item,
                                     playback: app.theaterPlayback,
                                     isActive: selectedID == item.id && isTheaterVisible,
-                                    topInset: geometry.safeAreaInsets.top,
                                     onRetry: { app.theaterPlayback.retry(item.id) },
                                     onEpisodes: {
                                         replayAfterPlaybackID = item.id
@@ -66,11 +66,21 @@ struct TheaterView: View {
                     }
                 }
             }
+            .overlay(alignment: .top) {
+                if !app.theaterFeed.items.isEmpty && app.welfare.shouldShowSignPopup {
+                    checkInBanner
+                        .padding(.horizontal, 14)
+                        .padding(.top, max(geometry.safeAreaInsets.top + 16, 76))
+                }
+            }
         }
         .ignoresSafeArea(edges: .top)
         .background(.black)
         .toolbar(.hidden, for: .navigationBar)
         .task { await app.theaterFeed.loadIfNeeded() }
+        .task(id: isTheaterVisible) {
+            if isTheaterVisible { await app.welfare.reloadSignPopupStatus() }
+        }
         .task(id: playbackKey) {
             if !isTheaterVisible || continuation?.store.drama.id != selectedID {
                 cancelContinuation()
@@ -117,6 +127,59 @@ struct TheaterView: View {
         .fullScreenCover(item: $shareItem) { item in
             DramaShareView(item: item)
         }
+        .alert("签到失败", isPresented: Binding(get: { checkInError != nil },
+            set: { if !$0 { checkInError = nil } })) {
+            Button("知道了", role: .cancel) { checkInError = nil }
+        } message: { Text(checkInError ?? "") }
+    }
+
+    private var checkInBanner: some View {
+        HStack(spacing: 0) {
+            Image("TheaterCheckInGift")
+                .renderingMode(.original).resizable().scaledToFit()
+                .frame(width: 24, height: 24)
+                .frame(width: 34)
+            HStack(spacing: 6) {
+                Text("今日签到").foregroundStyle(.white)
+                if let coins = app.welfare.signPopupRewardCoin {
+                    Text("+\(coins)金币").foregroundStyle(Color(red: 1, green: 194 / 255, blue: 56 / 255))
+                }
+            }
+            .font(.system(size: 12))
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.leading, 8)
+            Spacer(minLength: 0)
+            Button {
+                Task {
+                    await app.welfare.signIn(popupScene: "home_enter")
+                    checkInError = app.welfare.error
+                }
+            } label: {
+                Text("领取")
+                    .font(.system(size: 12)).foregroundStyle(Color(red: 0.2, green: 0.16, blue: 0.08))
+                    .fixedSize()
+                    .frame(width: 48, height: 29)
+                    .background(Color(red: 1, green: 194 / 255, blue: 56 / 255), in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .disabled(app.welfare.isSigning || app.welfare.isLoading || app.welfare.isLoadingSignPopupStatus)
+            .accessibilityIdentifier("theater-check-in-receive")
+            .padding(.trailing, 4)
+        }
+        .frame(width: 210, height: 37)
+        .background {
+            LinearGradient(colors: [Color(red: 146 / 255, green: 106 / 255, blue: 39 / 255),
+                                    Color(red: 84 / 255, green: 46 / 255, blue: 33 / 255)],
+                           startPoint: .leading, endPoint: .trailing)
+                .overlay(alignment: .leading) {
+                    TheaterCheckInGiftBackground()
+                        .fill(Color(red: 201 / 255, green: 153 / 255, blue: 49 / 255))
+                        .frame(width: 46)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("theater-check-in")
     }
 
     private var isTheaterVisible: Bool {
@@ -155,11 +218,24 @@ struct TheaterView: View {
 
 }
 
+private struct TheaterCheckInGiftBackground: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: rect.origin)
+        path.addLine(to: CGPoint(x: rect.maxX * 0.5, y: rect.minY))
+        path.addCurve(to: CGPoint(x: rect.maxX, y: rect.maxY),
+                      control1: CGPoint(x: rect.maxX * 0.83, y: rect.minY),
+                      control2: CGPoint(x: rect.maxX * 0.62, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
 struct TheaterVideoPage: View {
     let item: TheaterFeedItem
     let playback: TheaterPlayerPool
     let isActive: Bool
-    let topInset: CGFloat
     let onRetry: () -> Void
     let onEpisodes: () -> Void
     let onShare: () -> Void
@@ -170,20 +246,18 @@ struct TheaterVideoPage: View {
     @Environment(AppContainer.self) private var app
     @State private var isExpanded = false
     @State private var summaryHeight: CGFloat = 20
-    @State private var showCheckIn = false
     @State private var interactionError: String?
     private var isLiked: Bool { item.isFirstEpisodeLiked }
 
     private var drama: Drama { item.drama }
 
     init(item: TheaterFeedItem, playback: TheaterPlayerPool, isActive: Bool,
-         topInset: CGFloat, onRetry: @escaping () -> Void, onEpisodes: @escaping () -> Void,
+         onRetry: @escaping () -> Void, onEpisodes: @escaping () -> Void,
          onShare: @escaping () -> Void, onDetail: @escaping () -> Void, isDetail: Bool = false,
          onLike: (() async throws -> Void)? = nil, onFavorite: (() async throws -> Void)? = nil) {
         self.item = item
         self.playback = playback
         self.isActive = isActive
-        self.topInset = topInset
         self.onRetry = onRetry
         self.onEpisodes = onEpisodes
         self.onShare = onShare
@@ -208,7 +282,6 @@ struct TheaterVideoPage: View {
             playbackStatus
 
             VStack {
-                if !isDetail { checkInBanner.padding(.top, max(topInset, 54) + 16) }
                 Spacer(minLength: 24)
                 HStack(alignment: .bottom, spacing: 16) {
                     metadata.frame(maxWidth: .infinity, alignment: .leading)
@@ -227,25 +300,6 @@ struct TheaterVideoPage: View {
             set: { if !$0 { interactionError = nil } })) {
             Button("知道了", role: .cancel) { interactionError = nil }
         } message: { Text(interactionError ?? "") }
-        .alert("每日签到", isPresented: $showCheckIn) {
-            Button("知道了", role: .cancel) { }
-        } message: { Text("签到服务暂未接入，接入后可领取每日奖励。") }
-    }
-
-    private var checkInBanner: some View {
-        HStack(spacing: 10) {
-            Image("TheaterCheckInGift").renderingMode(.original).resizable().scaledToFit().frame(width: 28, height: 28)
-            Text("今日签到").font(.subheadline)
-            Text("+20金币").font(.subheadline.bold()).foregroundStyle(Theme.accent)
-            Button("领取") { showCheckIn = true }
-                .font(.subheadline).foregroundStyle(.black)
-                .padding(.horizontal, 16).padding(.vertical, 8)
-                .background(Theme.accent, in: RoundedRectangle(cornerRadius: 7))
-        }
-        .padding(6)
-        .background(LinearGradient(colors: [.yellow.opacity(0.6), .brown.opacity(0.65)],
-                                   startPoint: .leading, endPoint: .trailing),
-                    in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder private var playbackStatus: some View {

@@ -413,7 +413,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = A1B2C3D4E5F60718293A4B5C /* Config/Debug.xcconfig */;
 			buildSettings = {
-				API_BASE_URL = "https://zy.aws.aijccz.com/aigc-mobile";
+				API_BASE_URL = "https://pre.aijccz.com/aigc-mobile";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Manual;

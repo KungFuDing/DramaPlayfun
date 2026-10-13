@@ -83,7 +83,6 @@ struct PlayerView: View {
                             ForEach(store.items) { item in
                                 TheaterVideoPage(item: item, playback: playback,
                                     isActive: selectedID == item.id && isVisible,
-                                    topInset: geometry.safeAreaInsets.top,
                                     onRetry: { retry(item) }, onEpisodes: { showEpisodes = true },
                                     onShare: { shareItem = item }, onDetail: { detailPath.append(item.drama) }, isDetail: true,
                                     onLike: { try await store.toggleLike(item.id) },

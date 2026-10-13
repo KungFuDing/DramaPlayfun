@@ -7,15 +7,17 @@ import Alamofire
 nonisolated enum APIDebugLogger {
     private static let outputLock = NSLock()
 
-    static func request(id: String, target: APITarget) {
+    static func request(id: String, target: APITarget, plaintextBody: Data? = nil) {
         let url = target.baseURL.appendingPathComponent(target.path)
         let headers = formattedJSONObject(target.requestHeaders)
-        let body = formattedBody(target.body)
+        let body = formattedBody(plaintextBody ?? target.body)
         output(id: id, event: "REQUEST", text: "→ \(target.method.rawValue) \(url.absoluteString)\nHeaders: \(headers)\nBody: \(body)")
     }
 
-    static func response(id: String, response: Moya.Response, duration: TimeInterval) {
-        let body = formattedBody(response.data)
+    static func response(id: String, response: Moya.Response, duration: TimeInterval,
+                         plaintextBody: Data? = nil, isEncrypted: Bool = false) {
+        let body = plaintextBody.map(formattedBody)
+            ?? (isEncrypted ? "<encrypted, \(response.data.count) bytes>" : formattedBody(response.data))
         output(id: id, event: "RESPONSE", text: "← HTTP \(response.statusCode) (\(String(format: "%.2f", duration))s) · \(response.data.count) bytes\nBody: \(body)")
     }
 

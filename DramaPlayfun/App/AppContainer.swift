@@ -39,7 +39,8 @@ final class AppContainer {
             #if DEBUG
             if let fixture { return fixture }
             #endif
-            return APIClient(headerProvider: { _ in
+            return APIClient(payloadCipher: APIPayloadCipher(password: "8Oq60JucZPKeyttJdhqX"),
+                usesServerEncryptionConfiguration: true, headerProvider: { _ in
             #if DEBUG
             DebugHTTPHeaders.current
             #else

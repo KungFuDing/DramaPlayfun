@@ -30,12 +30,17 @@ nonisolated struct APIConfiguration: Sendable {
 nonisolated enum APIError: LocalizedError {
     case missingBaseURL, invalidConfiguration
     case encoding(Error), transport(Error), httpStatus(Int), business(Int, String?), decoding(Error)
+    case encryption(Error), decryption(Error)
+    case missingEncryptionKey
 
     var errorDescription: String? {
         switch self {
         case .missingBaseURL: "尚未配置 API_BASE_URL。"
         case .invalidConfiguration: "接口地址或超时配置无效。"
         case .encoding: "请求参数编码失败。"
+        case .encryption: "请求数据加密失败。"
+        case .decryption: "响应数据解密或完整性校验失败。"
+        case .missingEncryptionKey: "服务端已开启接口加密，但客户端未配置加密密钥。"
         case .transport: "网络连接失败，请稍后重试。"
         case .httpStatus(let status): "服务器返回 HTTP \(status)。"
         case .business(let code, let message):
@@ -67,14 +72,22 @@ final class APIClient {
     private let configuration: APIConfiguration?
     private let provider: MoyaProvider<APITarget>
     private let headerProvider: (String) -> [String: String]
+    private let payloadCipher: APIPayloadCipher?
+    private let usesServerEncryptionConfiguration: Bool
+    private var serverEncryptionEnabled: Bool?
+    private var encryptionConfigurationTask: _Concurrency.Task<Bool, Error>?
     private var accessToken: String?
     private var identityHeaders: [String: String] = [:]
 
     init(configuration: APIConfiguration? = nil,
          provider: MoyaProvider<APITarget>? = nil,
+         payloadCipher: APIPayloadCipher? = nil,
+         usesServerEncryptionConfiguration: Bool = false,
          headerProvider: @escaping (String) -> [String: String] = { _ in [:] }) {
         self.configuration = configuration
         self.headerProvider = headerProvider
+        self.payloadCipher = payloadCipher
+        self.usesServerEncryptionConfiguration = usesServerEncryptionConfiguration
         let timeout = configuration?.timeout ?? 30
         self.provider = provider ?? MoyaProvider<APITarget>(requestClosure: { endpoint, completion in
             do {
@@ -94,16 +107,44 @@ final class APIClient {
 
     func setAccessToken(_ token: String) { accessToken = token }
 
+    func reloadTransportEncryptionConfiguration() async throws {
+        guard usesServerEncryptionConfiguration else { return }
+        serverEncryptionEnabled = nil
+        _ = try await loadTransportEncryptionConfigurationIfNeeded()
+    }
+
+    private func loadTransportEncryptionConfigurationIfNeeded() async throws -> Bool {
+        if let serverEncryptionEnabled { return serverEncryptionEnabled }
+        if let encryptionConfigurationTask { return try await encryptionConfigurationTask.value }
+        let task = _Concurrency.Task {
+            let result = try await request(AppAPI.v1ClientTransportEncryptionConfig,
+                body: .init(), unwrapEnvelope: true)
+            if result.enabled, payloadCipher == nil { throw APIError.missingEncryptionKey }
+            return result.enabled
+        }
+        encryptionConfigurationTask = task
+        do {
+            let enabled = try await task.value
+            serverEncryptionEnabled = enabled
+            encryptionConfigurationTask = nil
+            return enabled
+        } catch {
+            encryptionConfigurationTask = nil
+            throw error
+        }
+    }
+
     private func headers(for path: String) -> [String: String] {
         var values = headerProvider(path)
         for (key, value) in identityHeaders { values[key] = value }
-        let isGuestLogin = path == AppAPI.v1AuthGuestLogin.path
-        if isGuestLogin || accessToken != nil {
+        let isBootstrap = path == AppAPI.v1AuthGuestLogin.path
+            || path == AppAPI.v1ClientTransportEncryptionConfig.path
+        if isBootstrap || accessToken != nil {
             values = values.filter { key, _ in
                 !["accesstoken", "authorization"].contains(key.lowercased())
             }
         }
-        if !isGuestLogin, let accessToken {
+        if !isBootstrap, let accessToken {
             values["accessToken"] = accessToken
             values["Authorization"] = "Bearer \(accessToken)"
         }
@@ -120,16 +161,36 @@ final class APIClient {
         do {
             try _Concurrency.Task<Never, Never>.checkCancellation()
             let configuration = try configuration ?? APIConfiguration.fromBundle()
+            // Capture the negotiated mode so a refresh cannot change how this response is decoded.
+            let requestCipher: APIPayloadCipher?
+            if endpoint.path == AppAPI.v1ClientTransportEncryptionConfig.path {
+                requestCipher = nil
+            } else if usesServerEncryptionConfiguration {
+                let enabled = try await loadTransportEncryptionConfigurationIfNeeded()
+                try _Concurrency.Task<Never, Never>.checkCancellation()
+                requestCipher = enabled ? payloadCipher : nil
+            } else { requestCipher = payloadCipher }
             let data: Data
             do { data = try JSONEncoder().encode(body) }
             catch { throw APIError.encoding(error) }
-            var headers = headers(for: endpoint.path)
-            headers["Content-Type"] = "application/json"
-            headers["Accept"] = "application/json"
+            var headers = headers(for: endpoint.path).filter {
+                !["content-type", "accept", "x-payload-encryption"].contains($0.key.lowercased())
+            }
+            let wireBody: Data
+            if let requestCipher {
+                do { wireBody = try requestCipher.encryptForTransport(data) }
+                catch { throw APIError.encryption(error) }
+                headers["Content-Type"] = "text/plain; charset=utf-8"
+                headers["Accept"] = "text/plain"
+            } else {
+                wireBody = data
+                headers["Content-Type"] = "application/json"
+                headers["Accept"] = "application/json"
+            }
             let target = APITarget(baseURL: configuration.baseURL, path: endpoint.path,
-                                   body: data, requestHeaders: headers)
+                                   body: wireBody, requestHeaders: headers)
             #if DEBUG
-            APIDebugLogger.request(id: requestID, target: target)
+            APIDebugLogger.request(id: requestID, target: target, plaintextBody: data)
             #endif
             let pending = PendingAPIRequest()
             let response: Moya.Response = try await withTaskCancellationHandler {
@@ -142,14 +203,35 @@ final class APIClient {
                 }
             } onCancel: { pending.cancel() }
             #if DEBUG
-            APIDebugLogger.response(id: requestID, response: response,
-                                    duration: Date().timeIntervalSince(startedAt))
+            func logResponse(plaintextBody: Data? = nil) {
+                APIDebugLogger.response(id: requestID, response: response,
+                    duration: Date().timeIntervalSince(startedAt), plaintextBody: plaintextBody,
+                    isEncrypted: requestCipher != nil)
+            }
             #endif
             try _Concurrency.Task<Never, Never>.checkCancellation()
-            guard (200..<300).contains(response.statusCode) else { throw APIError.httpStatus(response.statusCode) }
+            guard (200..<300).contains(response.statusCode) else {
+                #if DEBUG
+                logResponse()
+                #endif
+                throw APIError.httpStatus(response.statusCode)
+            }
+            let responseData: Data
+            if let requestCipher {
+                do { responseData = try requestCipher.decryptFromTransport(response.data) }
+                catch {
+                    #if DEBUG
+                    logResponse()
+                    #endif
+                    throw APIError.decryption(error)
+                }
+            } else { responseData = response.data }
+            #if DEBUG
+            logResponse(plaintextBody: responseData)
+            #endif
             let object: [String: Any]
             do {
-                guard let root = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
+                guard let root = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
                     throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Expected a JSON object"))
                 }
                 object = root
@@ -159,8 +241,8 @@ final class APIClient {
                 do {
                     let envelope: APIEnvelope<Output>
                     switch decoding {
-                    case .strict: envelope = try JSONDecoder().decode(APIEnvelope<Output>.self, from: response.data)
-                    case .tolerant: envelope = try CleanJSONDecoder().decode(APIEnvelope<Output>.self, from: response.data)
+                    case .strict: envelope = try JSONDecoder().decode(APIEnvelope<Output>.self, from: responseData)
+                    case .tolerant: envelope = try CleanJSONDecoder().decode(APIEnvelope<Output>.self, from: responseData)
                     }
                     guard let data = envelope.data else {
                         throw DecodingError.valueNotFound(Output.self,
@@ -171,8 +253,8 @@ final class APIClient {
             }
             do {
                 switch decoding {
-                case .strict: return try JSONDecoder().decode(Output.self, from: response.data)
-                case .tolerant: return try CleanJSONDecoder().decode(Output.self, from: response.data)
+                case .strict: return try JSONDecoder().decode(Output.self, from: responseData)
+                case .tolerant: return try CleanJSONDecoder().decode(Output.self, from: responseData)
                 }
             } catch { throw APIError.decoding(error) }
         } catch {

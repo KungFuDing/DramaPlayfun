@@ -164,8 +164,8 @@ final class EpisodeUnlockCoordinator {
         } else {
             await wallet.reloadBalance()
         }
-        // The grant and authoritative balance are committed before fetching the URL.
-        // A missing URL can be retried without charging this episode a second time.
+        // Reuse the prewarmed URL/item after the grant. Only an absent URL needs a
+        // list refresh, which can be retried without charging this episode again.
         try await playback.refreshPlayableEpisode(episode)
         // Other wallet activity can make the returned balance differ by more than this
         // episode's price. Never attribute that unrelated difference to this unlock.

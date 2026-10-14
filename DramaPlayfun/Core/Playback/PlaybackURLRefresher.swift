@@ -10,8 +10,9 @@ final class PlaybackURLRefresher {
 
     func refresh(_ items: [TheaterFeedItem], requiredID: String?) async throws -> [String: URL] {
         let videos = items.compactMap { item -> APIModels.V1XMTokenVideo? in
-            guard item.firstEpisode?.requiresCoinUnlock == false,
-                  let id = (item.firstEpisode?.id).flatMap(Int64.init), let url = item.videoURL else { return nil }
+            guard let id = (item.firstEpisode?.id).flatMap(Int64.init), let url = item.videoURL,
+                  url.scheme?.lowercased() == "https", url.host?.isEmpty == false,
+                  url.user == nil, url.password == nil else { return nil }
             return .init(episodeId: id, videoUrl: url.absoluteString)
         }
         guard let requiredID, videos.contains(where: { String($0.episodeId ?? 0) == requiredID }) else {

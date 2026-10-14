@@ -31,8 +31,7 @@ final class DramaPlaybackStore {
         for index in items.indices {
             let episodeID = items[index].firstEpisode?.id ?? ""
             guard let url = urls[episodeID],
-                  snapshot.contains(where: { $0.id == items[index].id && $0.videoURL == items[index].videoURL }),
-                  items[index].firstEpisode?.requiresCoinUnlock == false else { continue }
+                  snapshot.contains(where: { $0.id == items[index].id && $0.videoURL == items[index].videoURL }) else { continue }
             items[index].videoURL = url
         }
         return items
@@ -84,7 +83,8 @@ final class DramaPlaybackStore {
                 requiresMembership: false, unlockCoin: raw.unlockCoin ?? 0,
                 isUnlocked: raw.isUnlocked == true || authorizedEpisodeIDs.contains(String(id)), looked: raw.looked)
             let url = raw.videoUrl.flatMap(URL.init(string:)).flatMap { url -> URL? in
-                url.scheme?.lowercased() == "https" && url.host != nil && !episode.requiresCoinUnlock ? url : nil
+                url.scheme?.lowercased() == "https" && url.host?.isEmpty == false &&
+                    url.user == nil && url.password == nil ? url : nil
             }
             return TheaterFeedItem(drama: drama, firstEpisode: episode, videoURL: url,
                 firstEpisodeLikeCount: raw.likeCount ?? 0, isFirstEpisodeLiked: raw.isLiked ?? false,
@@ -165,9 +165,25 @@ final class DramaPlaybackStore {
     /// A retry then fetches the URL without submitting another coin transaction.
     func authorizePlayback(_ episode: Episode) {
         authorizedEpisodeIDs.insert(episode.id)
+        guard let index = items.firstIndex(where: { $0.firstEpisode?.id == episode.id }),
+              let currentEpisode = items[index].firstEpisode, !currentEpisode.isUnlocked else { return }
+        let current = items[index]
+        let authorizedEpisode = Episode(id: currentEpisode.id, number: currentEpisode.number,
+            title: currentEpisode.title, requiresMembership: currentEpisode.requiresMembership,
+            unlockCoin: currentEpisode.unlockCoin, isUnlocked: true, looked: currentEpisode.looked)
+        // The pool can promote its already prepared AVPlayerItem as soon as access is
+        // confirmed. Keep the exact signed URL so authorization never invalidates it.
+        items[index] = TheaterFeedItem(drama: current.drama, firstEpisode: authorizedEpisode,
+            videoURL: current.videoURL, firstEpisodeLikeCount: current.firstEpisodeLikeCount,
+            isFirstEpisodeLiked: current.isFirstEpisodeLiked, isFavorited: current.isFavorited,
+            playbackID: current.playbackID, favoriteCount: current.favoriteCount)
     }
 
     func refreshPlayableEpisode(_ episode: Episode) async throws {
+        if let current = items.first(where: { $0.firstEpisode?.id == episode.id }),
+           current.firstEpisode?.requiresCoinUnlock == false, current.videoURL != nil {
+            return
+        }
         guard let dramaID = Int64(drama.id) else { throw CatalogError.notFound }
         let response = try await network.request(AppAPI.v1ClientDramaEpisodeList,
             body: .init(dramaId: dramaID), unwrapEnvelope: true)

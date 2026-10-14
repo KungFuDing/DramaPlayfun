@@ -24,6 +24,7 @@ final class TheaterPlayerPool {
     @ObservationIgnored private var prepareVersions: [TheaterFeedItem.ID: UUID] = [:]
     @ObservationIgnored private var loadingIDs: Set<TheaterFeedItem.ID> = []
     @ObservationIgnored private var prerollingIDs: Set<TheaterFeedItem.ID> = []
+    @ObservationIgnored private var startedPlaybackIDs: Set<TheaterFeedItem.ID> = []
     @ObservationIgnored private var itemObservers: [TheaterFeedItem.ID: [NSObjectProtocol]] = [:]
     @ObservationIgnored private var progressTask: Task<Void, Never>?
     @ObservationIgnored private var seekTask: Task<Void, Never>?
@@ -34,6 +35,7 @@ final class TheaterPlayerPool {
     @ObservationIgnored private let cacheOwner = UUID()
     @ObservationIgnored private let logger = Logger(subsystem: "com.video.test.DramaPlayfun.playback", category: "player")
     @ObservationIgnored private var visible = false
+    @ObservationIgnored private var preparationActive = false
     @ObservationIgnored private var preloadingID: TheaterFeedItem.ID?
     @ObservationIgnored private var continuationPriority = false
     @ObservationIgnored private var items: [TheaterFeedItem] = []
@@ -106,22 +108,25 @@ final class TheaterPlayerPool {
         if active {
             for id in Array(players.keys) where id != currentID { release(id) }
         } else {
-            update(items: items, selectedID: currentID, visible: visible)
+            update(items: items, selectedID: currentID, visible: visible, preparationActive: preparationActive)
         }
     }
 
     /// Explicit preloading is silent and prepares only the continuation episode.
     func preload(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID) {
         guard !visible, let item = items.first(where: { $0.id == selectedID }),
-              item.videoURL != nil, item.firstEpisode?.requiresCoinUnlock == false else { return }
+              item.videoURL != nil else { return }
         self.items = items
         currentID = selectedID
         preloadingID = selectedID
+        cache.setPlaybackActive(true, owner: cacheOwner)
         if players[selectedID] == nil { prepare(item) }
     }
 
-    func update(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID?, visible: Bool) {
+    func update(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID?, visible: Bool,
+                preparationActive: Bool = false) {
         let previousID = currentID
+        let wasLocked = self.items.first(where: { $0.id == selectedID })?.firstEpisode?.requiresCoinUnlock == true
         if previousID != selectedID || !visible { resetScrubbing() }
         if previousID != selectedID {
             saveProgress()
@@ -134,8 +139,9 @@ final class TheaterPlayerPool {
         }
         self.items = items
         self.visible = visible
-        if visible { preloadingID = nil }
-        cache.setPlaybackActive(visible, owner: cacheOwner)
+        self.preparationActive = preparationActive || visible
+        if self.preparationActive { preloadingID = nil }
+        cache.setPlaybackActive(self.preparationActive || preloadingID != nil, owner: cacheOwner)
         currentID = selectedID
 
         guard let index = items.firstIndex(where: { $0.id == selectedID }) else {
@@ -154,11 +160,17 @@ final class TheaterPlayerPool {
                 release(item.id)
             }
         }
-        // Unlocking supplies a URL to the current episode's previously empty player.
-        // Prepare only that episode so neighboring buffers and playback progress survive.
+        // Authorization alone keeps the warmed player/item. Rebuild only when the
+        // source changes content, or an empty/failed player needs the latest URL.
         let selected = items[index]
-        if let player = players[selected.id], player.currentItem == nil,
-           let url = selected.videoURL, preparedURLs[selected.id] != url {
+        if wasLocked, canPlay(selected.id), selected.videoURL != nil,
+           case .unavailable = states[selected.id] {
+            release(selected.id)
+        }
+        if let player = players[selected.id], let url = selected.videoURL,
+           preparedURLs[selected.id] != url,
+           player.currentItem == nil || states[selected.id] != .ready ||
+            preparedURLs[selected.id].map(MediaResourceURL.contentKey(for:)) != MediaResourceURL.contentKey(for: url) {
             release(selected.id)
         }
         for position in wanted.sorted(by: { abs($0 - index) < abs($1 - index) }) {
@@ -166,12 +178,14 @@ final class TheaterPlayerPool {
             if players[item.id] == nil { prepare(item) }
         }
         for (id, player) in players { configureBuffer(player, isCurrent: id == selectedID) }
-        if visible { playCurrentIfReady() }
+        if visible, let selectedID, canPlay(selectedID) { playCurrentIfReady() }
         else { pauseAll() }
     }
 
     func suspend() {
         visible = false
+        preparationActive = false
+        preloadingID = nil
         resetScrubbing()
         pauseAll()
         cache.setPlaybackActive(false, owner: cacheOwner)
@@ -194,7 +208,8 @@ final class TheaterPlayerPool {
     }
 
     func toggle() {
-        guard !isScrubbing, let currentID, let player = players[currentID], states[currentID] == .ready else { return }
+        guard !isScrubbing, let currentID, canPlay(currentID),
+              let player = players[currentID], states[currentID] == .ready else { return }
         if hasEnded {
             player.seek(to: .zero)
             hasEnded = false
@@ -213,7 +228,7 @@ final class TheaterPlayerPool {
 
     @discardableResult
     func beginScrubbing(_ id: TheaterFeedItem.ID) -> Bool {
-        guard visible, currentID == id, states[id] == .ready, let player = players[id],
+        guard visible, currentID == id, canPlay(id), states[id] == .ready, let player = players[id],
               let duration = player.currentItem?.duration.seconds, duration.isFinite, duration > 0 else { return false }
         resetScrubbing()
         scrubbingID = id
@@ -278,7 +293,7 @@ final class TheaterPlayerPool {
         timeObservers[id] = nil
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
         player.automaticallyWaitsToMinimizeStalling = true
-        player.isMuted = id != currentID || !visible
+        player.isMuted = id != currentID || !visible || !canPlay(id)
         players[id] = player
         preparedURLs[id] = item.videoURL
         states[id] = .preparing
@@ -345,7 +360,7 @@ final class TheaterPlayerPool {
                 if currentID == id {
                     if visible { playCurrentIfReady() }
                 }
-                if preloadingID == id || currentID != id {
+                if preloadingID == id || currentID != id || !visible || !canPlay(id) {
                     await warmDecoder(player, id: id, version: version)
                 }
             } catch is CancellationError {
@@ -362,6 +377,8 @@ final class TheaterPlayerPool {
     }
 
     private func warmDecoder(_ player: AVPlayer, id: String, version: UUID) async {
+        guard player.rate == 0, player.status == .readyToPlay else { return }
+        player.isMuted = true
         prerollingIDs.insert(id)
         let timeout = Task {
             try? await Task.sleep(for: .seconds(5))
@@ -373,8 +390,10 @@ final class TheaterPlayerPool {
         guard !Task.isCancelled, prepareVersions[id] == version, players[id] === player else { return }
         prerollingIDs.remove(id)
         logger.info("prewarmed episode=\(id, privacy: .public) ready=\(warmed) buffer=\(self.bufferedSeconds(player))")
-        if currentID == id && visible { playCurrentIfReady() }
-        else { player.pause() }
+        if currentID == id && visible && canPlay(id) {
+            configureBuffer(player, isCurrent: true)
+            playCurrentIfReady()
+        } else if player.rate != 0 { player.pause() }
     }
 
     private func restorePosition(_ seconds: Double, player: AVPlayer, id: String, version: UUID) async throws {
@@ -428,7 +447,7 @@ final class TheaterPlayerPool {
                 items = refreshed
                 renewingIDs.remove(id)
                 prepare(updated, resumeSeconds: seconds)
-                update(items: refreshed, selectedID: currentID, visible: visible)
+                update(items: refreshed, selectedID: currentID, visible: visible, preparationActive: preparationActive)
             } catch {
                 guard prepareVersions[id] == version else { return }
                 renewingIDs.remove(id)
@@ -440,19 +459,30 @@ final class TheaterPlayerPool {
         }
     }
 
+    private func canPlay(_ id: TheaterFeedItem.ID) -> Bool {
+        items.first(where: { $0.id == id })?.firstEpisode?.requiresCoinUnlock == false
+    }
+
     private func canPrepare(_ id: TheaterFeedItem.ID) -> Bool {
         if preloadingID == id { return true }
-        guard visible else { return false }
+        guard preparationActive else { return false }
         if currentID == id { return true }
-        guard !continuationPriority, !isPaused, !hasEnded, !isScrubbing, !isBuffering,
+        guard !continuationPriority, !isScrubbing,
               let index = items.firstIndex(where: { $0.id == currentID }),
               let candidate = items.firstIndex(where: { $0.id == id }), abs(candidate - index) == 1,
-              !loadingIDs.contains(where: { $0 != currentID && $0 != id }),
-              let player = players[currentID ?? ""], player.timeControlStatus == .playing,
-              let item = player.currentItem else { return false }
-        // Prefer the next swipe; prepare the previous page only after it is ready (or unavailable).
+              !loadingIDs.contains(where: { $0 != currentID && $0 != id }) else { return false }
+        // Prefer the next swipe, then warm the previous page without parallel downloads.
         if candidate < index, items.indices.contains(index + 1),
            states[items[index + 1].id] == .preparing { return false }
+        // A locked/currently covered page has no foreground playback to compete with.
+        // Finish preparing it first, then use the wait for confirmation to warm neighbors.
+        if !visible || !canPlay(items[index].id) {
+            guard let state = states[items[index].id] else { return false }
+            return state != .preparing
+        }
+        guard !isPaused, !hasEnded, !isBuffering,
+              let player = players[items[index].id], player.timeControlStatus == .playing,
+              let item = player.currentItem else { return false }
         let seconds = player.currentTime().seconds
         let duration = item.duration.seconds
         let remaining = duration.isFinite ? max(0, duration - seconds) : 8
@@ -521,7 +551,7 @@ final class TheaterPlayerPool {
 
     private func configureBuffer(_ player: AVPlayer, isCurrent: Bool) {
         player.defaultRate = playbackRate
-        player.isMuted = !isCurrent || !visible
+        player.isMuted = !isCurrent || !visible || !canPlay(currentID ?? "")
         player.currentItem?.preferredForwardBufferDuration = isCurrent ? Double(max(12, playbackRate * 8)) : 2
         player.currentItem?.preferredPeakBitRate = isCurrent ? 0 : 800_000
         player.currentItem?.canUseNetworkResourcesForLiveStreamingWhilePaused = false
@@ -529,7 +559,7 @@ final class TheaterPlayerPool {
 
     private func playCurrentIfReady() {
         pauseOtherPlayers()
-        guard visible, !isPaused, !hasEnded, !isScrubbing, let currentID,
+        guard visible, !isPaused, !hasEnded, !isScrubbing, let currentID, canPlay(currentID),
               states[currentID] == .ready, let player = players[currentID] else { return }
         do {
             if !audioSessionReady {
@@ -537,6 +567,7 @@ final class TheaterPlayerPool {
                 try AVAudioSession.sharedInstance().setActive(true)
                 audioSessionReady = true
             }
+            startedPlaybackIDs.insert(currentID)
             if prerollingIDs.contains(currentID) { player.cancelPendingPrerolls() }
             let buffer = bufferedSeconds(player)
             if player.rate == 0, buffer >= Double(playbackRate) * 0.5 {
@@ -562,7 +593,11 @@ final class TheaterPlayerPool {
     }
 
     private func pauseAll() {
-        for player in players.values { player.pause() }
+        for (id, player) in players {
+            if player.rate != 0 || (player.timeControlStatus == .waitingToPlayAtSpecifiedRate && !prerollingIDs.contains(id)) {
+                player.pause()
+            }
+        }
         progressTask?.cancel()
         progressTask = nil
         saveProgress()
@@ -578,6 +613,7 @@ final class TheaterPlayerPool {
         prepareTasks.removeValue(forKey: id)?.cancel()
         loadingIDs.remove(id)
         prerollingIDs.remove(id)
+        startedPlaybackIDs.remove(id)
         prepareVersions[id] = nil
         timeObservers[id] = nil
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
@@ -597,7 +633,7 @@ final class TheaterPlayerPool {
             timeObservers[id] = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
                 Task { @MainActor [weak self] in
                     guard let self, self.currentID == id, self.players[id]?.currentItem === item else { return }
-                    self.isBuffering = self.visible && !self.isPaused && player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                    self.isBuffering = self.visible && self.canPlay(id) && !self.isPaused && player.timeControlStatus == .waitingToPlayAtSpecifiedRate
                     if self.isBuffering {
                         if self.stallStartedAt == nil { self.stallStartedAt = Date() }
                         self.deferNeighborLoads()
@@ -621,7 +657,8 @@ final class TheaterPlayerPool {
             forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, !self.isScrubbing, self.currentID == id,
+                guard let self, !self.isScrubbing, self.currentID == id, self.canPlay(id),
+                      self.startedPlaybackIDs.contains(id),
                       self.players[id]?.currentItem === item else { return }
                 self.hasEnded = true
                 self.progressTask?.cancel()
@@ -689,7 +726,8 @@ final class TheaterPlayerPool {
     }
 
     private func saveProgress(force: Bool = true) {
-        guard preloadingID == nil, let currentID, let item = items.first(where: { $0.id == currentID }),
+        guard preloadingID == nil, let currentID, canPlay(currentID), startedPlaybackIDs.contains(currentID),
+              let item = items.first(where: { $0.id == currentID }),
               let episode = item.firstEpisode, let player = players[currentID],
               let duration = player.currentItem?.duration.seconds, duration.isFinite, duration > 0 else { return }
         let seconds = player.currentTime().seconds

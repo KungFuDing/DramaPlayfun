@@ -161,6 +161,7 @@ struct PlayerView: View {
             await resolveAccess(episode, automatically: true)
         }
         .onChange(of: isVisible) { _, _ in updatePlayback() }
+        .onChange(of: isPreparationActive) { _, _ in updatePlayback() }
         .onChange(of: playback.states[selectedID ?? ""]) { _, state in
             if state == .ready { applyMediaOptions() }
         }
@@ -277,6 +278,10 @@ struct PlayerView: View {
     }
 
     private var isVisible: Bool { isMounted && detailPath.isEmpty && scenePhase == .active && !showEpisodes && optionsKind == nil && shareItem == nil && currentItem?.firstEpisode?.requiresCoinUnlock != true && pendingUnlock == nil && membershipDestination == nil && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
+    private var isPreparationActive: Bool {
+        isMounted && isReady && detailPath.isEmpty && scenePhase == .active &&
+            membershipDestination == nil && shareItem == nil
+    }
     private var currentItem: TheaterFeedItem? { store.items.first(where: { $0.id == selectedID }) }
     private var mediaItem: AVPlayerItem? { playback.player(for: selectedID ?? "")?.currentItem }
     private var mediaItemID: ObjectIdentifier? { mediaItem.map(ObjectIdentifier.init) }
@@ -339,7 +344,8 @@ struct PlayerView: View {
 
     private func updatePlayback() {
         guard isMounted else { playback.suspend(); return }
-        playback.update(items: store.items, selectedID: selectedID, visible: isVisible)
+        playback.update(items: store.items, selectedID: selectedID, visible: isVisible,
+            preparationActive: isPreparationActive)
         if playback.states[selectedID ?? ""] == .ready { applyMediaOptions() }
     }
 
@@ -365,6 +371,17 @@ struct PlayerView: View {
     private func retry(_ item: TheaterFeedItem) {
         if let episode = item.firstEpisode, episode.requiresCoinUnlock {
             pendingUnlock = episode
+        } else if let episode = item.firstEpisode, item.videoURL == nil {
+            Task {
+                do {
+                    try await store.refreshPlayableEpisode(episode)
+                    guard !Task.isCancelled, isMounted, selectedID == item.id else { return }
+                    updatePlayback()
+                } catch {
+                    guard !Task.isCancelled, isMounted, selectedID == item.id else { return }
+                    unlockError = error.localizedDescription
+                }
+            }
         } else { playback.retry(item.id) }
     }
 

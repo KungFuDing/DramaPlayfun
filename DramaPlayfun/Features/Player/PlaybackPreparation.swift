@@ -44,7 +44,7 @@ final class PlaybackPreparation {
             await load()
             guard !Task.isCancelled, !transferred,
                   let second = store.items.first(where: { $0.firstEpisode?.number == 2 }),
-                  second.videoURL != nil, second.firstEpisode?.requiresCoinUnlock == false else { return }
+                  second.videoURL != nil else { return }
             playback.preload(items: store.items, selectedID: second.id)
         }
     }

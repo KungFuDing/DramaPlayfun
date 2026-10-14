@@ -22,6 +22,7 @@ final class EpisodeUnlockTests: XCTestCase {
         XCTAssertNotNil(harness.playback.items.first(where: { $0.id == "1006" })?.videoURL)
         XCTAssertEqual(harness.playback.items.first?.videoURL, neighborURL,
             "Unlocking one episode must not replace another episode's signed URL")
+        XCTAssertEqual(scenario.listRequests, 1, "A provided prewarm source must not wait for another episode-list request")
         XCTAssertFalse(harness.coordinator.isUnlocking)
     }
 
@@ -36,7 +37,9 @@ final class EpisodeUnlockTests: XCTestCase {
         XCTAssertEqual(automatic, .needsConfirmation)
         XCTAssertEqual(confirmed, .needsRecharge)
         XCTAssertTrue(scenario.unlockRequests.isEmpty)
-        XCTAssertNil(harness.playback.items.first(where: { $0.id == "1006" })?.videoURL)
+        XCTAssertNotNil(harness.playback.items.first(where: { $0.id == "1006" })?.videoURL,
+                        "Insufficient balance must not discard the source used for silent prewarming")
+        XCTAssertTrue(try harness.episode("1006").requiresCoinUnlock)
         XCTAssertEqual(harness.wallet.balance, 5)
     }
 
@@ -189,7 +192,25 @@ final class EpisodeUnlockTests: XCTestCase {
         XCTAssertTrue(scenario.unlockRequests.isEmpty)
         XCTAssertFalse(try harness.episode("1006").requiresCoinUnlock)
         XCTAssertNotNil(harness.playback.items.first(where: { $0.id == "1006" })?.videoURL)
+        XCTAssertEqual(scenario.listRequests, 1, "VIP access must reuse an already supplied source")
         XCTAssertEqual(harness.wallet.balance, 0)
+    }
+
+    func testUnlockFetchesASourceWhenNoPrewarmURLWasAvailable() async throws {
+        let scenario = UnlockScenario(balance: 100)
+        scenario.playableURLAvailable = false
+        let harness = try await makeHarness(scenario)
+        let episode = try harness.episode("1006")
+        XCTAssertNil(harness.playback.items.first(where: { $0.id == episode.id })?.videoURL)
+        scenario.playableURLAvailable = true
+
+        let outcome = try await harness.coordinator.resolve(episode, automatically: true)
+
+        XCTAssertEqual(outcome, .unlocked(coins: 20))
+        XCTAssertEqual(scenario.listRequests, 2, "A missing source still needs the existing post-unlock fallback")
+        XCTAssertNotNil(harness.playback.items.first(where: { $0.id == episode.id })?.videoURL)
+        XCTAssertFalse(try harness.episode(episode.id).requiresCoinUnlock)
+        XCTAssertEqual(scenario.unlockRequests, [1006])
     }
 
     func testMissingURLRetryKeepsSuccessfulDeductionAndDoesNotBuyAgain() async throws {
@@ -264,8 +285,18 @@ final class EpisodeUnlockTests: XCTestCase {
         XCTAssertTrue(try harness.episode("1006").requiresCoinUnlock)
     }
 
-    func testUnlockPreparesCurrentEmptyPlayerWithoutResettingPreviousEpisode() async throws {
+    func testAutomaticUnlockReusesPrewarmedPlayerWithoutReloadingTheEpisodeList() async throws {
+        try await assertUnlockReusesPrewarmedPlayer(automatically: true)
+    }
+
+    func testManualUnlockReusesPrewarmedPlayerWithoutReloadingTheEpisodeList() async throws {
+        try await assertUnlockReusesPrewarmedPlayer(automatically: false)
+    }
+
+    private func assertUnlockReusesPrewarmedPlayer(automatically: Bool) async throws {
         let scenario = UnlockScenario(balance: 100)
+        scenario.failListAfterInitial = true
+        scenario.autoPlayNext = automatically ? "on" : "off"
         let harness = try await makeHarness(scenario)
         let url = try XCTUnwrap(Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4"))
         var loadedIDs: [String] = []
@@ -275,21 +306,39 @@ final class EpisodeUnlockTests: XCTestCase {
         })
         defer { pool.reset() }
         pool.update(items: harness.playback.items, selectedID: "1005", visible: true)
-        try await waitUntil { pool.states["1005"] == .ready }
+        try await waitUntil { pool.states["1005"] == .ready && pool.states["1006"] == .ready }
         let previousPlayer = try XCTUnwrap(pool.player(for: "1005"))
         let previousItem = try XCTUnwrap(previousPlayer.currentItem)
+        let player = try XCTUnwrap(pool.player(for: "1006"))
+        let playerItem = try XCTUnwrap(player.currentItem)
+        XCTAssertTrue(player.isMuted, "A locked neighbor must prewarm silently")
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertEqual(player.currentTime().seconds, 0, accuracy: 0.1)
         pool.update(items: harness.playback.items, selectedID: "1006", visible: true)
-        XCTAssertNil(pool.player(for: "1006")?.currentItem)
         let episode = try harness.episode("1006")
+        XCTAssertTrue(episode.requiresCoinUnlock)
+        XCTAssertTrue(pool.player(for: "1006") === player)
+        XCTAssertTrue(player.currentItem === playerItem)
+        XCTAssertTrue(player.isMuted, "Selecting the locked episode must preserve its muted preparation")
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertNotEqual(harness.library.progress[harness.playback.drama.id]?.episodeID, episode.id,
+                          "Selecting a locked prewarmed episode must not mark it watched")
 
-        _ = try await harness.coordinator.resolve(episode, automatically: true)
+        let outcome = try await harness.coordinator.resolve(episode, automatically: automatically)
         pool.update(items: harness.playback.items, selectedID: "1006", visible: true)
-        try await waitUntil { pool.states["1006"] == .ready }
+        try await waitUntil { player.rate > 0 }
 
-        XCTAssertEqual(loadedIDs, ["1005", "1006"], "Locked neighbors must never enter media preparation")
+        XCTAssertEqual(outcome, .unlocked(coins: 20))
+        XCTAssertEqual(scenario.listRequests, 1, "Unlock cannot be blocked by a second episode-list response")
+        XCTAssertEqual(loadedIDs.filter { $0 == "1006" }.count, 1, "The paid video must not restart media preparation")
         XCTAssertTrue(pool.player(for: "1005") === previousPlayer)
         XCTAssertTrue(previousPlayer.currentItem === previousItem)
-        XCTAssertNotNil(pool.player(for: "1006")?.currentItem)
+        XCTAssertTrue(pool.player(for: "1006") === player)
+        XCTAssertTrue(player.currentItem === playerItem, "Authorization should play the exact prewarmed AVPlayerItem")
+        XCTAssertEqual(pool.states["1006"], .ready)
+        XCTAssertFalse(player.isMuted)
+        XCTAssertEqual(harness.wallet.balance, 80)
+        XCTAssertEqual(scenario.unlockRequests, [1006])
     }
 
     private func makeHarness(_ scenario: UnlockScenario) async throws -> UnlockHarness {
@@ -348,13 +397,14 @@ private final class UnlockScenario {
     var accessStatusAvailable = true
     var failUnlock = false
     var failProfile = false
+    var failListAfterInitial = false
     var autoPlayNext = "on"
     var delay: TimeInterval = 0
     var unlockRequests: [Int64] = []
     var statusRequests = 0
     var profileRequests = 0
     private var unlocked: Set<Int64> = []
-    private var listRequests = 0
+    private(set) var listRequests = 0
 
     init(balance: Int64) { self.balance = balance }
 
@@ -374,6 +424,9 @@ private final class UnlockScenario {
             data = ["autoPlayNext": autoPlayNext]
         case AppAPI.v1ClientDramaEpisodeList.path:
             listRequests += 1
+            if failListAfterInitial, listRequests > 1 {
+                return Data(#"{"code":500,"message":"后续列表请求不可用","data":null}"#.utf8)
+            }
             let episodes: [[String: Any]] = (5...7).map { number in
                 let id = Int64(1000 + number)
                 var raw: [String: Any] = ["episodeId": id, "episodeNo": number,

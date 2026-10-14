@@ -1,5 +1,6 @@
 import XCTest
 import Moya
+import AVFoundation
 @testable import DramaPlayfun
 
 @MainActor
@@ -81,7 +82,8 @@ final class DramaPlaybackTests: XCTestCase {
         XCTAssertTrue(store.items.allSatisfy(\.isFavorited))
         XCTAssertEqual(store.items[0].keyIdentity?.rootDramaID, 100)
         XCTAssertEqual(store.items[1].keyIdentity?.episodeID, 1002)
-        XCTAssertNil(store.items[2].videoURL, "Locked episodes must never enter the prefetch path")
+        XCTAssertEqual(store.items[2].videoURL?.absoluteString, "https://example.invalid/3.m3u8",
+                       "A locked episode keeps its source available for silent prewarming")
         XCTAssertTrue(store.items[2].firstEpisode!.requiresCoinUnlock)
         library.save(WatchProgress(dramaID: drama.id, episodeID: "1002", episodeNumber: 2,
             seconds: 10, duration: 60, updatedAt: Date()))
@@ -123,6 +125,114 @@ final class DramaPlaybackTests: XCTestCase {
         XCTAssertFalse(episodes[1].requiresCoinUnlock)
         XCTAssertTrue(episodes[2].requiresCoinUnlock)
         XCTAssertFalse(episodes[3].requiresCoinUnlock, "An unlocked episode must not require another payment")
+    }
+
+    func testLockedCurrentEpisodePrewarmsSilentlyWithoutAdvancingOrReportingProgress() async throws {
+        let library = LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        var reportedEpisodes: [Int64] = []
+        let provider = MoyaProvider<APITarget>(endpointClosure: { target in
+            XCTAssertEqual(target.path, AppAPI.v1ClientDramaProgress.path)
+            let body = try! JSONDecoder().decode(APIModels.V1ReportDramaProgressReq.self, from: target.body)
+            reportedEpisodes.append(body.episodeId)
+            return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
+                sampleResponseClosure: { .networkResponse(200, Data(#"{"code":200,"data":{"saved":true}}"#.utf8)) },
+                method: target.method, task: target.task, httpHeaderFields: target.headers)
+        }, stubClosure: { _ in .immediate })
+        let network = APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!),
+                                provider: provider)
+        let reporter = TheaterProgressReporter(network: network, interval: 0)
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4"))
+        var loadedIDs: [String] = []
+        let pool = TheaterPlayerPool(library: library, cache: .shared, progressReporter: reporter,
+            assetLoader: { item in loadedIDs.append(item.id); return AVURLAsset(url: url) })
+        defer { pool.reset() }
+        let locked = TheaterFeedItem(drama: makeDrama(),
+            firstEpisode: Episode(id: "1006", number: 6, title: "", requiresMembership: false,
+                                  unlockCoin: 20, isUnlocked: false),
+            videoURL: URL(string: "https://example.invalid/6.m3u8"), firstEpisodeLikeCount: 0,
+            isFirstEpisodeLiked: false, isFavorited: false, playbackID: "1006")
+        // The unlock layer hides playback while explicitly keeping preparation active.
+        pool.update(items: [locked], selectedID: locked.id, visible: false, preparationActive: true)
+        let deadline = Date().addingTimeInterval(5)
+        while pool.states[locked.id] != .ready, Date() < deadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(loadedIDs, [locked.id])
+        XCTAssertEqual(pool.states[locked.id], .ready)
+        let player = try XCTUnwrap(pool.player(for: locked.id))
+        let playerItem = try XCTUnwrap(player.currentItem)
+        XCTAssertTrue(player.isMuted)
+        pool.update(items: [locked], selectedID: locked.id, visible: true)
+        XCTAssertTrue(player.isMuted, "Even an accidentally visible locked page must remain muted")
+        XCTAssertFalse(pool.beginScrubbing(locked.id), "A locked prewarmed player cannot seek as watched content")
+        pool.toggle()
+        pool.playbackRate = 2
+        pool.update(items: [locked], selectedID: locked.id, visible: false, preparationActive: true)
+        pool.update(items: [locked], selectedID: locked.id, visible: false, preparationActive: true)
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(300))
+        XCTAssertEqual(pool.states[locked.id], .ready)
+        XCTAssertTrue(pool.player(for: locked.id) === player)
+        XCTAssertTrue(player.currentItem === playerItem)
+        XCTAssertEqual(loadedIDs, [locked.id], "Repeated unlock-layer updates must reuse the prepared item")
+        XCTAssertTrue(player.isMuted)
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertEqual(player.currentTime().seconds, 0, accuracy: 0.1)
+        XCTAssertFalse(pool.hasEnded)
+        pool.suspend()
+        await reporter.flush()
+        XCTAssertNil(library.progress[locked.drama.id])
+        XCTAssertTrue(reportedEpisodes.isEmpty, "Prewarming must not send watched-progress reports")
+    }
+
+    func testAuthorizationRetriesFailedPrewarmingOnceWithTheSameSource() async throws {
+        let library = LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4"))
+        var loads = 0
+        let pool = TheaterPlayerPool(library: library, cache: .shared, assetLoader: { _ in
+            loads += 1
+            if loads == 1 { throw URLError(.notConnectedToInternet) }
+            return AVURLAsset(url: url)
+        })
+        defer { pool.reset() }
+        let remoteURL = try XCTUnwrap(URL(string: "https://example.invalid/6.m3u8"))
+        let locked = TheaterFeedItem(drama: makeDrama(),
+            firstEpisode: Episode(id: "1006", number: 6, title: "", requiresMembership: false,
+                                  unlockCoin: 20, isUnlocked: false),
+            videoURL: remoteURL, firstEpisodeLikeCount: 0, isFirstEpisodeLiked: false,
+            isFavorited: false, playbackID: "1006")
+        pool.update(items: [locked], selectedID: locked.id, visible: false, preparationActive: true)
+        let failureDeadline = Date().addingTimeInterval(5)
+        while pool.states[locked.id] == .preparing, Date() < failureDeadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        guard case .unavailable = pool.states[locked.id] else {
+            return XCTFail("The first silent preparation must fail before authorization")
+        }
+        XCTAssertEqual(loads, 1)
+
+        let unlocked = TheaterFeedItem(drama: locked.drama,
+            firstEpisode: Episode(id: "1006", number: 6, title: "", requiresMembership: false,
+                                  unlockCoin: 20, isUnlocked: true),
+            videoURL: remoteURL, firstEpisodeLikeCount: 0, isFirstEpisodeLiked: false,
+            isFavorited: false, playbackID: "1006")
+        pool.update(items: [unlocked], selectedID: unlocked.id, visible: true)
+        let readyDeadline = Date().addingTimeInterval(5)
+        while pool.states[unlocked.id] != .ready, Date() < readyDeadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(pool.states[unlocked.id], .ready)
+        XCTAssertEqual(loads, 2, "Authorization must retry a failed preload even when the source URL did not change")
+        let player = try XCTUnwrap(pool.player(for: unlocked.id))
+        let playerItem = try XCTUnwrap(player.currentItem)
+        XCTAssertFalse(player.isMuted)
+        XCTAssertGreaterThan(player.rate, 0)
+
+        pool.update(items: [unlocked], selectedID: unlocked.id, visible: true)
+        pool.update(items: [unlocked], selectedID: unlocked.id, visible: true)
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(100))
+        XCTAssertEqual(loads, 2, "Ordinary updates must not repeat the authorization retry")
+        XCTAssertTrue(pool.player(for: unlocked.id) === player)
+        XCTAssertTrue(player.currentItem === playerItem)
     }
 
     func testPoolUsesEpisodeIDsForMultipleEpisodesOfTheSameDrama() {

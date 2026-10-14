@@ -86,10 +86,49 @@ final class PlaybackPreparationTests: XCTestCase {
         XCTAssertEqual(pool.playerCount, 0)
     }
 
-    func testLockedSecondEpisodeLoadsMetadataWithoutPreloadingVideo() async throws {
+    func testLockedSecondEpisodePrewarmsSilentlyAndTransfersTheSamePlayer() async throws {
         var loadedIDs: [String] = []
         let library = LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         let store = makeStore(library: library, locked: true) { }
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4"))
+        let pool = TheaterPlayerPool(library: library, cache: .shared, assetLoader: { item in
+            loadedIDs.append(item.id)
+            return AVURLAsset(url: url)
+        })
+        let preparation = PlaybackPreparation(store: store, playback: pool)
+        defer { pool.reset() }
+        preparation.preloadVideo()
+        await preparation.load()
+        let deadline = Date().addingTimeInterval(5)
+        while pool.states["1002"] != .ready, Date() < deadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(store.items.count, 3)
+        XCTAssertTrue(store.items[1].firstEpisode!.requiresCoinUnlock)
+        XCTAssertEqual(loadedIDs, ["1002"])
+        XCTAssertEqual(pool.states["1002"], .ready)
+        let player = try XCTUnwrap(pool.player(for: "1002"))
+        let playerItem = try XCTUnwrap(player.currentItem)
+        XCTAssertTrue(player.isMuted)
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertEqual(player.currentTime().seconds, 0, accuracy: 0.1)
+        XCTAssertNil(library.progress[drama.id])
+
+        preparation.handoff()
+        preparation.cancel()
+        pool.update(items: store.items, selectedID: "1002", visible: true)
+        XCTAssertTrue(pool.player(for: "1002") === player)
+        XCTAssertTrue(player.currentItem === playerItem)
+        XCTAssertTrue(player.isMuted, "Entering the paid episode must keep the prepared video silent until authorization")
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertTrue(store.items[1].firstEpisode!.requiresCoinUnlock)
+        XCTAssertNil(library.progress[drama.id])
+    }
+
+    func testLockedSecondEpisodeWithoutURLWaitsForAnAuthorizedSource() async throws {
+        var loadedIDs: [String] = []
+        let library = LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let store = makeStore(library: library, locked: true, hasSecondURL: false) { }
         let pool = TheaterPlayerPool(library: library, cache: .shared, assetLoader: { item in
             loadedIDs.append(item.id)
             throw URLError(.cancelled)
@@ -99,20 +138,21 @@ final class PlaybackPreparationTests: XCTestCase {
         preparation.preloadVideo()
         await preparation.load()
         try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(50))
-        XCTAssertEqual(store.items.count, 3)
+        XCTAssertNil(store.items[1].videoURL)
         XCTAssertTrue(store.items[1].firstEpisode!.requiresCoinUnlock)
         XCTAssertTrue(loadedIDs.isEmpty)
         XCTAssertEqual(pool.playerCount, 0)
     }
 
-    private func makeStore(library: LibraryStore, locked: Bool = false,
+    private func makeStore(library: LibraryStore, locked: Bool = false, hasSecondURL: Bool = true,
                            onRequest: @escaping () -> Void) -> DramaPlaybackStore {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             onRequest()
+            let secondSource = hasSecondURL ? #""videoUrl":"https://example.invalid/2.m3u8","# : ""
             let json = """
             {"code":200,"data":{"rootDramaId":101,"episodes":[
             {"episodeId":1001,"episodeNo":1,"videoUrl":"https://example.invalid/1.m3u8"},
-            {"episodeId":1002,"episodeNo":2,"videoUrl":"https://example.invalid/2.m3u8","unlockCoin":\(locked ? 10 : 0),"isUnlocked":false},
+            {"episodeId":1002,"episodeNo":2,\(secondSource)"unlockCoin":\(locked ? 10 : 0),"isUnlocked":false},
             {"episodeId":1003,"episodeNo":3,"videoUrl":"https://example.invalid/3.m3u8"}]}}
             """
             return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,

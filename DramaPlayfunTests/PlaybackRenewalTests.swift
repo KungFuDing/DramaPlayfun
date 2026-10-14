@@ -49,7 +49,7 @@ final class PlaybackRenewalTests: XCTestCase {
         XCTAssertTrue(store.hasMore)
     }
 
-    func testDetailRenewsAllPlayableEpisodesWithoutUnlockingPaidEpisode() async throws {
+    func testDetailRenewsPrewarmSourcesWithoutUnlockingPaidEpisode() async throws {
         var submitted: [APIModels.V1XMTokenVideo] = []
         let network = try client { target in
             if target.path == AppAPI.v1ClientDramaEpisodeList.path {
@@ -63,9 +63,8 @@ final class PlaybackRenewalTests: XCTestCase {
             library: LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!))
         await store.load()
         _ = try await store.refreshPlaybackURLs(for: XCTUnwrap(store.items.first))
-        XCTAssertEqual(submitted.compactMap(\.episodeId), [1, 2])
-        XCTAssertEqual(store.items.prefix(2).compactMap(\.videoURL).map { HLSLocalGateway.mediaToken(from: $0) }, ["new", "new"])
-        XCTAssertNil(store.items[2].videoURL)
+        XCTAssertEqual(submitted.compactMap(\.episodeId), [1, 2, 3])
+        XCTAssertEqual(store.items.compactMap(\.videoURL).map { HLSLocalGateway.mediaToken(from: $0) }, ["new", "new", "new"])
         XCTAssertTrue(store.items[2].firstEpisode!.requiresCoinUnlock)
         XCTAssertTrue(store.items[0].isFirstEpisodeLiked)
         XCTAssertTrue(store.items.allSatisfy(\.isFavorited))

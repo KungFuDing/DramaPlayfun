@@ -12,6 +12,8 @@ final class DramaPlaybackStore {
     private let urlRefresher: PlaybackURLRefresher
     private let repository: any DramaRepository
     private let library: LibraryStore
+    // These grants come from the server, and exist only for this playback session.
+    private var authorizedEpisodeIDs: Set<String> = []
     let drama: Drama
 
     init(drama: Drama, network: APIClient, repository: any DramaRepository, library: LibraryStore) {
@@ -46,7 +48,7 @@ final class DramaPlaybackStore {
             if let id = Int64(drama.id) {
                 let response = try await network.request(AppAPI.v1ClientDramaEpisodeList,
                     body: .init(dramaId: id), unwrapEnvelope: true)
-                loaded = Self.makeItems(response, fallback: drama)
+                loaded = Self.makeItems(response, fallback: drama, authorizedEpisodeIDs: authorizedEpisodeIDs)
             } else {
                 let episodes = try await repository.fetchEpisodes(dramaID: drama.id)
                 var mapped: [TheaterFeedItem] = []
@@ -65,7 +67,8 @@ final class DramaPlaybackStore {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    static func makeItems(_ response: APIModels.V1GetDramaEpisodeListRes, fallback: Drama) -> [TheaterFeedItem] {
+    static func makeItems(_ response: APIModels.V1GetDramaEpisodeListRes, fallback: Drama,
+                          authorizedEpisodeIDs: Set<String> = []) -> [TheaterFeedItem] {
         let drama = Drama(id: fallback.id, title: response.dramaTitle ?? fallback.title,
             summary: response.dramaDesc ?? fallback.summary, category: fallback.category,
             episodeCount: response.episodePassed ?? max(response.episodes?.count ?? 0, fallback.episodeCount),
@@ -79,7 +82,7 @@ final class DramaPlaybackStore {
                   seen.insert(String(id)).inserted else { return nil }
             let episode = Episode(id: String(id), number: number, title: "第\(number)集",
                 requiresMembership: false, unlockCoin: raw.unlockCoin ?? 0,
-                isUnlocked: raw.isUnlocked ?? false, looked: raw.looked)
+                isUnlocked: raw.isUnlocked == true || authorizedEpisodeIDs.contains(String(id)), looked: raw.looked)
             let url = raw.videoUrl.flatMap(URL.init(string:)).flatMap { url -> URL? in
                 url.scheme?.lowercased() == "https" && url.host != nil && !episode.requiresCoinUnlock ? url : nil
             }
@@ -138,14 +141,50 @@ final class DramaPlaybackStore {
         }
     }
 
-    func unlock(_ episode: Episode) async throws {
+    func unlockStatus(_ episode: Episode) async throws -> APIModels.V1GetEpisodeUnlockStatusRes {
+        guard let episodeID = Int64(episode.id) else { throw CatalogError.notFound }
+        return try await network.request(AppAPI.v1DramaEpisodeUnlockStatus,
+            body: .init(episodeId: episodeID), unwrapEnvelope: true)
+    }
+
+    /// Only the coordinator calls this mutation, after serializing and checking the wallet.
+    func unlock(_ episode: Episode) async throws -> APIModels.V1UnlockDramaEpisodeRes {
         guard let dramaID = Int64(drama.id), let episodeID = Int64(episode.id) else { throw CatalogError.notFound }
         let response = try await network.request(AppAPI.v1DramaEpisodeUnlock,
             body: .init(dramaId: dramaID, episodeId: episodeID), unwrapEnvelope: true)
         guard response.canWatch == true || response.unlocked == true else { throw CatalogError.episodeLocked }
-        await load()
-        guard let item = items.first(where: { $0.firstEpisode?.id == episode.id }),
-              item.videoURL != nil, item.firstEpisode?.requiresCoinUnlock == false else { throw CatalogError.episodeLocked }
+        authorizePlayback(episode)
+        return response
+    }
+
+    func hasAuthorizedPlayback(_ episode: Episode) -> Bool {
+        authorizedEpisodeIDs.contains(episode.id)
+    }
+
+    /// Preserve the confirmed grant even if fetching the signed URL subsequently fails.
+    /// A retry then fetches the URL without submitting another coin transaction.
+    func authorizePlayback(_ episode: Episode) {
+        authorizedEpisodeIDs.insert(episode.id)
+    }
+
+    func refreshPlayableEpisode(_ episode: Episode) async throws {
+        guard let dramaID = Int64(drama.id) else { throw CatalogError.notFound }
+        let response = try await network.request(AppAPI.v1ClientDramaEpisodeList,
+            body: .init(dramaId: dramaID), unwrapEnvelope: true)
+        try Task.checkCancellation()
+        let refreshed = Self.makeItems(response, fallback: drama, authorizedEpisodeIDs: authorizedEpisodeIDs)
+        guard let item = refreshed.first(where: { $0.firstEpisode?.id == episode.id }),
+              item.videoURL != nil, item.firstEpisode?.requiresCoinUnlock == false else {
+            throw EpisodeUnlockError.playbackUnavailable
+        }
+        // Keep neighboring signed URLs, players and interaction state intact.
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+            let previous = items[index]
+            items[index] = TheaterFeedItem(drama: item.drama, firstEpisode: item.firstEpisode,
+                videoURL: item.videoURL, firstEpisodeLikeCount: previous.firstEpisodeLikeCount,
+                isFirstEpisodeLiked: previous.isFirstEpisodeLiked, isFavorited: previous.isFavorited,
+                playbackID: item.playbackID, favoriteCount: previous.favoriteCount)
+        }
     }
 
     func reportFeedback(_ episode: Episode, categoryCode: String) async throws {

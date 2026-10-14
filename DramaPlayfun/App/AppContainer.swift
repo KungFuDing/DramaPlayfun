@@ -34,6 +34,7 @@ final class AppContainer {
                        ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-WelfareUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-SearchUITestFixture") ||
+                       ProcessInfo.processInfo.arguments.contains("-PlayerUnlockUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-MembershipUITestFixture"))
             ? Self.theaterUITestClient() : nil
         #endif
@@ -75,7 +76,8 @@ final class AppContainer {
         }
         var subscriptionService: any SubscriptionService = subscriptions ?? StoreKitSubscriptionService(backend: purchaseBackend)
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-MembershipUITestFixture") {
+        if ProcessInfo.processInfo.arguments.contains("-MembershipUITestFixture") ||
+            ProcessInfo.processInfo.arguments.contains("-PlayerUnlockUITestFixture") {
             subscriptionService = MembershipUITestService()
         }
         #endif
@@ -85,8 +87,15 @@ final class AppContainer {
     #if DEBUG
     private static func theaterUITestClient() -> APIClient {
         let welfareAccount = WelfareUITestAccount()
+        let unlockAccount = ProcessInfo.processInfo.arguments.contains("-PlayerUnlockUITestFixture")
+            ? PlayerUnlockUITestAccount() : nil
         var searchHistory = ["重生之我和白月光", "不是哥们,你开局玩这么大", "炎帝", "我是祖国人", "都市甜宠", "白月光的日常生活", "重生", "我以异能斩规则"]
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
+            if let response = unlockAccount?.response(for: target) {
+                return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
+                                sampleResponseClosure: { .networkResponse(200, Data(response.utf8)) },
+                                method: target.method, task: target.task, httpHeaderFields: target.headers)
+            }
             let response: String
             switch target.path {
             case "/mobile/v1/auth/guest/login":

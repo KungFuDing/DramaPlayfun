@@ -5,6 +5,7 @@ struct PlayerView: View {
     let request: PlaybackRequest
     @State private var store: DramaPlaybackStore
     @State private var playback: TheaterPlayerPool
+    @State private var unlockCoordinator: EpisodeUnlockCoordinator
     @State private var isReady = false
     @State private var selectedID: String?
     @State private var attempt = 0
@@ -13,8 +14,11 @@ struct PlayerView: View {
     @State private var shareItem: TheaterFeedItem?
     @State private var pendingUnlock: Episode?
     @State private var unlockError: String?
-    @State private var isUnlocking = false
-    @State private var showMembership = false
+    @State private var changingAutoUnlock = false
+    @State private var unlockToast: String?
+    @State private var membershipDestination: MembershipCategory?
+    @State private var accessRevision = 0
+    @State private var isMounted = false
     @State private var feedbackEpisode: Episode?
     @State private var isSubmittingFeedback = false
     @State private var feedbackSubmitted = false
@@ -36,6 +40,8 @@ struct PlayerView: View {
         self.request = request
         if let preparation = request.preparation {
             _store = State(initialValue: preparation.store)
+            _unlockCoordinator = State(initialValue: EpisodeUnlockCoordinator(playback: preparation.store,
+                wallet: app.wallet, profile: app.profile, membership: app.membership))
             _playback = State(initialValue: preparation.playback)
             let loaded = !preparation.store.items.isEmpty
             _isReady = State(initialValue: loaded)
@@ -46,6 +52,8 @@ struct PlayerView: View {
         let store = DramaPlaybackStore(drama: request.drama, network: app.network,
             repository: app.repository, library: app.library)
         _store = State(initialValue: store)
+        _unlockCoordinator = State(initialValue: EpisodeUnlockCoordinator(playback: store,
+            wallet: app.wallet, profile: app.profile, membership: app.membership))
         _playback = State(initialValue: TheaterPlayerPool(library: app.library, cache: app.hlsCache,
             progressReporter: TheaterProgressReporter(network: app.network), resumesProgress: !request.startsFromBeginning,
             refreshURLs: { item in try await store.refreshPlaybackURLs(for: item) }))
@@ -81,19 +89,7 @@ struct PlayerView: View {
                     ScrollView(.vertical) {
                         LazyVStack(spacing: 0) {
                             ForEach(store.items) { item in
-                                TheaterVideoPage(item: item, playback: playback,
-                                    isActive: selectedID == item.id && isVisible,
-                                    onRetry: { retry(item) }, onEpisodes: { showEpisodes = true },
-                                    onShare: { shareItem = item }, onDetail: { detailPath.append(item.drama) }, isDetail: true,
-                                    onLike: { try await store.toggleLike(item.id) },
-                                    onFavorite: { try await store.toggleFavorite() })
-                                    .overlay {
-                                        if item.firstEpisode?.requiresCoinUnlock == true {
-                                            Button("解锁第\(item.firstEpisode?.number ?? 1)集") {
-                                                pendingUnlock = item.firstEpisode
-                                            }.buttonStyle(.borderedProminent).tint(Theme.accent)
-                                        }
-                                    }
+                                episodePage(item)
                                     .frame(width: geometry.size.width, height: geometry.size.height)
                                     .id(item.id)
                             }
@@ -134,7 +130,6 @@ struct PlayerView: View {
         .preferredColorScheme(.dark)
         .task(id: attempt) {
             if isReady && completedAttempt == attempt {
-                presentUnlockIfNeeded()
                 updatePlayback()
                 return
             }
@@ -151,12 +146,19 @@ struct PlayerView: View {
             selectedID = store.initialID(request: request)
             isReady = true
             completedAttempt = attempt
-            presentUnlockIfNeeded()
             updatePlayback()
         }
         .onChange(of: selectedID) { _, _ in
-            presentUnlockIfNeeded()
+            pendingUnlock = nil
+            unlockToast = nil
             updatePlayback()
+        }
+        .task(id: accessTaskID) {
+            guard canResolveAccess, let episode = currentItem?.firstEpisode,
+                  episode.requiresCoinUnlock else { return }
+            do { try await Task.sleep(for: .milliseconds(220)) }
+            catch { return }
+            await resolveAccess(episode, automatically: true)
         }
         .onChange(of: isVisible) { _, _ in updatePlayback() }
         .onChange(of: playback.states[selectedID ?? ""]) { _, state in
@@ -169,7 +171,11 @@ struct PlayerView: View {
                   store.items.indices.contains(index + 1) else { return }
             selectedID = store.items[index + 1].id
         }
-        .onDisappear { if detailPath.isEmpty { playback.reset() } else { playback.suspend() } }
+        .onAppear { isMounted = true }
+        .onDisappear {
+            isMounted = false
+            if detailPath.isEmpty { playback.reset() } else { playback.suspend() }
+        }
         .overlay {
             if let kind = optionsKind {
                 PlayerOptionsSheet(kind: kind, options: options(for: kind), selectedID: selectedOptionID(for: kind),
@@ -180,30 +186,48 @@ struct PlayerView: View {
                 PlayerEpisodesSheet(drama: currentItem?.drama ?? request.drama,
                     episodes: store.items.compactMap(\.firstEpisode), selectedID: currentItem?.firstEpisode?.id,
                     onClose: { showEpisodes = false }, onSelect: { episode in
-                        if episode.requiresCoinUnlock { pendingUnlock = episode }
-                        else { selectedID = episode.id; showEpisodes = false }
+                        selectedID = episode.id
+                        showEpisodes = false
                     })
             }
         }
-        .blur(radius: pendingUnlock == nil ? 0 : 8)
-        .allowsHitTesting(pendingUnlock == nil)
-        .accessibilityHidden(pendingUnlock != nil)
+        .overlay(alignment: .bottom) {
+            if let unlockToast {
+                Text(unlockToast).font(.system(size: 14, weight: .medium))
+                    .padding(.horizontal, 18).padding(.vertical, 11)
+                    .background(.black.opacity(0.75), in: Capsule())
+                    .padding(.bottom, 72)
+                    .accessibilityIdentifier("player-unlock-toast")
+                    .allowsHitTesting(false)
+            }
+        }
+        .task(id: unlockToast) {
+            guard unlockToast != nil else { return }
+            do { try await Task.sleep(for: .seconds(3)) }
+            catch { return }
+            unlockToast = nil
+        }
         .overlay {
             if let episode = pendingUnlock {
-                PlayerUnlockDialog(episode: episode, isUnlocking: isUnlocking,
+                PlayerUnlockConfirmationSheet(drama: currentItem?.drama ?? request.drama,
+                    episode: episode, balanceText: app.wallet.balanceText,
+                    autoUnlocksNext: app.profile.autoPlaysNext,
+                    isUpdatingAutoUnlock: changingAutoUnlock,
+                    isUnlocking: unlockCoordinator.isUnlocking,
                     onClose: { pendingUnlock = nil },
-                    onUnlock: { Task { await unlock(episode) } },
-                    onMembership: { showMembership = true })
+                    onAutoUnlockChange: { enabled in Task { await setAutoUnlock(enabled) } },
+                    onConfirm: { Task { await resolveAccess(episode, automatically: false) } },
+                    onMembership: { openMembership(.weekly) })
             }
         }
         .fullScreenCover(item: $shareItem) { DramaShareView(item: $0) }
-        .sheet(isPresented: $showMembership, onDismiss: {
+        .sheet(item: $membershipDestination, onDismiss: {
             Task { await refreshAfterMembership() }
-        }) {
+        }) { category in
             NavigationStack {
-                MembershipView().toolbar {
+                MembershipView(initialCategory: category, showsNavigationBar: true).toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("完成") { showMembership = false }
+                        Button("完成") { membershipDestination = nil }
                     }
                 }
             }
@@ -227,7 +251,32 @@ struct PlayerView: View {
         } message: { Text("感谢你的反馈，我们会尽快处理。") }
     }
 
-    private var isVisible: Bool { detailPath.isEmpty && scenePhase == .active && !showEpisodes && optionsKind == nil && shareItem == nil && !isUnlocking && pendingUnlock == nil && !showMembership && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
+    private func episodePage(_ item: TheaterFeedItem) -> some View {
+        let locked = item.firstEpisode?.requiresCoinUnlock == true
+        let showsUnlockLayer = locked && pendingUnlock?.id != item.firstEpisode?.id
+        return ZStack {
+            TheaterVideoPage(item: item, playback: playback,
+                isActive: selectedID == item.id && isVisible,
+                onRetry: { retry(item) }, onEpisodes: { showEpisodes = true },
+                onShare: { shareItem = item }, onDetail: { detailPath.append(item.drama) }, isDetail: true,
+                onLike: { try await store.toggleLike(item.id) },
+                onFavorite: { try await store.toggleFavorite() })
+                .blur(radius: showsUnlockLayer ? 8 : 0)
+                .allowsHitTesting(!locked)
+                .accessibilityHidden(locked || selectedID != item.id)
+            if showsUnlockLayer {
+                Color.black.opacity(0.35).allowsHitTesting(false)
+                if selectedID == item.id, let episode = item.firstEpisode {
+                    PlayerUnlockDialog(episode: episode,
+                        isUnlocking: unlockCoordinator.unlockingEpisodeIDs.contains(episode.id),
+                        onUnlock: { pendingUnlock = episode })
+                }
+            }
+        }
+        .clipped()
+    }
+
+    private var isVisible: Bool { isMounted && detailPath.isEmpty && scenePhase == .active && !showEpisodes && optionsKind == nil && shareItem == nil && currentItem?.firstEpisode?.requiresCoinUnlock != true && pendingUnlock == nil && membershipDestination == nil && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
     private var currentItem: TheaterFeedItem? { store.items.first(where: { $0.id == selectedID }) }
     private var mediaItem: AVPlayerItem? { playback.player(for: selectedID ?? "")?.currentItem }
     private var mediaItemID: ObjectIdentifier? { mediaItem.map(ObjectIdentifier.init) }
@@ -289,32 +338,47 @@ struct PlayerView: View {
     }
 
     private func updatePlayback() {
+        guard isMounted else { playback.suspend(); return }
         playback.update(items: store.items, selectedID: selectedID, visible: isVisible)
         if playback.states[selectedID ?? ""] == .ready { applyMediaOptions() }
     }
 
-    private func presentUnlockIfNeeded() {
-        guard isReady else { return }
-        pendingUnlock = currentItem?.firstEpisode.flatMap { $0.requiresCoinUnlock ? $0 : nil }
-        if pendingUnlock != nil { optionsKind = nil }
+    private var accessTaskID: String {
+        "\(canResolveAccess)-\(selectedID ?? "")-\(accessRevision)"
+    }
+
+    private var canResolveAccess: Bool {
+        isMounted && isReady && detailPath.isEmpty && scenePhase == .active && membershipDestination == nil
     }
 
     private func refreshAfterMembership() async {
+        guard isMounted else { return }
+        await app.profile.reloadProfile()
+        await app.wallet.reloadBalance()
+        await app.membership.refresh()
         await store.load()
-        if let episode = pendingUnlock,
-           let updated = store.items.first(where: { $0.firstEpisode?.id == episode.id })?.firstEpisode,
-           !updated.requiresCoinUnlock {
-            pendingUnlock = nil
-            selectedID = updated.id
-            showEpisodes = false
-        }
-        playback.reset()
+        guard !Task.isCancelled, isMounted else { return }
+        accessRevision += 1
         updatePlayback()
     }
 
     private func retry(_ item: TheaterFeedItem) {
-        if item.firstEpisode?.requiresCoinUnlock == true { pendingUnlock = item.firstEpisode }
-        else { playback.retry(item.id) }
+        if let episode = item.firstEpisode, episode.requiresCoinUnlock {
+            pendingUnlock = episode
+        } else { playback.retry(item.id) }
+    }
+
+    private func openMembership(_ category: MembershipCategory) {
+        pendingUnlock = nil
+        membershipDestination = category
+    }
+
+    private func setAutoUnlock(_ enabled: Bool) async {
+        guard !changingAutoUnlock else { return }
+        changingAutoUnlock = true
+        defer { changingAutoUnlock = false }
+        do { try await app.profile.setAutoPlayNext(enabled) }
+        catch { unlockError = error.localizedDescription }
     }
 
     private func submitFeedback(_ episode: Episode, categoryCode: String) async {
@@ -328,17 +392,28 @@ struct PlayerView: View {
         } catch { unlockError = error.localizedDescription }
     }
 
-    private func unlock(_ episode: Episode) async {
-        guard !isUnlocking else { return }
-        isUnlocking = true
-        defer { isUnlocking = false; updatePlayback() }
+    private func resolveAccess(_ episode: Episode, automatically: Bool) async {
+        guard canResolveAccess, selectedID == episode.id else { return }
+        if automatically && pendingUnlock != nil { return }
         do {
-            try await store.unlock(episode)
-            playback.reset()
-            pendingUnlock = nil
-            selectedID = episode.id
-            showEpisodes = false
-        } catch { unlockError = error.localizedDescription }
+            let outcome = try await unlockCoordinator.resolve(episode, automatically: automatically)
+            guard !Task.isCancelled, isMounted, selectedID == episode.id else { return }
+            switch outcome {
+            case .unlocked(let coins):
+                pendingUnlock = nil
+                if coins > 0 { unlockToast = "成功扣除\(coins)金币，已解锁第\(episode.number)集" }
+            case .needsConfirmation:
+                break // The page-local unlock layer remains swipeable.
+            case .needsRecharge:
+                openMembership(.coins)
+            }
+            updatePlayback()
+        } catch is CancellationError {
+        } catch {
+            guard !Task.isCancelled, isMounted, selectedID == episode.id else { return }
+            unlockError = error.localizedDescription
+            updatePlayback()
+        }
     }
 
     private func applyMediaOptions() {

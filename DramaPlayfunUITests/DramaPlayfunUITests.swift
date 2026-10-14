@@ -506,7 +506,7 @@ final class DramaPlayfunUITests: XCTestCase {
     @MainActor
     func testEpisodeSheetRangesAndUnlockStates() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-FeedUITestFixture", "-EpisodesUITestFixture"]
+        app.launchArguments = ["-PlayerUnlockUITestFixture", "-EpisodesUITestFixture"]
         app.launch()
         let banner = app.buttons["推荐剧集，推荐测试"]
         XCTAssertTrue(banner.waitForExistence(timeout: 10))
@@ -539,19 +539,24 @@ final class DramaPlayfunUITests: XCTestCase {
         app.buttons["episode-range-1"].tap()
         app.buttons["episode-selection-17"].tap()
         XCTAssertTrue(app.otherElements["player-unlock-dialog"].waitForExistence(timeout: 5))
+        XCTAssertFalse(panel.exists, "选中付费集后应退出选集并定位到该集")
         XCTAssertTrue(app.buttons["player-unlock-coins"].exists)
+        app.buttons["player-unlock-coins"].tap()
+        XCTAssertTrue(app.otherElements["player-unlock-confirmation"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["player-unlock-confirm"].exists)
         XCTAssertTrue(app.buttons["player-unlock-vip"].exists)
         app.buttons["player-unlock-close"].tap()
-        XCTAssertTrue(panel.exists)
-        app.buttons["关闭选集"].tap()
+        XCTAssertFalse(app.otherElements["player-unlock-confirmation"].exists)
         XCTAssertFalse(panel.exists)
+        XCTAssertTrue(app.otherElements["player-unlock-dialog"].exists)
         XCTAssertTrue(app.scrollViews["player-episode-feed"].exists)
+        XCTAssertEqual(app.scrollViews["player-episode-feed"].value as? String, "第17集")
     }
 
     @MainActor
     func testSwipingToPaidEpisodeShowsUnlockDialogAndOpensMembership() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-FeedUITestFixture"]
+        app.launchArguments = ["-PlayerUnlockUITestFixture"]
         app.launch()
         let banner = app.buttons["推荐剧集，推荐测试"]
         XCTAssertTrue(banner.waitForExistence(timeout: 10))
@@ -565,33 +570,41 @@ final class DramaPlayfunUITests: XCTestCase {
         let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.2))
         let dialog = app.otherElements["player-unlock-dialog"]
         bottom.press(forDuration: 0.05, thenDragTo: top)
-        XCTAssertTrue(dialog.waitForExistence(timeout: 5), "滑到未解锁付费集时应自动显示弹窗")
+        XCTAssertTrue(dialog.waitForExistence(timeout: 5), "余额不足时滑到付费集应显示浮层")
         XCTAssertTrue(app.staticTexts["本集需要解锁"].exists)
         XCTAssertTrue(app.buttons["player-unlock-coins"].isHittable)
-        XCTAssertTrue(app.buttons["player-unlock-vip"].isHittable)
+        XCTAssertTrue(app.buttons["player-back"].isHittable, "一级浮层不能遮挡左上角返回按钮")
+        XCTAssertFalse(app.otherElements["player-unlock-confirmation"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "滑到付费集自动显示解锁弹窗"
         screenshot.lifetime = .keepAlways
         add(screenshot)
-        app.buttons["player-unlock-close"].tap()
-        XCTAssertFalse(dialog.exists)
         XCTAssertEqual(feed.value as? String, "第6集")
         top.press(forDuration: 0.05, thenDragTo: bottom)
-        XCTAssertEqual(feed.value as? String, "第5集")
+        expectation(for: NSPredicate(format: "value == %@", "第5集"), evaluatedWith: feed)
+        waitForExpectations(timeout: 5)
         XCTAssertFalse(dialog.exists, "免费集不应弹出解锁弹窗")
         bottom.press(forDuration: 0.05, thenDragTo: top)
         XCTAssertTrue(dialog.waitForExistence(timeout: 5), "重新滑入未解锁付费集时应再次弹出")
+        app.buttons["player-unlock-coins"].tap()
+        let confirmation = app.otherElements["player-unlock-confirmation"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
         app.buttons["player-unlock-vip"].tap()
-        XCTAssertTrue(app.navigationBars["会员"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["membership-tab-weekly"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["membership-tab-weekly"].isSelected)
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["player-unlock-coins"].waitForExistence(timeout: 5))
+        app.buttons["player-unlock-coins"].tap()
+        XCTAssertTrue(app.buttons["player-unlock-confirm"].waitForExistence(timeout: 5))
+        app.buttons["player-unlock-confirm"].tap()
+        XCTAssertTrue(app.buttons["membership-tab-coins"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["membership-tab-coins"].isSelected, "余额不足确认解锁应直接打开充值页签")
         app.buttons["完成"].tap()
         XCTAssertTrue(dialog.waitForExistence(timeout: 5))
-        app.buttons["player-unlock-coins"].tap()
-        let error = app.alerts["操作失败"]
-        XCTAssertTrue(error.waitForExistence(timeout: 5))
-        error.buttons["知道了"].tap()
-        XCTAssertTrue(dialog.exists, "解锁失败后应保留弹窗供用户重试")
-        app.buttons["player-unlock-close"].tap()
         XCTAssertEqual(feed.value as? String, "第6集", "浏览会员页不会直接授予付费集权限")
+        XCTAssertTrue(dialog.exists)
+        app.buttons["player-back"].tap()
+        XCTAssertTrue(banner.waitForExistence(timeout: 5))
     }
 
     @MainActor

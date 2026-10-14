@@ -17,6 +17,7 @@ enum ProfileCollection: String, CaseIterable, Identifiable {
 @MainActor @Observable
 final class ProfileStore {
     private(set) var profile = APIModels.V1GetMyProfileRes()
+    private(set) var hasLoadedProfile = false
     private(set) var config = APIModels.V1GetAppConfigRes()
     private(set) var languages = ProfileLanguage.defaults
     private(set) var collections: [ProfileCollection: [Drama]] = [:]
@@ -51,6 +52,7 @@ final class ProfileStore {
             let result = try await network.request(AppAPI.v1ClientMe, body: .init(), unwrapEnvelope: true)
             try Task.checkCancellation()
             profile = result
+            hasLoadedProfile = true
         } catch { /* Keep the last known profile when offline. */ }
     }
 
@@ -112,6 +114,7 @@ final class ProfileStore {
     func deactivate() async throws {
         _ = try await network.request(AppAPI.v1AuthDeactivate, body: .init(), unwrapEnvelope: true)
         profile = .init()
+        hasLoadedProfile = false
         collections = [:]
         pages = [:]
         hasMore = [:]

@@ -38,7 +38,8 @@ final class WalletStore {
         self.profile = profile
     }
 
-    var balanceText: String { (balance ?? profile.profile.coinAmount).map(String.init) ?? "—" }
+    var availableBalance: Int64? { balance ?? profile.profile.coinAmount }
+    var balanceText: String { availableBalance.map(String.init) ?? "—" }
 
     func updateBalance(_ balance: Int64) {
         self.balance = balance
@@ -49,7 +50,11 @@ final class WalletStore {
         do {
             let response = try await network.request(AppAPI.v1WalletInfo, body: .init(), unwrapEnvelope: true)
             try Task.checkCancellation()
-            if let balance = response.balanceCoin { updateBalance(balance) }
+            guard let balance = response.balanceCoin else {
+                balanceError = "暂时无法获取金币余额，请稍后重试。"
+                return
+            }
+            updateBalance(balance)
             balanceError = nil
         } catch is CancellationError {
         } catch { balanceError = error.localizedDescription }

@@ -22,6 +22,8 @@ final class TheaterPlayerPool {
     @ObservationIgnored private var sparePlayers: [AVPlayer] = []
     @ObservationIgnored private var prepareTasks: [TheaterFeedItem.ID: Task<Void, Never>] = [:]
     @ObservationIgnored private var prepareVersions: [TheaterFeedItem.ID: UUID] = [:]
+    @ObservationIgnored private var loadingIDs: Set<TheaterFeedItem.ID> = []
+    @ObservationIgnored private var prerollingIDs: Set<TheaterFeedItem.ID> = []
     @ObservationIgnored private var itemObservers: [TheaterFeedItem.ID: [NSObjectProtocol]] = [:]
     @ObservationIgnored private var progressTask: Task<Void, Never>?
     @ObservationIgnored private var seekTask: Task<Void, Never>?
@@ -143,9 +145,21 @@ final class TheaterPlayerPool {
         let wanted = Set(max(0, index - 1)...min(items.count - 1, index + 1))
         let wantedIDs = Set(wanted.map { items[$0].id })
         for id in Array(players.keys) where !wantedIDs.contains(id) { release(id) }
-        // A batch renewal invalidates prepared neighbors, without rebuilding a healthy current player.
+        // A refreshed authorization token must not discard a neighbor's buffer and decoder.
+        // Pending loads still need the latest signed URL; content changes always invalidate it.
         for item in items where wantedIDs.contains(item.id) && item.id != selectedID {
-            if let previous = self.preparedURLs[item.id], previous != item.videoURL { release(item.id) }
+            if let previous = preparedURLs[item.id], previous != item.videoURL,
+               players[item.id]?.currentItem == nil || states[item.id] != .ready ||
+                MediaResourceURL.contentKey(for: previous) != item.videoURL.map(MediaResourceURL.contentKey(for:)) {
+                release(item.id)
+            }
+        }
+        // Unlocking supplies a URL to the current episode's previously empty player.
+        // Prepare only that episode so neighboring buffers and playback progress survive.
+        let selected = items[index]
+        if let player = players[selected.id], player.currentItem == nil,
+           let url = selected.videoURL, preparedURLs[selected.id] != url {
+            release(selected.id)
         }
         for position in wanted.sorted(by: { abs($0 - index) < abs($1 - index) }) {
             let item = items[position]
@@ -264,6 +278,7 @@ final class TheaterPlayerPool {
         timeObservers[id] = nil
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
         player.automaticallyWaitsToMinimizeStalling = true
+        player.isMuted = id != currentID || !visible
         players[id] = player
         preparedURLs[id] = item.videoURL
         states[id] = .preparing
@@ -276,13 +291,22 @@ final class TheaterPlayerPool {
             return
         }
         prepareTasks[id] = Task {
+            defer {
+                if prepareVersions[id] == version {
+                    loadingIDs.remove(id)
+                    prerollingIDs.remove(id)
+                    prepareTasks[id] = nil
+                    prepareVersions[id] = nil
+                }
+            }
             do {
-                // Only preload the next episode after the visible one has a healthy buffer.
+                // Warm just the beginning of one neighbor at a time once the foreground is safe.
                 // If this neighbor becomes selected, it immediately gains foreground priority.
                 while !canPrepare(id) {
-                    try await Task.sleep(for: .milliseconds(250))
+                    try await Task.sleep(for: .milliseconds(100))
                 }
                 try Task.checkCancellation()
+                loadingIDs.insert(id)
                 let started = Date()
                 logger.info("preparing episode=\(id, privacy: .public) foreground=\(self.currentID == id)")
                 let asset = try await assetLoader(item)
@@ -291,9 +315,8 @@ final class TheaterPlayerPool {
                 try Task.checkCancellation()
                 guard prepareVersions[id] == version, players[id] === player else { return }
                 let playerItem = AVPlayerItem(asset: asset)
-                playerItem.preferredForwardBufferDuration = id == currentID ? Double(max(12, playbackRate * 8)) : 2
-                playerItem.preferredPeakBitRate = id == currentID ? 0 : 800_000
                 player.replaceCurrentItem(with: playerItem)
+                configureBuffer(player, isCurrent: id == currentID)
                 let deadline = Date().addingTimeInterval(20)
                 while playerItem.status == .unknown {
                     if HLSLocalGateway.authorizationExpired(for: asset) { throw HLSKeyError.invalidMediaToken }
@@ -321,17 +344,9 @@ final class TheaterPlayerPool {
                 observePlayback(of: playerItem, id: id)
                 if currentID == id {
                     if visible { playCurrentIfReady() }
-                    else if preloadingID == id {
-                        _ = await player.preroll(atRate: 1)
-                        guard !Task.isCancelled, prepareVersions[id] == version, players[id] === player else { return }
-                        if visible { playCurrentIfReady() }
-                        else { player.pause() }
-                    }
-                } else {
-                    _ = await player.preroll(atRate: 1)
-                    guard !Task.isCancelled, prepareVersions[id] == version, players[id] === player else { return }
-                    if currentID == id && visible { playCurrentIfReady() }
-                    else { player.pause() }
+                }
+                if preloadingID == id || currentID != id {
+                    await warmDecoder(player, id: id, version: version)
                 }
             } catch is CancellationError {
             } catch {
@@ -343,11 +358,23 @@ final class TheaterPlayerPool {
                     }
                 }
             }
-            if prepareVersions[id] == version {
-                prepareTasks[id] = nil
-                prepareVersions[id] = nil
-            }
         }
+    }
+
+    private func warmDecoder(_ player: AVPlayer, id: String, version: UUID) async {
+        prerollingIDs.insert(id)
+        let timeout = Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, prepareVersions[id] == version else { return }
+            player.cancelPendingPrerolls()
+        }
+        defer { timeout.cancel() }
+        let warmed = await player.preroll(atRate: playbackRate)
+        guard !Task.isCancelled, prepareVersions[id] == version, players[id] === player else { return }
+        prerollingIDs.remove(id)
+        logger.info("prewarmed episode=\(id, privacy: .public) ready=\(warmed) buffer=\(self.bufferedSeconds(player))")
+        if currentID == id && visible { playCurrentIfReady() }
+        else { player.pause() }
     }
 
     private func restorePosition(_ seconds: Double, player: AVPlayer, id: String, version: UUID) async throws {
@@ -417,18 +444,33 @@ final class TheaterPlayerPool {
         if preloadingID == id { return true }
         guard visible else { return false }
         if currentID == id { return true }
-        guard !continuationPriority, !isPaused, !hasEnded, !isScrubbing,
+        guard !continuationPriority, !isPaused, !hasEnded, !isScrubbing, !isBuffering,
               let index = items.firstIndex(where: { $0.id == currentID }),
-              items.indices.contains(index + 1), items[index + 1].id == id,
+              let candidate = items.firstIndex(where: { $0.id == id }), abs(candidate - index) == 1,
+              !loadingIDs.contains(where: { $0 != currentID && $0 != id }),
               let player = players[currentID ?? ""], player.timeControlStatus == .playing,
               let item = player.currentItem else { return false }
+        // Prefer the next swipe; prepare the previous page only after it is ready (or unavailable).
+        if candidate < index, items.indices.contains(index + 1),
+           states[items[index + 1].id] == .preparing { return false }
         let seconds = player.currentTime().seconds
         let duration = item.duration.seconds
         let remaining = duration.isFinite ? max(0, duration - seconds) : 8
         let event = item.accessLog()?.events.last
-        return Self.hasPreloadCapacity(bufferedSeconds: bufferedSeconds(player), remaining: remaining,
+        return Self.hasNeighborPreloadCapacity(bufferedSeconds: bufferedSeconds(player), remaining: remaining,
             rate: playbackRate, observedBitrate: event?.observedBitrate ?? 0,
-            requiredBitrate: event?.indicatedBitrate ?? 0)
+            requiredBitrate: event?.indicatedBitrate ?? 0, isNext: candidate > index)
+    }
+
+    static func hasNeighborPreloadCapacity(bufferedSeconds: Double, remaining: Double, rate: Float,
+                                          observedBitrate: Double, requiredBitrate: Double,
+                                          isNext: Bool) -> Bool {
+        guard bufferedSeconds.isFinite, bufferedSeconds > 0, remaining > 0 else { return false }
+        if remaining.isFinite, bufferedSeconds >= remaining { return true }
+        let speed = Double(max(1, rate))
+        guard bufferedSeconds >= (isNext ? 3 : 6) * speed else { return false }
+        // Access logs may not yet contain throughput on the first segment or a disk cache hit.
+        return observedBitrate <= 0 || requiredBitrate <= 0 || observedBitrate >= requiredBitrate * speed * 1.25
     }
 
     static func hasPreloadCapacity(bufferedSeconds: Double, remaining: Double, rate: Float,
@@ -439,7 +481,9 @@ final class TheaterPlayerPool {
     }
 
     private func deferNeighborLoads() {
-        for item in items where item.id != currentID && players[item.id]?.currentItem != nil {
+        // Preserve ready neighbors, including their first decoded frame, through transient waits.
+        // Only unfinished loads compete with a starving foreground player.
+        for item in items where item.id != currentID && loadingIDs.contains(item.id) && states[item.id] == .preparing {
             release(item.id)
             prepare(item)
         }
@@ -477,8 +521,10 @@ final class TheaterPlayerPool {
 
     private func configureBuffer(_ player: AVPlayer, isCurrent: Bool) {
         player.defaultRate = playbackRate
+        player.isMuted = !isCurrent || !visible
         player.currentItem?.preferredForwardBufferDuration = isCurrent ? Double(max(12, playbackRate * 8)) : 2
         player.currentItem?.preferredPeakBitRate = isCurrent ? 0 : 800_000
+        player.currentItem?.canUseNetworkResourcesForLiveStreamingWhilePaused = false
     }
 
     private func playCurrentIfReady() {
@@ -491,7 +537,15 @@ final class TheaterPlayerPool {
                 try AVAudioSession.sharedInstance().setActive(true)
                 audioSessionReady = true
             }
-            player.play()
+            if prerollingIDs.contains(currentID) { player.cancelPendingPrerolls() }
+            let buffer = bufferedSeconds(player)
+            if player.rate == 0, buffer >= Double(playbackRate) * 0.5 {
+                // The prefetched start is already playable; skip AVPlayer's startup heuristic.
+                player.playImmediately(atRate: playbackRate)
+                logger.info("buffered start episode=\(currentID, privacy: .public) buffer=\(buffer)")
+            } else {
+                player.play()
+            }
             if let item = items.first(where: { $0.id == currentID }),
                let episodeID = item.firstEpisode?.id,
                let asset = player.currentItem?.asset as? AVURLAsset {
@@ -504,7 +558,7 @@ final class TheaterPlayerPool {
     }
 
     private func pauseOtherPlayers() {
-        for (id, player) in players where id != currentID { player.pause() }
+        for (id, player) in players where id != currentID && player.rate != 0 { player.pause() }
     }
 
     private func pauseAll() {
@@ -522,6 +576,8 @@ final class TheaterPlayerPool {
         networkRecoveryAttempts.remove(id)
         if scrubbingID == id { resetScrubbing() }
         prepareTasks.removeValue(forKey: id)?.cancel()
+        loadingIDs.remove(id)
+        prerollingIDs.remove(id)
         prepareVersions[id] = nil
         timeObservers[id] = nil
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
@@ -620,7 +676,7 @@ final class TheaterPlayerPool {
                 }
                 if let currentID, !isPaused, !isScrubbing, !hasEnded,
                    let player = players[currentID], player.timeControlStatus == .playing,
-                   bufferedSeconds(player) < Double(max(4, playbackRate * 4)) { deferNeighborLoads() }
+                   bufferedSeconds(player) < Double(max(1, playbackRate)) { deferNeighborLoads() }
                 if let currentID, let since = stallStartedAt, Date().timeIntervalSince(since) >= 8,
                    visible, !isPaused, !isScrubbing, !hasEnded,
                    let item = items.first(where: { $0.id == currentID }) {

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="24506" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="launch-controller">
+    <device id="retina5_5" orientation="portrait" appearance="dark"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24504"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="launch-scene">
+            <objects>
+                <viewController id="launch-controller" sceneMemberID="viewController">
+                    <view key="view" clipsSubviews="YES" contentMode="scaleToFill" id="launch-root">
+                        <rect key="frame" x="0.0" y="0.0" width="375" height="812"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleToFill" image="LaunchBackground" translatesAutoresizingMaskIntoConstraints="NO" id="launch-background">
+                                <rect key="frame" x="0.0" y="0.0" width="375" height="812"/>
+                            </imageView>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchPosters" translatesAutoresizingMaskIntoConstraints="NO" id="launch-posters">
+                                <rect key="frame" x="14" y="21" width="347" height="554"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" secondItem="launch-posters" secondAttribute="height" multiplier="347:554" id="posters-aspect"/>
+                                    <constraint firstAttribute="width" relation="lessThanOrEqual" constant="694" id="posters-max-width"/>
+                                </constraints>
+                            </imageView>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchBrand" translatesAutoresizingMaskIntoConstraints="NO" id="launch-brand">
+                                <rect key="frame" x="96" y="205" width="183" height="93"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" secondItem="launch-brand" secondAttribute="height" multiplier="183:93" id="brand-aspect"/>
+                                    <constraint firstAttribute="width" relation="lessThanOrEqual" constant="274.5" id="brand-max-width"/>
+                                </constraints>
+                            </imageView>
+                        </subviews>
+                        <viewLayoutGuide key="safeArea" id="launch-safe-area"/>
+                        <color key="backgroundColor" red="0.1176470588" green="0.1176470588" blue="0.1176470588" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="launch-background" firstAttribute="leading" secondItem="launch-root" secondAttribute="leading" id="background-leading"/>
+                            <constraint firstItem="launch-background" firstAttribute="trailing" secondItem="launch-root" secondAttribute="trailing" id="background-trailing"/>
+                            <constraint firstItem="launch-background" firstAttribute="top" secondItem="launch-root" secondAttribute="top" id="background-top"/>
+                            <constraint firstItem="launch-background" firstAttribute="bottom" secondItem="launch-root" secondAttribute="bottom" id="background-bottom"/>
+                            <constraint firstItem="launch-posters" firstAttribute="centerX" secondItem="launch-root" secondAttribute="centerX" id="posters-center-x"/>
+                            <constraint firstItem="launch-posters" firstAttribute="top" secondItem="launch-root" secondAttribute="bottom" multiplier="21:812" id="posters-top"/>
+                            <constraint firstItem="launch-posters" firstAttribute="width" secondItem="launch-root" secondAttribute="width" multiplier="347:375" priority="750" id="posters-width"/>
+                            <constraint firstItem="launch-brand" firstAttribute="centerX" secondItem="launch-root" secondAttribute="centerX" id="brand-center-x"/>
+                            <constraint firstItem="launch-brand" firstAttribute="centerY" secondItem="launch-root" secondAttribute="bottom" multiplier="251.5:812" id="brand-center-y"/>
+                            <constraint firstItem="launch-brand" firstAttribute="width" secondItem="launch-root" secondAttribute="width" multiplier="183:375" priority="750" id="brand-width"/>
+                            <constraint firstItem="launch-brand" firstAttribute="height" relation="lessThanOrEqual" secondItem="launch-root" secondAttribute="height" multiplier="0.24" id="brand-max-height"/>
+                        </constraints>
+                    </view>
+                    <nil key="simulatedStatusBarMetrics"/>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="launch-first-responder" sceneMemberID="firstResponder"/>
+            </objects>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="LaunchBackground" width="375" height="812"/>
+        <image name="LaunchBrand" width="183" height="93"/>
+        <image name="LaunchPosters" width="347" height="554"/>
+    </resources>
+</document>

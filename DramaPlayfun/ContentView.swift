@@ -10,20 +10,9 @@ struct ContentView: View {
             if app.guestSession.isReady {
                 appContent
             } else {
-                VStack(spacing: 16) {
-                    if let message = app.guestSession.errorMessage {
-                        Text(message).multilineTextAlignment(.center).foregroundStyle(.secondary)
-                        Button("重新连接") { Task { await app.guestSession.signInIfNeeded() } }
-                            .buttonStyle(.borderedProminent)
-                    } else {
-                        ProgressView("正在连接…")
-                    }
+                LaunchScreenView(errorMessage: app.guestSession.errorMessage) {
+                    Task { await app.guestSession.signInIfNeeded() }
                 }
-                .padding(24)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.background.ignoresSafeArea())
-                .preferredColorScheme(.dark)
-                .tint(Theme.accent)
             }
         }
         .task { await app.guestSession.signInIfNeeded() }

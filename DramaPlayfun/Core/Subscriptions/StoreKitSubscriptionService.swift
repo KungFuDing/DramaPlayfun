@@ -2,58 +2,117 @@ import StoreKit
 
 @MainActor
 final class StoreKitSubscriptionService: SubscriptionService {
-    private let productIDs: Set<String>
+    private let backend: StorePurchaseBackend
     private var products: [Product] = []
+    private var deliveries: [UInt64: Task<Void, Error>] = [:]
+    private(set) var transactionMessage: String?
 
-    init(productIDs: Set<String>) { self.productIDs = productIDs }
+    init(backend: StorePurchaseBackend) { self.backend = backend }
 
     func plans() async throws -> [MembershipPlan] {
-        guard !productIDs.isEmpty else { return [] }
-        products = try await Product.products(for: productIDs)
-            .filter { $0.type == .autoRenewable }
-            .sorted { $0.price < $1.price }
-        return products.map {
-            MembershipPlan(id: $0.id, title: $0.displayName, price: $0.displayPrice,
-                           period: Self.periodDescription($0.subscription?.subscriptionPeriod))
+        let configurations = try await backend.products()
+        products = try await Product.products(for: configurations.map(\.id))
+        return configurations.compactMap { item in
+            guard let product = products.first(where: { $0.id == item.id }),
+                  Self.matches(product, category: item.category) else { return nil }
+            return MembershipPlan(id: item.id, title: product.displayName, price: product.displayPrice,
+                period: Self.periodDescription(product.subscription?.subscriptionPeriod),
+                category: item.category, coinAmount: item.coinAmount, giftCoinAmount: item.giftCoinAmount)
         }
     }
 
-    func hasActiveSubscription() async throws -> Bool {
-        for await result in Transaction.currentEntitlements {
-            guard case .verified(let transaction) = result,
-                  productIDs.contains(transaction.productID),
-                  transaction.revocationDate == nil, !transaction.isUpgraded,
-                  let expirationDate = transaction.expirationDate,
-                  expirationDate > Date() else { continue }
-            return true
-        }
-        return false
-    }
+    func entitlement() async throws -> MembershipEntitlement { try await backend.entitlement() }
+    func hasActiveSubscription() async throws -> Bool { try await entitlement().isActive }
 
     func purchase(planID: String) async throws -> PurchaseOutcome {
         guard let product = products.first(where: { $0.id == planID }) else {
-            throw SubscriptionError.productUnavailable
+            throw StorePurchaseError.productUnavailable
         }
+        let configuration = try await backend.configuration(for: planID)
+        guard Self.matches(product, category: configuration.category) else {
+            throw StorePurchaseError.productUnavailable
+        }
+        try await backend.prepare(configuration)
         switch try await product.purchase() {
         case .success(let result):
-            guard case .verified(let transaction) = result else { throw SubscriptionError.unverified }
-            await transaction.finish()
+            guard case .verified(let transaction) = result else { throw StorePurchaseError.unverified }
+            try await deliver(transaction)
             return .purchased
         case .pending: return .pending
         case .userCancelled: return .cancelled
-        @unknown default: throw SubscriptionError.unknown
+        @unknown default: throw StorePurchaseError.unknown
         }
     }
 
-    func restore() async throws { try await AppStore.sync() }
+    func restore() async throws {
+        try await AppStore.sync()
+        var firstError: Error?
+        // Includes unfinished consumables; currentEntitlements intentionally excludes them.
+        // One failing order must not prevent unrelated orders from being recovered.
+        for await result in Transaction.unfinished {
+            guard case .verified(let transaction) = result else { continue }
+            do { try await deliver(transaction) }
+            catch { if firstError == nil { firstError = error } }
+        }
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result,
+                  transaction.productType == .autoRenewable,
+                  transaction.revocationDate == nil, !transaction.isUpgraded else { continue }
+            do {
+                _ = try await backend.configuration(for: transaction.productID)
+                try await backend.restore(transactionID: String(transaction.id), originalID: String(transaction.originalID))
+            } catch { if firstError == nil { firstError = error } }
+        }
+        if let firstError { throw firstError }
+    }
 
     func observeTransactions(onChange: @escaping @MainActor () async -> Void) async {
-        for await result in Transaction.updates {
+        let updates = Transaction.updates
+        for await result in Transaction.unfinished {
             guard !Task.isCancelled else { return }
-            guard case .verified(let transaction) = result,
-                  productIDs.contains(transaction.productID) else { continue }
-            await onChange()
+            if case .verified(let transaction) = result {
+                do { try await deliver(transaction) }
+                catch { transactionMessage = error.localizedDescription }
+            }
+        }
+        await onChange()
+        for await result in updates {
+            guard !Task.isCancelled else { return }
+            guard case .verified(let transaction) = result else { continue }
+            do {
+                try await deliver(transaction)
+                await onChange()
+            } catch {
+                transactionMessage = error.localizedDescription
+                await onChange()
+            }
+        }
+    }
+
+    private func deliver(_ transaction: Transaction) async throws {
+        guard transaction.revocationDate == nil, !transaction.isUpgraded else {
             await transaction.finish()
+            return
+        }
+        if let pending = deliveries[transaction.id] { return try await pending.value }
+        let delivery = Task { @MainActor in
+            try await backend.report(productID: transaction.productID, transactionID: String(transaction.id),
+                                     originalID: String(transaction.originalID), accountToken: transaction.appAccountToken)
+            await transaction.finish()
+        }
+        deliveries[transaction.id] = delivery
+        defer { deliveries[transaction.id] = nil }
+        try await delivery.value
+        transactionMessage = nil
+    }
+
+    private static func matches(_ product: Product, category: MembershipCategory) -> Bool {
+        if category == .coins { return product.type == .consumable }
+        guard product.type == .autoRenewable, let period = product.subscription?.subscriptionPeriod else { return false }
+        switch category {
+        case .weekly: return (period.unit == .week && period.value == 1) || (period.unit == .day && period.value == 7)
+        case .yearly: return period.unit == .year && period.value == 1
+        case .coins: return false
         }
     }
 
@@ -67,17 +126,6 @@ final class StoreKitSubscriptionService: SubscriptionService {
         case .year: unit = "年"
         @unknown default: unit = "期"
         }
-        return "每\(period.value)\(unit)自动续订"
-    }
-}
-
-private enum SubscriptionError: LocalizedError {
-    case productUnavailable, unverified, unknown
-    var errorDescription: String? {
-        switch self {
-        case .productUnavailable: "暂时无法获取订阅商品，请稍后重试。"
-        case .unverified: "无法验证本次交易，请稍后恢复购买。"
-        case .unknown: "购买未完成，请稍后重试。"
-        }
+        return "每\(period.value)\(unit)"
     }
 }

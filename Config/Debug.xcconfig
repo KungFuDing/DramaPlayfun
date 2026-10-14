@@ -10,3 +10,7 @@ DEBUG_PLATFORM =
 DEBUG_SYSTEM_VERSION =
 HLS_SHARED_SECRET =
 #include? "Debug.local.xcconfig"
+
+// StoreKit Testing requires the simulator app to be marked as a development build.
+// This entitlement is never applied to device or Release builds.
+CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*] = Config/SimulatorDebug.entitlements

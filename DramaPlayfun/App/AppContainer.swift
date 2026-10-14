@@ -33,7 +33,8 @@ final class AppContainer {
                        ProcessInfo.processInfo.arguments.contains("-FeedUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-WelfareUITestFixture") ||
-                       ProcessInfo.processInfo.arguments.contains("-SearchUITestFixture"))
+                       ProcessInfo.processInfo.arguments.contains("-SearchUITestFixture") ||
+                       ProcessInfo.processInfo.arguments.contains("-MembershipUITestFixture"))
             ? Self.theaterUITestClient() : nil
         #endif
         self.network = network ?? {
@@ -67,7 +68,18 @@ final class AppContainer {
         theaterPlayback = TheaterPlayerPool(library: library, cache: hlsCache,
             progressReporter: TheaterProgressReporter(network: self.network),
             refreshURLs: { [theaterFeed] item in try await theaterFeed.refreshPlaybackURLs(for: item) })
-        membership = MembershipStore(service: subscriptions ?? StoreKitSubscriptionService(productIDs: []))
+        let purchaseBackend = StorePurchaseBackend(network: self.network) { [wallet, profile] balance in
+            if let balance { wallet.updateBalance(balance) }
+            await profile.reloadProfile()
+            await wallet.reloadBalance()
+        }
+        var subscriptionService: any SubscriptionService = subscriptions ?? StoreKitSubscriptionService(backend: purchaseBackend)
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-MembershipUITestFixture") {
+            subscriptionService = MembershipUITestService()
+        }
+        #endif
+        membership = MembershipStore(service: subscriptionService)
     }
 
     #if DEBUG

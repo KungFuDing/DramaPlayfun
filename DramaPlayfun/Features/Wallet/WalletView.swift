@@ -4,6 +4,7 @@ struct WalletView: View {
     @Environment(AppContainer.self) private var app
     @State private var kind: WalletRecordKind = .recharge
     @State private var changingAutoPlay = false
+    @State private var showingRecharge = false
     @State private var message: String?
 
     var body: some View {
@@ -26,6 +27,16 @@ struct WalletView: View {
         .foregroundStyle(.white).background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar).toolbar(.hidden, for: .tabBar)
         .buttonStyle(.plain)
+        .sheet(isPresented: $showingRecharge) {
+            NavigationStack {
+                MembershipView(initialCategory: .coins, showsNavigationBar: true)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("完成") { showingRecharge = false }
+                        }
+                    }
+            }
+        }
         .task { await app.wallet.reloadBalance() }
         .task(id: kind) { await app.wallet.load(kind, refresh: true) }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
@@ -41,7 +52,7 @@ struct WalletView: View {
                 Text(app.wallet.balanceText).font(.system(size: 30, weight: .medium))
                     .lineLimit(1).minimumScaleFactor(0.6).accessibilityIdentifier("wallet-balance")
                 Spacer(minLength: 10)
-                Button { message = "金币充值暂未开放，请稍后再试。" } label: {
+                Button { showingRecharge = true } label: {
                     Text("去充值").font(.system(size: 16, weight: .medium)).foregroundStyle(Color(white: 0.18))
                         .frame(width: 89, height: 33).background(Theme.accent, in: Capsule())
                 }.accessibilityIdentifier("wallet-recharge")

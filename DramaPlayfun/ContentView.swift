@@ -67,7 +67,7 @@ struct ContentView: View {
             PlayerView(request: request, app: app)
         }
         .sheet(isPresented: $router.membershipPresented) {
-            NavigationStack { MembershipView().toolbar {
+            NavigationStack { MembershipView(showsNavigationBar: true).toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { router.membershipPresented = false }
                 }

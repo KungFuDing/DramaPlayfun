@@ -54,6 +54,42 @@ final class MembershipUITests: XCTestCase {
         XCTAssertTrue(recharge.waitForExistence(timeout: 5))
     }
 
+    @MainActor
+    func testHorizontalPagingKeepsTabsAndCoinSelectionInSync() {
+        let app = XCUIApplication()
+        app.launchArguments.append("-MembershipUITestFixture")
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["会员"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["会员"].tap()
+        let weekly = app.scrollViews["membership-page-weekly"]
+        let yearly = app.scrollViews["membership-page-yearly"]
+        let coins = app.scrollViews["membership-page-coins"]
+        XCTAssertTrue(weekly.waitForExistence(timeout: 5))
+        weekly.swipeLeft()
+        XCTAssertTrue(app.buttons["membership-tab-yearly"].isSelected)
+        XCTAssertTrue(app.buttons["membership-buy-yearly"].isHittable)
+        yearly.swipeLeft()
+        XCTAssertTrue(app.buttons["membership-tab-coins"].isSelected)
+        let coin = app.buttons["membership-coin-fixture.coins.1"]
+        coin.tap()
+        coins.swipeUp()
+        XCTAssertTrue(app.buttons["membership-tab-coins"].isSelected)
+        coins.swipeDown()
+        coins.swipeLeft()
+        XCTAssertTrue(app.buttons["membership-tab-coins"].isSelected)
+        coins.swipeRight()
+        XCTAssertTrue(app.buttons["membership-tab-yearly"].isSelected)
+        yearly.swipeRight()
+        XCTAssertTrue(app.buttons["membership-tab-weekly"].isSelected)
+        weekly.swipeRight()
+        XCTAssertTrue(app.buttons["membership-tab-weekly"].isSelected)
+        app.buttons["membership-tab-coins"].tap()
+        XCTAssertTrue(coin.isSelected)
+        XCTAssertTrue(app.buttons["membership-buy-coins"].label.contains("$8.99"))
+        coins.swipeRight()
+        XCTAssertTrue(app.buttons["membership-tab-yearly"].isSelected)
+    }
+
     @MainActor private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name

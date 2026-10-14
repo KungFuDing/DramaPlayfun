@@ -16,41 +16,20 @@ struct MembershipView: View {
     }
 
     private var store: MembershipStore { app.membership }
-    private var plans: [MembershipPlan] { store.plans.filter { $0.category == category } }
+    private var coinPlans: [MembershipPlan] { store.plans.filter { $0.category == .coins } }
     private var selectedCoin: MembershipPlan? {
-        plans.first { $0.id == selectedCoinID } ?? plans.first
+        coinPlans.first { $0.id == selectedCoinID } ?? coinPlans.first
     }
 
     var body: some View {
         VStack(spacing: 0) {
             tabs
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if category == .coins {
-                        recharge
-                    } else {
-                        MembershipHero(category: category, entitlement: store.entitlement)
-                            .padding(.top, -10)
-                        MembershipBenefits(category: category).padding(.top, 10)
-                        Text("加入会员").font(.system(size: 16, weight: .semibold))
-                            .padding(.top, 24).padding(.bottom, 11)
-                        if let plan = plans.first {
-                            MembershipOffer(plan: plan, active: store.entitlement.isActive(for: category),
-                                            busy: store.isPurchasing) {
-                                Task { await store.purchase(plan) }
-                            }
-                        } else { unavailable }
-                    }
-                    if let message = store.message {
-                        Text(message).font(.system(size: 13)).foregroundStyle(Theme.accent)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 14)
-                            .accessibilityIdentifier("membership-message")
-                    }
-                    MembershipTerms(isRecharge: category == .coins)
-                        .padding(.top, category == .coins ? 26 : 16)
-                    footer.padding(.top, 25).padding(.bottom, 24)
-                }.padding(.horizontal, 12)
-            }.scrollIndicators(.hidden)
+            TabView(selection: $category) {
+                ForEach(MembershipCategory.allCases) { item in
+                    page(for: item).tag(item)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .foregroundStyle(.white).buttonStyle(.plain)
         .background(MembershipBackground(category: category).ignoresSafeArea())
@@ -65,10 +44,42 @@ struct MembershipView: View {
         } message: { Text(documentMessage ?? "") }
     }
 
+    private func page(for category: MembershipCategory) -> some View {
+        let plans = store.plans.filter { $0.category == category }
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if category == .coins {
+                    recharge
+                } else {
+                    MembershipHero(category: category, entitlement: store.entitlement)
+                        .padding(.top, -10)
+                    MembershipBenefits(category: category).padding(.top, 10)
+                    Text("加入会员").font(.system(size: 16, weight: .semibold))
+                        .padding(.top, 24).padding(.bottom, 11)
+                    if let plan = plans.first {
+                        MembershipOffer(plan: plan, active: store.entitlement.isActive(for: category),
+                                        busy: store.isPurchasing) {
+                            Task { await store.purchase(plan) }
+                        }
+                    } else { unavailable(for: category) }
+                }
+                if category == self.category, let message = store.message {
+                    Text(message).font(.system(size: 13)).foregroundStyle(Theme.accent)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 14)
+                        .accessibilityIdentifier("membership-message")
+                }
+                MembershipTerms(isRecharge: category == .coins)
+                    .padding(.top, category == .coins ? 26 : 16)
+                footer.padding(.top, 25).padding(.bottom, 24)
+            }.padding(.horizontal, 12)
+        }.scrollIndicators(.hidden)
+            .accessibilityIdentifier("membership-page-\(category.rawValue)")
+    }
+
     private var tabs: some View {
         HStack(spacing: 24) {
             ForEach(MembershipCategory.allCases) { item in
-                Button { category = item } label: {
+                Button { withAnimation(.easeInOut(duration: 0.25)) { category = item } } label: {
                     VStack(spacing: 6) {
                         Text(item.title).font(.system(size: 16, weight: item == category ? .semibold : .regular))
                             .foregroundStyle(item == category ? .white : Color.white.opacity(0.6))
@@ -80,7 +91,7 @@ struct MembershipView: View {
         }.frame(maxWidth: .infinity).padding(.top, 4).padding(.bottom, 2)
     }
 
-    @ViewBuilder private var unavailable: some View {
+    private func unavailable(for category: MembershipCategory) -> some View {
         VStack(spacing: 10) {
             if store.isLoading { ProgressView("正在加载商品…") }
             else {
@@ -93,10 +104,10 @@ struct MembershipView: View {
 
     private var recharge: some View {
         VStack(spacing: 0) {
-            if plans.isEmpty { unavailable.padding(.top, 16) }
+            if coinPlans.isEmpty { unavailable(for: .coins).padding(.top, 16) }
             else {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 11) {
-                    ForEach(plans) { plan in
+                    ForEach(coinPlans) { plan in
                         MembershipCoinTile(plan: plan, selected: selectedCoin?.id == plan.id) {
                             selectedCoinID = plan.id
                         }.disabled(store.isPurchasing)

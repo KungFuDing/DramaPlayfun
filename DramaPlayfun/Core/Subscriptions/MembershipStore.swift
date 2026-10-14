@@ -29,8 +29,14 @@ final class MembershipStore {
         isLoading = true
         message = nil
         defer { isLoading = false }
-        do { plans = try await service.plans() }
-        catch is CancellationError {} catch { message = error.localizedDescription }
+        do {
+            let loadedPlans = try await service.plans { plans = $0 }
+            try Task.checkCancellation()
+            plans = loadedPlans
+        }
+        catch is CancellationError { return }
+        catch { if !Task.isCancelled { message = error.localizedDescription } }
+        guard !Task.isCancelled else { return }
         await refresh()
     }
 

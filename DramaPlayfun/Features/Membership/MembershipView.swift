@@ -56,7 +56,7 @@ struct MembershipView: View {
                     MembershipBenefits(category: category).padding(.top, 10)
                     Text("加入会员").font(.system(size: 16, weight: .semibold))
                         .padding(.top, 24).padding(.bottom, 11)
-                    if let plan = plans.first {
+                    if let plan = plans.first(where: \.isAvailableForPurchase) ?? plans.first {
                         MembershipOffer(plan: plan, active: store.entitlement.isActive(for: category),
                                         busy: store.isPurchasing) {
                             Task { await store.purchase(plan) }
@@ -67,6 +67,11 @@ struct MembershipView: View {
                     Text(message).font(.system(size: 13)).foregroundStyle(Theme.accent)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 14)
                         .accessibilityIdentifier("membership-message")
+                }
+                if !store.isLoading, plans.contains(where: { !$0.isAvailableForPurchase }) {
+                    Button("重新加载商品") { Task { await store.loadPlans() } }
+                        .font(.system(size: 13)).foregroundStyle(Theme.accent).padding(.top, 14)
+                        .accessibilityIdentifier("membership-reload-\(category.rawValue)")
                 }
                 MembershipTerms(isRecharge: category == .coins)
                     .padding(.top, category == .coins ? 26 : 16)
@@ -124,8 +129,8 @@ struct MembershipView: View {
                 }.foregroundStyle(Color(red: 0.18, green: 0.12, blue: 0.02))
                     .frame(maxWidth: .infinity).frame(height: 48)
                     .background(MembershipPalette.goldButton, in: Capsule())
-            }.disabled(selectedCoin == nil || store.isPurchasing)
-                .opacity(selectedCoin == nil ? 0.5 : 1)
+            }.disabled(selectedCoin?.isAvailableForPurchase != true || store.isPurchasing)
+                .opacity(selectedCoin?.isAvailableForPurchase == true ? 1 : 0.5)
                 .padding(.horizontal, 28).padding(.top, 40)
                 .accessibilityIdentifier("membership-buy-coins")
         }
@@ -249,7 +254,9 @@ private struct MembershipOffer: View {
                         if active { Capsule().fill(.white.opacity(0.2)) }
                         else { Capsule().fill(plan.category == .weekly ? MembershipPalette.blueButton : MembershipPalette.goldButton) }
                     }
-            }.disabled(active || busy).accessibilityIdentifier("membership-buy-\(plan.category.rawValue)")
+            }.disabled(active || busy || !plan.isAvailableForPurchase)
+                .opacity(plan.isAvailableForPurchase ? 1 : 0.5)
+                .accessibilityIdentifier("membership-buy-\(plan.category.rawValue)")
         }.padding(.horizontal, 16).padding(.vertical, 18).frame(minHeight: 94)
             .background(plan.category == .weekly ? Color(red: 0.15, green: 0.19, blue: 0.29) : Color(red: 0.30, green: 0.25, blue: 0.16), in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(plan.category == .weekly ? Color(red: 0.53, green: 0.63, blue: 0.81) : Color(red: 0.80, green: 0.74, blue: 0.60), lineWidth: 1))

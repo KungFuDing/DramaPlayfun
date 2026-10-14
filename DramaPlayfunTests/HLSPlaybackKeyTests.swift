@@ -315,6 +315,80 @@ final class HLSPlaybackKeyTests: XCTestCase {
         XCTAssertTrue(server.unauthorizedPaths.isEmpty)
     }
 
+    @MainActor
+    func testPausedNeighborBackpressureDoesNotBlockForegroundManifestOrMedia() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8"))
+            .deletingLastPathComponent()
+        // A body larger than the loopback socket buffers makes the proxy wait
+        // when this consumer stops reading, just as a paused neighbor can do.
+        let neighbor = try HLSFixtureServer(directory: directory,
+            mediaBodyOverride: Data(repeating: 0x5A, count: 32 * 1024 * 1024))
+        let foreground = try HLSFixtureServer(directory: directory)
+        let serversReady = expectation(description: "Both upstream fixtures ready")
+        serversReady.expectedFulfillmentCount = 2
+        for server in [neighbor, foreground] {
+            server.listener.stateUpdateHandler = { if case .ready = $0 { serversReady.fulfill() } }
+            server.listener.start(queue: server.queue)
+        }
+        defer { neighbor.listener.cancel(); foreground.listener.cancel() }
+        await fulfillment(of: [serversReady], timeout: 5)
+
+        func makeAsset(server: HLSFixtureServer, episodeID: Int64) async throws -> AVURLAsset {
+            let port = try XCTUnwrap(server.listener.port).rawValue
+            return try await HLSLocalGateway.shared.asset(
+                remoteURL: URL(string: "http://127.0.0.1:\(port)/master.m3u8?X-Media-Token=fixture-token")!,
+                identity: HLSKeyIdentity(rootDramaID: 107, episodeID: episodeID),
+                secret: Data("test-secret".utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 2
+        configuration.timeoutIntervalForResource = 3
+        let client = URLSession(configuration: configuration)
+        defer { client.invalidateAndCancel() }
+        func firstReference(in url: URL) async throws -> URL {
+            let (body, response) = try await client.data(from: url)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+            return try XCTUnwrap(String(decoding: body, as: UTF8.self).components(separatedBy: .newlines)
+                .first { $0.hasPrefix("http://") }.flatMap(URL.init(string:)))
+        }
+        let neighborAsset = try await makeAsset(server: neighbor, episodeID: 2531)
+        defer { withExtendedLifetime(neighborAsset) {} }
+        let neighborPlaylist = try await firstReference(in: neighborAsset.url)
+        let neighborMedia = try await firstReference(in: neighborPlaylist)
+        let port = try XCTUnwrap(neighborMedia.port.flatMap { NWEndpoint.Port(rawValue: UInt16($0)) })
+        let slowConsumer = NWConnection(host: "127.0.0.1", port: port, using: .tcp)
+        defer { slowConsumer.cancel() }
+        let consumerReady = expectation(description: "Nonreading consumer connected")
+        slowConsumer.stateUpdateHandler = { if case .ready = $0 { consumerReady.fulfill() } }
+        slowConsumer.start(queue: DispatchQueue(label: "test.hls.slow-consumer"))
+        await fulfillment(of: [consumerReady], timeout: 5)
+        let requestSent = expectation(description: "Neighbor media requested")
+        let request = "GET \(neighborMedia.path) HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+        slowConsumer.send(content: Data(request.utf8), completion: .contentProcessed { error in
+            XCTAssertNil(error)
+            requestSent.fulfill()
+        })
+        await fulfillment(of: [requestSent], timeout: 5)
+        // Deliberately never receive from slowConsumer. Confirm actual socket
+        // backpressure instead of relying on an arbitrary startup delay.
+        for _ in 0..<250 {
+            if HLSLocalGateway.shared.debugHasBlockedMediaWrite(for: neighborAsset) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(HLSLocalGateway.shared.debugHasBlockedMediaWrite(for: neighborAsset))
+
+        let foregroundAsset = try await makeAsset(server: foreground, episodeID: 2532)
+        defer { withExtendedLifetime(foregroundAsset) {} }
+        let foregroundPlaylist = try await firstReference(in: foregroundAsset.url)
+        let foregroundMedia = try await firstReference(in: foregroundPlaylist)
+        let (body, response) = try await client.data(from: foregroundMedia)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertEqual(body, try Data(contentsOf: directory.appendingPathComponent("seg_00000.mpegts")))
+        XCTAssertTrue(HLSLocalGateway.shared.debugHasBlockedMediaWrite(for: neighborAsset),
+            "The foreground must finish while the neighbor is still blocked")
+        XCTAssertTrue(foreground.unauthorizedPaths.isEmpty)
+    }
+
     func testHMACDerivationMatchesServerContract() throws {
         let identity = HLSKeyIdentity(rootDramaID: 107, episodeID: 2531)
         let key = try HLSPlaybackKey.derive(identity, secret: Data("test-secret".utf8))
@@ -437,6 +511,7 @@ private final class HLSFixtureServer {
     private let acceptedTokens: Set<String>
     private let signedMediaReferences: Bool
     private let disconnectMediaPrefix: Int?
+    private let mediaBodyOverride: Data?
 
     var hasSentMediaTail: Bool {
         lock.lock()
@@ -459,7 +534,7 @@ private final class HLSFixtureServer {
     init(directory: URL, mediaTailDelay: TimeInterval = 0, chunkedMedia: Bool = false,
          disconnectMediaOnce: Bool = false, rejectMedia: Bool = false,
          acceptedTokens: Set<String> = ["fixture-token"], signedMediaReferences: Bool = false,
-         disconnectMediaPrefix: Int? = nil) throws {
+         disconnectMediaPrefix: Int? = nil, mediaBodyOverride: Data? = nil) throws {
         self.directory = directory
         self.mediaTailDelay = mediaTailDelay
         self.chunkedMedia = chunkedMedia
@@ -468,6 +543,7 @@ private final class HLSFixtureServer {
         self.acceptedTokens = acceptedTokens
         self.signedMediaReferences = signedMediaReferences
         self.disconnectMediaPrefix = disconnectMediaPrefix
+        self.mediaBodyOverride = mediaBodyOverride
         listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { return }
@@ -493,7 +569,8 @@ private final class HLSFixtureServer {
                 let fixtureName = path.hasSuffix(".ts")
                     ? path.replacingOccurrences(of: ".ts", with: ".mpegts") : path
                 let file = authorized && allowed.contains(path)
-                    ? try? Data(contentsOf: self.directory.appendingPathComponent(fixtureName)) : nil
+                    ? (path.hasSuffix(".ts") ? self.mediaBodyOverride : nil)
+                        ?? (try? Data(contentsOf: self.directory.appendingPathComponent(fixtureName))) : nil
                 var body = file ?? Data()
                 if self.signedMediaReferences, path == "index.m3u8" {
                     let playlist = String(decoding: body, as: UTF8.self)

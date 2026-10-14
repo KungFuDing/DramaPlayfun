@@ -17,6 +17,7 @@ struct MembershipPlan: Identifiable, Equatable {
     var category: MembershipCategory = .weekly
     var coinAmount: Int64 = 0
     var giftCoinAmount: Int64 = 0
+    var isAvailableForPurchase = true
 }
 
 struct MembershipEntitlement: Equatable {
@@ -35,6 +36,8 @@ enum PurchaseOutcome { case purchased, pending, cancelled }
 protocol SubscriptionService {
     var transactionMessage: String? { get }
     func plans() async throws -> [MembershipPlan]
+    /// Publishes provisional server plans before returning the Apple-enriched catalog.
+    func plans(onUpdate: @MainActor ([MembershipPlan]) -> Void) async throws -> [MembershipPlan]
     func hasActiveSubscription() async throws -> Bool
     func entitlement() async throws -> MembershipEntitlement
     func purchase(planID: String) async throws -> PurchaseOutcome
@@ -44,6 +47,9 @@ protocol SubscriptionService {
 
 extension SubscriptionService {
     var transactionMessage: String? { nil }
+    func plans(onUpdate: @MainActor ([MembershipPlan]) -> Void) async throws -> [MembershipPlan] {
+        try await plans()
+    }
     func entitlement() async throws -> MembershipEntitlement {
         MembershipEntitlement(isActive: try await hasActiveSubscription())
     }

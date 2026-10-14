@@ -5,6 +5,21 @@ import AVFoundation
 
 @MainActor
 final class DramaPlaybackTests: XCTestCase {
+    func testNeighborPreloadStartsEarlyOnlyWithMeasuredBandwidthHeadroom() {
+        XCTAssertTrue(TheaterPlayerPool.hasNeighborPreloadCapacity(bufferedSeconds: 1, remaining: 60,
+            rate: 1, observedBitrate: 1_000_000, requiredBitrate: 400_000, isNext: true))
+        XCTAssertFalse(TheaterPlayerPool.hasNeighborPreloadCapacity(bufferedSeconds: 1, remaining: 60,
+            rate: 1, observedBitrate: 0, requiredBitrate: 0, isNext: true))
+        XCTAssertFalse(TheaterPlayerPool.hasNeighborPreloadCapacity(bufferedSeconds: 1, remaining: 60,
+            rate: 1, observedBitrate: 500_000, requiredBitrate: 400_000, isNext: true))
+        XCTAssertFalse(TheaterPlayerPool.hasNeighborPreloadCapacity(bufferedSeconds: 1, remaining: 60,
+            rate: 2, observedBitrate: 2_000_000, requiredBitrate: 400_000, isNext: true))
+        XCTAssertFalse(TheaterPlayerPool.hasNeighborPreloadCapacity(bufferedSeconds: 3, remaining: 60,
+            rate: 1, observedBitrate: 1_000_000, requiredBitrate: 400_000, isNext: false))
+        XCTAssertTrue(TheaterPlayerPool.hasNeighborPreloadCapacity(bufferedSeconds: 3, remaining: 60,
+            rate: 1, observedBitrate: 0, requiredBitrate: 0, isNext: true))
+    }
+
     func testPreloadRequiresBandwidthHeadroomAndBufferAtPlaybackRate() {
         XCTAssertFalse(TheaterPlayerPool.hasPreloadCapacity(bufferedSeconds: 15, remaining: 60,
             rate: 1, observedBitrate: 500_000, requiredBitrate: 400_000),

@@ -3,18 +3,34 @@ import StoreKit
 @MainActor
 final class StoreKitSubscriptionService: SubscriptionService {
     private let backend: StorePurchaseBackend
+    private let loadProducts: @MainActor ([String]) async throws -> [Product]
     private var products: [Product] = []
     private var deliveries: [UInt64: Task<Void, Error>] = [:]
     private(set) var transactionMessage: String?
 
-    init(backend: StorePurchaseBackend) { self.backend = backend }
+    init(backend: StorePurchaseBackend,
+         loadProducts: @escaping @MainActor ([String]) async throws -> [Product] = { try await Product.products(for: $0) }) {
+        self.backend = backend
+        self.loadProducts = loadProducts
+    }
 
     func plans() async throws -> [MembershipPlan] {
+        try await plans(onUpdate: { _ in })
+    }
+
+    func plans(onUpdate: @MainActor ([MembershipPlan]) -> Void) async throws -> [MembershipPlan] {
         let configurations = try await backend.products()
-        products = try await Product.products(for: configurations.map(\.id))
-        return configurations.compactMap { item in
+        try Task.checkCancellation()
+        products = []
+        let serverPlans = configurations.map(\.plan)
+        onUpdate(serverPlans)
+        guard !configurations.isEmpty else { return serverPlans }
+        let loadedProducts = try await loadProducts(configurations.map(\.id))
+        try Task.checkCancellation()
+        products = loadedProducts
+        return configurations.map { item in
             guard let product = products.first(where: { $0.id == item.id }),
-                  Self.matches(product, category: item.category) else { return nil }
+                  Self.matches(product, category: item.category) else { return item.plan }
             return MembershipPlan(id: item.id, title: product.displayName, price: product.displayPrice,
                 period: Self.periodDescription(product.subscription?.subscriptionPeriod),
                 category: item.category, coinAmount: item.coinAmount, giftCoinAmount: item.giftCoinAmount)

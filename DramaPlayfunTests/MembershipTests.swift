@@ -17,6 +17,99 @@ final class MembershipTests: XCTestCase {
         XCTAssertEqual(products[3].coinAmount, 600)
     }
 
+    func testCatalogPreservesServerPricesNamesAndPurchaseMetadata() async throws {
+        let backend = StorePurchaseBackend(network: try client { _ in
+            #"{"code":200,"data":{"vipProducts":[{"channelProductId":"week","channelPlanId":"weekly-plan","productName":"每周会员","vipDays":7,"priceAmount":19.99,"priceCurrency":"CNY"}],"coinProducts":[{"channelProductId":"coin","productName":"超值金币包","coinAmount":500,"giftCoinAmount":100,"priceAmount":8.99,"priceCurrency":"USD"}]}}"#
+        })
+        let products = try await backend.products()
+        XCTAssertEqual(products.map(\.title), ["每周会员", "超值金币包"])
+        XCTAssertEqual(products.map(\.priceAmount), [19.99, 8.99])
+        XCTAssertEqual(products.map(\.priceCurrency), ["CNY", "USD"])
+        XCTAssertEqual(products.first?.channelPlanID, "weekly-plan")
+        let plans = products.map(\.plan)
+        XCTAssertEqual(plans.map(\.price), [(19.99).formatted(.currency(code: "CNY")),
+                                            (8.99).formatted(.currency(code: "USD"))])
+        XCTAssertEqual(plans.map(\.period), ["每1周", ""])
+        XCTAssertEqual(plans.last?.coinAmount, 600)
+        XCTAssertEqual(plans.last?.giftCoinAmount, 100)
+        XCTAssertTrue(plans.allSatisfy { !$0.isAvailableForPurchase })
+    }
+
+    func testServerPriceFallbackDoesNotInventCurrencyOrFreePrices() {
+        for amount: Double? in [nil, -1, .infinity, -Double.infinity, .nan] {
+            let plan = StoreProductConfiguration(id: "year", category: .yearly,
+                priceAmount: amount, priceCurrency: "USD").plan
+            XCTAssertEqual(plan.price, "价格待更新")
+            XCTAssertEqual(plan.title, "年会员")
+            XCTAssertEqual(plan.period, "每1年")
+            XCTAssertFalse(plan.isAvailableForPurchase)
+        }
+        for currency: String? in [nil, "", "  "] {
+            let plan = StoreProductConfiguration(id: "week", category: .weekly,
+                priceAmount: 19.99, priceCurrency: currency).plan
+            XCTAssertEqual(plan.price, (19.99).formatted(.number))
+        }
+        let normalized = StoreProductConfiguration(id: "coin", category: .coins,
+            priceAmount: 8.99, priceCurrency: " usd ").plan
+        XCTAssertEqual(normalized.price, (8.99).formatted(.currency(code: "USD")))
+        let zero = StoreProductConfiguration(id: "coin", category: .coins, priceAmount: 0).plan
+        XCTAssertEqual(zero.price, 0.formatted(.number))
+    }
+
+    func testStoreShowsServerPricesBeforeAppleRespondsAndRetainsMissingProducts() async throws {
+        let backend = StorePurchaseBackend(network: try client { target in
+            if target.path == AppAPI.v1StoreProductList.path { return self.pricedCatalog }
+            return #"{"code":200,"data":{}}"#
+        })
+        weak var loadingStore: MembershipStore?
+        var serverPlans: [MembershipPlan] = []
+        var appleRequests = 0
+        let service = StoreKitSubscriptionService(backend: backend, loadProducts: { ids in
+            appleRequests += 1
+            XCTAssertEqual(ids, ["week", "coin"])
+            let store = try XCTUnwrap(loadingStore)
+            XCTAssertTrue(store.isLoading)
+            serverPlans = store.plans
+            XCTAssertEqual(serverPlans.map(\.id), ["week", "coin"])
+            XCTAssertEqual(serverPlans.map(\.price), [(19.99).formatted(.currency(code: "CNY")),
+                                                      (8.99).formatted(.currency(code: "USD"))])
+            XCTAssertTrue(serverPlans.allSatisfy { !$0.isAvailableForPurchase })
+            return []
+        })
+        let store = MembershipStore(service: service)
+        loadingStore = store
+        await store.loadPlans()
+        XCTAssertEqual(appleRequests, 1)
+        XCTAssertEqual(store.plans, serverPlans)
+        XCTAssertFalse(store.isLoading)
+        XCTAssertNil(store.message)
+    }
+
+    func testStoreRetainsPublishedServerPricesWhenAppleFailsOrCancels() async throws {
+        let errors: [Error] = [URLError(.notConnectedToInternet), CancellationError()]
+        for error in errors {
+            let backend = StorePurchaseBackend(network: try client { target in
+                if target.path == AppAPI.v1StoreProductList.path { return self.pricedCatalog }
+                return #"{"code":200,"data":{}}"#
+            })
+            weak var loadingStore: MembershipStore?
+            var serverPlans: [MembershipPlan] = []
+            let service = StoreKitSubscriptionService(backend: backend, loadProducts: { _ in
+                serverPlans = try XCTUnwrap(loadingStore).plans
+                XCTAssertEqual(serverPlans.count, 2)
+                throw error
+            })
+            let store = MembershipStore(service: service)
+            loadingStore = store
+            await store.loadPlans()
+            XCTAssertEqual(store.plans, serverPlans)
+            XCTAssertTrue(store.plans.allSatisfy { !$0.isAvailableForPurchase })
+            XCTAssertFalse(store.isLoading)
+            if error is CancellationError { XCTAssertNil(store.message) }
+            else { XCTAssertNotNil(store.message) }
+        }
+    }
+
     func testUnknownOrPendingGrantDoesNotUpdateAssets() async throws {
         for status in ["pending", "failed", "", "unexpected"] {
             var updated = false
@@ -132,6 +225,9 @@ final class MembershipTests: XCTestCase {
     }
 
     private var catalog: String { #"{"code":200,"data":{"coinProducts":[{"channelProductId":"coin","coinAmount":500}]}}"# }
+    private var pricedCatalog: String {
+        #"{"code":200,"data":{"vipProducts":[{"channelProductId":"week","vipDays":7,"priceAmount":19.99,"priceCurrency":"CNY"}],"coinProducts":[{"channelProductId":"coin","coinAmount":500,"priceAmount":8.99,"priceCurrency":"USD"}]}}"#
+    }
     private func body(_ target: APITarget) -> [String: Any] {
         (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Any] ?? [:]
     }

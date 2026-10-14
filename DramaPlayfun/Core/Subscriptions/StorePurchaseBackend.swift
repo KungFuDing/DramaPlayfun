@@ -6,7 +6,28 @@ struct StoreProductConfiguration {
     var channelPlanID: String?
     var coinAmount: Int64 = 0
     var giftCoinAmount: Int64 = 0
+    var title: String?
+    var priceAmount: Double?
+    var priceCurrency: String?
     var orderType: String { category == .coins ? "coin" : "vip" }
+
+    var plan: MembershipPlan {
+        let period: String = switch category {
+        case .weekly: "每1周"
+        case .yearly: "每1年"
+        case .coins: ""
+        }
+        return MembershipPlan(id: id, title: title ?? category.title, price: displayPrice, period: period,
+            category: category, coinAmount: coinAmount, giftCoinAmount: giftCoinAmount,
+            isAvailableForPurchase: false)
+    }
+
+    private var displayPrice: String {
+        guard let priceAmount, priceAmount.isFinite, priceAmount >= 0 else { return "价格待更新" }
+        guard let currency = priceCurrency?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !currency.isEmpty else { return priceAmount.formatted(.number) }
+        return priceAmount.formatted(.currency(code: currency.uppercased()))
+    }
 }
 
 /// The server grants assets idempotently by Apple's transaction ID. Never increment balances locally.
@@ -34,7 +55,8 @@ final class StorePurchaseBackend {
             case 365, 366: category = .yearly
             default: continue
             }
-            items.append(.init(id: id, category: category, channelPlanID: item.channelPlanId))
+            items.append(.init(id: id, category: category, channelPlanID: item.channelPlanId,
+                title: item.productName, priceAmount: item.priceAmount, priceCurrency: item.priceCurrency))
         }
         for item in result.coinProducts ?? [] {
             guard item.payChannel == nil || item.payChannel == "apple",
@@ -45,7 +67,8 @@ final class StorePurchaseBackend {
             guard item.totalCoinAmount != nil || !sum.overflow else { continue }
             let total = item.totalCoinAmount ?? sum.partialValue
             guard total > 0 else { continue }
-            items.append(.init(id: id, category: .coins, coinAmount: total, giftCoinAmount: gift))
+            items.append(.init(id: id, category: .coins, coinAmount: total, giftCoinAmount: gift,
+                title: item.productName, priceAmount: item.priceAmount, priceCurrency: item.priceCurrency))
         }
         var seen = Set<String>()
         items = items.filter { seen.insert($0.id).inserted }

@@ -53,6 +53,10 @@ final class HLSLocalGateway: @unchecked Sendable {
         defer { lock.unlock() }
         return events + mediaTransport.debugEvents
     }
+    func debugHasBlockedMediaWrite(for asset: AVAsset) -> Bool {
+        guard let lease = objc_getAssociatedObject(asset, &Self.leaseKey) as? Lease else { return false }
+        return mediaTransport.debugHasBlockedMediaWrite(group: lease.group)
+    }
     private func trace(_ event: String) {
         lock.lock()
         events.append(event)
@@ -80,6 +84,7 @@ final class HLSLocalGateway: @unchecked Sendable {
         let key = try HLSPlaybackKey.derive(identity, secret: secret)
         let port = try await readyPort()
         let group = UUID()
+        mediaTransport.register(group: group)
         let authorization = HLSAuthorizationState()
         let cacheScope = identity.material.base64EncodedString() + ":" + key.base64EncodedString()
         let path = register(Route(group: group, remoteURL: remoteURL, token: token,
@@ -232,7 +237,7 @@ final class HLSLocalGateway: @unchecked Sendable {
         do {
             let started = Date()
             upstream.timeoutInterval = 20
-            let (body, response) = try await mediaTransport.data(for: upstream)
+            let (body, response) = try await mediaTransport.data(for: upstream, group: route.group)
             trace("upstream received")
             guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
             route.authorization.record(status: http.statusCode)

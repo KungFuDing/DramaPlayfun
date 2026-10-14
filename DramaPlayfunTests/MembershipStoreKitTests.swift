@@ -27,6 +27,62 @@ final class MembershipStoreKitTests: XCTestCase {
         session = nil
     }
 
+    func testApplePricesUpdateOnlyMatchingProductsAndPreserveCatalogOrder() async throws {
+        let appleProducts = try await Product.products(for: [productID])
+        let appleProduct = try XCTUnwrap(appleProducts.first)
+        let backend = StorePurchaseBackend(network: try client { _ in
+            """
+            {"code":200,"data":{
+              "vipProducts":[{"channelProductId":"missing.week","vipDays":7,"priceAmount":19.99,"priceCurrency":"CNY"}],
+              "coinProducts":[
+                {"channelProductId":"\(self.productID)","productName":"服务器金币包","coinAmount":500,"giftCoinAmount":100,"priceAmount":8.99,"priceCurrency":"USD"},
+                {"channelProductId":"missing.coins","coinAmount":1000,"priceAmount":16.99,"priceCurrency":"USD"}
+              ]
+            }}
+            """
+        })
+        let service = StoreKitSubscriptionService(backend: backend, loadProducts: { ids in
+            XCTAssertEqual(ids, ["missing.week", self.productID, "missing.coins"])
+            return appleProducts
+        })
+        var serverPlans: [MembershipPlan] = []
+        let plans = try await service.plans(onUpdate: { serverPlans = $0 })
+        XCTAssertEqual(plans.map(\.id), ["missing.week", productID, "missing.coins"])
+        XCTAssertEqual(serverPlans.count, 3)
+        XCTAssertEqual(plans[0], serverPlans[0])
+        XCTAssertEqual(plans[2], serverPlans[2])
+        XCTAssertEqual(plans[1].price, appleProduct.displayPrice)
+        XCTAssertNotEqual(plans[1].price, serverPlans[1].price)
+        XCTAssertEqual(plans[1].category, .coins)
+        XCTAssertEqual(plans[1].coinAmount, 600)
+        XCTAssertEqual(plans[1].giftCoinAmount, 100)
+        XCTAssertTrue(plans[1].isAvailableForPurchase)
+        XCTAssertFalse(serverPlans[1].isAvailableForPurchase)
+    }
+
+    func testWrongAppleProductTypeKeepsServerPriceAndCannotBePurchased() async throws {
+        let appleProducts = try await Product.products(for: [productID])
+        XCTAssertEqual(appleProducts.count, 1)
+        var paths: [String] = []
+        let backend = StorePurchaseBackend(network: try client { target in
+            paths.append(target.path)
+            return """
+            {"code":200,"data":{"vipProducts":[{"channelProductId":"\(self.productID)","vipDays":7,"priceAmount":19.99,"priceCurrency":"CNY"}]}}
+            """
+        })
+        let service = StoreKitSubscriptionService(backend: backend, loadProducts: { _ in appleProducts })
+        var serverPlans: [MembershipPlan] = []
+        let plans = try await service.plans(onUpdate: { serverPlans = $0 })
+        XCTAssertEqual(plans, serverPlans)
+        XCTAssertEqual(plans.first?.category, .weekly)
+        XCTAssertEqual(plans.first?.isAvailableForPurchase, false)
+        do {
+            _ = try await service.purchase(planID: productID)
+            XCTFail("金币 SKU 不能作为周会员购买")
+        } catch StorePurchaseError.productUnavailable { }
+        XCTAssertEqual(paths, [AppAPI.v1StoreProductList.path])
+    }
+
     func testVerifiedCoinTransactionStaysUnfinishedUntilServerGrantsAssets() async throws {
         var granted = false
         var reported: [String] = []

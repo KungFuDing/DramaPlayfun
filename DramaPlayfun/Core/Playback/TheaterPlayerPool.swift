@@ -31,6 +31,9 @@ final class TheaterPlayerPool {
     @ObservationIgnored private var scrubbingID: TheaterFeedItem.ID?
     @ObservationIgnored private var seekVersion = UUID()
     @ObservationIgnored private var timeObservers: [TheaterFeedItem.ID: NSKeyValueObservation] = [:]
+    @ObservationIgnored private var bufferObservers: [TheaterFeedItem.ID: NSKeyValueObservation] = [:]
+    @ObservationIgnored private var pendingBufferedStartID: TheaterFeedItem.ID?
+    @ObservationIgnored private var preloadDirection = 1
     @ObservationIgnored private var audioSessionReady = false
     @ObservationIgnored private let cacheOwner = UUID()
     @ObservationIgnored private let logger = Logger(subsystem: "com.video.test.DramaPlayfun.playback", category: "player")
@@ -106,7 +109,8 @@ final class TheaterPlayerPool {
         guard continuationPriority != active else { return }
         continuationPriority = active
         if active {
-            for id in Array(players.keys) where id != currentID { release(id) }
+            // Keep completed neighbor buffers/decoders for a swipe during the ending.
+            for id in Array(players.keys) where id != currentID && states[id] != .ready { release(id) }
         } else {
             update(items: items, selectedID: currentID, visible: visible, preparationActive: preparationActive)
         }
@@ -130,8 +134,13 @@ final class TheaterPlayerPool {
         if previousID != selectedID || !visible { resetScrubbing() }
         if previousID != selectedID {
             saveProgress()
-            // A rapid swipe should cancel the old foreground load before starting the new one.
-            if let previousID, states[previousID] == .preparing { release(previousID) }
+            if let previousIndex = self.items.firstIndex(where: { $0.id == previousID }),
+               let selectedIndex = self.items.firstIndex(where: { $0.id == selectedID }) {
+                preloadDirection = selectedIndex < previousIndex ? -1 : 1
+            }
+            // Keep an in-flight adjacent item so a quick reverse swipe can reuse it.
+            // The bounded window below still cancels loads that are no longer nearby.
+            pendingBufferedStartID = nil
             hasEnded = false
             isPaused = false
             isBuffering = false
@@ -191,6 +200,7 @@ final class TheaterPlayerPool {
         cache.setPlaybackActive(false, owner: cacheOwner)
         isBuffering = false
         stallStartedAt = nil
+        pendingBufferedStartID = nil
     }
 
     func reset() {
@@ -203,6 +213,7 @@ final class TheaterPlayerPool {
         items = []
         hasEnded = false
         isPaused = false
+        preloadDirection = 1
         renewalAttempts.removeAll()
         networkRecoveryAttempts.removeAll()
     }
@@ -291,6 +302,8 @@ final class TheaterPlayerPool {
         prepareVersions[id] = version
         let player = players[id] ?? sparePlayers.popLast() ?? AVPlayer()
         timeObservers[id] = nil
+        bufferObservers[id] = nil
+        if pendingBufferedStartID == id { pendingBufferedStartID = nil }
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
         player.automaticallyWaitsToMinimizeStalling = true
         player.isMuted = id != currentID || !visible || !canPlay(id)
@@ -321,6 +334,14 @@ final class TheaterPlayerPool {
                     try await Task.sleep(for: .milliseconds(100))
                 }
                 try Task.checkCancellation()
+                if currentID != id && preloadingID != id {
+                    // Once the foreground is safe, its likely next swipe takes the
+                    // single preload slot from an unfinished reverse-swipe load.
+                    for other in items where other.id != id && other.id != currentID && loadingIDs.contains(other.id) {
+                        release(other.id)
+                        prepare(other)
+                    }
+                }
                 loadingIDs.insert(id)
                 let started = Date()
                 logger.info("preparing episode=\(id, privacy: .public) foreground=\(self.currentID == id)")
@@ -416,6 +437,7 @@ final class TheaterPlayerPool {
             player?.currentItem.map { HLSLocalGateway.authorizationExpired(for: $0.asset) } == true ||
             player?.currentItem?.errorLog()?.events.contains(where: { [401, 403].contains($0.errorStatusCode) }) == true
         guard (forceRefresh || expired), let refreshURLs, !renewalAttempts.contains(id) else {
+            if pendingBufferedStartID == id { pendingBufferedStartID = nil }
             states[id] = .unavailable(error.localizedDescription)
             player?.pause()
             if currentID == id { isBuffering = false }
@@ -428,6 +450,8 @@ final class TheaterPlayerPool {
         player?.pause()
         if scrubbingID == id { resetScrubbing() }
         timeObservers[id] = nil
+        bufferObservers[id] = nil
+        if pendingBufferedStartID == id { pendingBufferedStartID = nil }
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
         player?.cancelPendingPrerolls()
         player?.replaceCurrentItem(with: nil)
@@ -469,18 +493,22 @@ final class TheaterPlayerPool {
         if currentID == id { return true }
         guard !continuationPriority, !isScrubbing,
               let index = items.firstIndex(where: { $0.id == currentID }),
-              let candidate = items.firstIndex(where: { $0.id == id }), abs(candidate - index) == 1,
-              !loadingIDs.contains(where: { $0 != currentID && $0 != id }) else { return false }
-        // Prefer the next swipe, then warm the previous page without parallel downloads.
-        if candidate < index, items.indices.contains(index + 1),
-           states[items[index + 1].id] == .preparing { return false }
+              let candidate = items.firstIndex(where: { $0.id == id }), abs(candidate - index) == 1 else { return false }
+        // Follow the user's last swipe direction without parallel neighbor downloads.
+        let preferredIndex = index + preloadDirection
+        let competing = loadingIDs.filter { $0 != currentID && $0 != id }
+        guard competing.isEmpty || (candidate == preferredIndex && competing.allSatisfy { states[$0] == .preparing }) else {
+            return false
+        }
+        if candidate != preferredIndex, items.indices.contains(preferredIndex),
+           states[items[preferredIndex].id] == .preparing { return false }
         // A locked/currently covered page has no foreground playback to compete with.
         // Finish preparing it first, then use the wait for confirmation to warm neighbors.
-        if !visible || !canPlay(items[index].id) {
+        if !visible || !canPlay(items[index].id) || isPaused || hasEnded {
             guard let state = states[items[index].id] else { return false }
             return state != .preparing
         }
-        guard !isPaused, !hasEnded, !isBuffering,
+        guard !isBuffering,
               let player = players[items[index].id], player.timeControlStatus == .playing,
               let item = player.currentItem else { return false }
         let seconds = player.currentTime().seconds
@@ -489,7 +517,7 @@ final class TheaterPlayerPool {
         let event = item.accessLog()?.events.last
         return Self.hasNeighborPreloadCapacity(bufferedSeconds: bufferedSeconds(player), remaining: remaining,
             rate: playbackRate, observedBitrate: event?.observedBitrate ?? 0,
-            requiredBitrate: event?.indicatedBitrate ?? 0, isNext: candidate > index)
+            requiredBitrate: event?.indicatedBitrate ?? 0, isNext: candidate == preferredIndex)
     }
 
     static func hasNeighborPreloadCapacity(bufferedSeconds: Double, remaining: Double, rate: Float,
@@ -498,6 +526,10 @@ final class TheaterPlayerPool {
         guard bufferedSeconds.isFinite, bufferedSeconds > 0, remaining > 0 else { return false }
         if remaining.isFinite, bufferedSeconds >= remaining { return true }
         let speed = Double(max(1, rate))
+        // A measured fast connection can warm the likely next swipe after one
+        // second of playable reserve. Unknown/slow links retain the safer gate.
+        if isNext, bufferedSeconds >= speed, requiredBitrate > 0,
+           observedBitrate >= requiredBitrate * speed * 2 { return true }
         guard bufferedSeconds >= (isNext ? 3 : 6) * speed else { return false }
         // Access logs may not yet contain throughput on the first segment or a disk cache hit.
         return observedBitrate <= 0 || requiredBitrate <= 0 || observedBitrate >= requiredBitrate * speed * 1.25
@@ -551,10 +583,17 @@ final class TheaterPlayerPool {
 
     private func configureBuffer(_ player: AVPlayer, isCurrent: Bool) {
         player.defaultRate = playbackRate
-        player.isMuted = !isCurrent || !visible || !canPlay(currentID ?? "")
-        player.currentItem?.preferredForwardBufferDuration = isCurrent ? Double(max(12, playbackRate * 8)) : 2
-        player.currentItem?.preferredPeakBitRate = isCurrent ? 0 : 800_000
+        let foreground = isCurrent && visible && canPlay(currentID ?? "")
+        player.isMuted = !foreground
+        // Startup and silent preparation only need a short runway. Expand the
+        // foreground reserve once it is playing, not before displaying the start.
+        player.currentItem?.preferredForwardBufferDuration = foreground && player.timeControlStatus == .playing
+            ? Double(max(12, playbackRate * 8)) : Double(max(1, playbackRate)) * 2
+        player.currentItem?.preferredPeakBitRate = foreground ? 0 : 800_000
         player.currentItem?.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+        if #available(iOS 26.0, *) {
+            player.networkResourcePriority = foreground ? .high : .low
+        }
     }
 
     private func playCurrentIfReady() {
@@ -570,11 +609,13 @@ final class TheaterPlayerPool {
             startedPlaybackIDs.insert(currentID)
             if prerollingIDs.contains(currentID) { player.cancelPendingPrerolls() }
             let buffer = bufferedSeconds(player)
-            if player.rate == 0, buffer >= Double(playbackRate) * 0.5 {
+            if player.timeControlStatus != .playing, buffer >= Double(playbackRate) * 0.5 {
                 // The prefetched start is already playable; skip AVPlayer's startup heuristic.
+                pendingBufferedStartID = nil
                 player.playImmediately(atRate: playbackRate)
                 logger.info("buffered start episode=\(currentID, privacy: .public) buffer=\(buffer)")
             } else {
+                pendingBufferedStartID = player.timeControlStatus == .playing ? nil : currentID
                 player.play()
             }
             if let item = items.first(where: { $0.id == currentID }),
@@ -589,7 +630,11 @@ final class TheaterPlayerPool {
     }
 
     private func pauseOtherPlayers() {
-        for (id, player) in players where id != currentID && player.rate != 0 { player.pause() }
+        for (id, player) in players where id != currentID {
+            if player.rate != 0 || (player.timeControlStatus == .waitingToPlayAtSpecifiedRate && !prerollingIDs.contains(id)) {
+                player.pause()
+            }
+        }
     }
 
     private func pauseAll() {
@@ -616,6 +661,8 @@ final class TheaterPlayerPool {
         startedPlaybackIDs.remove(id)
         prepareVersions[id] = nil
         timeObservers[id] = nil
+        bufferObservers[id] = nil
+        if pendingBufferedStartID == id { pendingBufferedStartID = nil }
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
         states[id] = nil
         guard let player = players.removeValue(forKey: id) else { return }
@@ -630,13 +677,31 @@ final class TheaterPlayerPool {
     private func observePlayback(of item: AVPlayerItem, id: TheaterFeedItem.ID) {
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
         if let player = players[id] {
+            bufferObservers[id] = item.observe(\.loadedTimeRanges, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.pendingBufferedStartID == id, self.currentID == id,
+                          self.players[id]?.currentItem === item, self.visible, self.canPlay(id),
+                          self.states[id] == .ready, item.status == .readyToPlay,
+                          !self.isPaused, !self.hasEnded, !self.isScrubbing,
+                          self.bufferedSeconds(player) >= Double(self.playbackRate) * 0.5 else { return }
+                    // readyToPlay may precede the first media bytes. Re-evaluate
+                    // when they arrive instead of leaving HLS in its long startup wait.
+                    self.pendingBufferedStartID = nil
+                    player.playImmediately(atRate: self.playbackRate)
+                }
+            }
             timeObservers[id] = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
                 Task { @MainActor [weak self] in
                     guard let self, self.currentID == id, self.players[id]?.currentItem === item else { return }
+                    if player.timeControlStatus == .playing {
+                        self.pendingBufferedStartID = nil
+                        self.configureBuffer(player, isCurrent: true)
+                    }
                     self.isBuffering = self.visible && self.canPlay(id) && !self.isPaused && player.timeControlStatus == .waitingToPlayAtSpecifiedRate
                     if self.isBuffering {
                         if self.stallStartedAt == nil { self.stallStartedAt = Date() }
-                        self.deferNeighborLoads()
+                        // A cold startup wait is not evidence of depleted bandwidth.
+                        if self.pendingBufferedStartID != id { self.deferNeighborLoads() }
                     } else { self.stallStartedAt = nil }
                 }
             }

@@ -5,6 +5,65 @@ import Network
 
 final class HLSPlaybackKeyTests: XCTestCase {
     @MainActor
+    func testGatewayReusesEncryptedSegmentAfterTokenRotationAndServesCachedRange() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
+        let server = try HLSFixtureServer(directory: directory,
+            acceptedTokens: ["fixture-token", "renewed-token"], signedMediaReferences: true)
+        let ready = expectation(description: "Rotating-token fixture ready")
+        server.listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+        server.listener.start(queue: server.queue)
+        defer { server.listener.cancel() }
+        await fulfillment(of: [ready], timeout: 5)
+        let port = try XCTUnwrap(server.listener.port).rawValue
+        let identity = HLSKeyIdentity(rootDramaID: 107, episodeID: 2531)
+        let secret = Data("test-secret".utf8)
+        func assetAndSegment(token: String) async throws -> (AVURLAsset, URL) {
+            let asset = try await HLSLocalGateway.shared.asset(
+                remoteURL: URL(string: "http://127.0.0.1:\(port)/master.m3u8?X-Media-Token=\(token)")!,
+                identity: identity, secret: secret)
+            let (master, _) = try await URLSession.shared.data(from: asset.url)
+            let playlistURL = try XCTUnwrap(String(decoding: master, as: UTF8.self).components(separatedBy: .newlines)
+                .first { $0.hasPrefix("http://") }.flatMap(URL.init(string:)))
+            let (playlist, _) = try await URLSession.shared.data(from: playlistURL)
+            let segmentURL = try XCTUnwrap(String(decoding: playlist, as: UTF8.self).components(separatedBy: .newlines)
+                .first { $0.hasPrefix("http://") }.flatMap(URL.init(string:)))
+            return (asset, segmentURL)
+        }
+        let (firstAsset, firstURL) = try await assetAndSegment(token: "fixture-token")
+        defer { withExtendedLifetime(firstAsset) {} }
+        let (firstBody, _) = try await URLSession.shared.data(from: firstURL)
+        let expected = try Data(contentsOf: directory.appendingPathComponent("seg_00000.mpegts"))
+        XCTAssertEqual(firstBody, expected)
+        let scope = identity.material.base64EncodedString() + ":" + (try HLSPlaybackKey.derive(identity, secret: secret)).base64EncodedString()
+        let remoteSegment = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/seg_00000.ts?X-Media-Token=renewed-token")!)
+        // The final CDN delegate completion commits after the player's last chunk arrives.
+        var committed = false
+        for _ in 0..<100 {
+            if let reader = HLSMediaCache.shared.reader(for: remoteSegment, scope: scope) {
+                reader.close(); committed = true; break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(committed)
+        let (secondAsset, secondURL) = try await assetAndSegment(token: "renewed-token")
+        defer { withExtendedLifetime(secondAsset) {} }
+        let (secondBody, _) = try await URLSession.shared.data(from: secondURL)
+        XCTAssertEqual(secondBody, expected)
+        var range = URLRequest(url: secondURL)
+        range.setValue("bytes=17-63", forHTTPHeaderField: "Range")
+        let (rangeBody, response) = try await URLSession.shared.data(for: range)
+        let http = try XCTUnwrap(response as? HTTPURLResponse)
+        XCTAssertEqual(http.statusCode, 206)
+        XCTAssertEqual(http.value(forHTTPHeaderField: "Content-Range"), "bytes 17-63/\(expected.count)")
+        XCTAssertEqual(rangeBody, Data(expected[17...63]))
+        XCTAssertEqual(server.requestedPaths.filter { $0.hasPrefix("/seg_00000.ts") }.count, 1,
+            "New token and range playback must reuse the already downloaded encrypted segment")
+        XCTAssertTrue(server.requestedPaths.contains("/master.m3u8?X-Media-Token=renewed-token"),
+            "Manifests must still fetch using current authorization")
+        XCTAssertTrue(server.unauthorizedPaths.isEmpty)
+    }
+
+    @MainActor
     func testExpiredManifestRenewsAndPreservesPositionAndPauseState() async throws {
         let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
         let server = try HLSFixtureServer(directory: directory)
@@ -147,9 +206,21 @@ final class HLSPlaybackKeyTests: XCTestCase {
         XCTAssertEqual(player.rate, 0, "A late gesture completion must not restart a hidden player")
     }
 
+    @MainActor
     func testGatewayResumesInterruptedSegmentWithoutDuplicatingBytes() async throws {
+        try await assertInterruptedSegment(prefixCount: 4096)
+    }
+
+    @MainActor
+    func testGatewayRetriesSegmentInterruptedBeforeBody() async throws {
+        try await assertInterruptedSegment(prefixCount: 0)
+    }
+
+    @MainActor
+    private func assertInterruptedSegment(prefixCount: Int) async throws {
         let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
-        let server = try HLSFixtureServer(directory: directory, disconnectMediaOnce: true)
+        let server = try HLSFixtureServer(directory: directory, disconnectMediaOnce: true,
+                                         disconnectMediaPrefix: prefixCount)
         let ready = expectation(description: "Interrupted segment fixture ready")
         server.listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
         server.listener.start(queue: server.queue)
@@ -166,7 +237,13 @@ final class HLSPlaybackKeyTests: XCTestCase {
         let (playlist, _) = try await URLSession.shared.data(from: playlistURL)
         let mediaURL = try XCTUnwrap(String(decoding: playlist, as: UTF8.self).components(separatedBy: .newlines)
             .first { $0.hasPrefix("http://") }.flatMap(URL.init(string:)))
-        let (body, response) = try await URLSession.shared.data(from: mediaURL)
+        let body: Data
+        let response: URLResponse
+        do { (body, response) = try await URLSession.shared.data(from: mediaURL) }
+        catch {
+            XCTFail("Interrupted media failed: \(error); paths=\(server.requestedPaths); events=\(HLSLocalGateway.shared.debugEvents)")
+            return
+        }
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
         let expected = try Data(contentsOf: directory.appendingPathComponent("seg_00000.mpegts"))
         XCTAssertEqual(body, expected)
@@ -357,6 +434,9 @@ private final class HLSFixtureServer {
     private var disconnectedMedia = false
     private var sentMediaTail = false
     private let rejectMedia: Bool
+    private let acceptedTokens: Set<String>
+    private let signedMediaReferences: Bool
+    private let disconnectMediaPrefix: Int?
 
     var hasSentMediaTail: Bool {
         lock.lock()
@@ -377,12 +457,17 @@ private final class HLSFixtureServer {
     }
 
     init(directory: URL, mediaTailDelay: TimeInterval = 0, chunkedMedia: Bool = false,
-         disconnectMediaOnce: Bool = false, rejectMedia: Bool = false) throws {
+         disconnectMediaOnce: Bool = false, rejectMedia: Bool = false,
+         acceptedTokens: Set<String> = ["fixture-token"], signedMediaReferences: Bool = false,
+         disconnectMediaPrefix: Int? = nil) throws {
         self.directory = directory
         self.mediaTailDelay = mediaTailDelay
         self.chunkedMedia = chunkedMedia
         self.disconnectMediaOnce = disconnectMediaOnce
         self.rejectMedia = rejectMedia
+        self.acceptedTokens = acceptedTokens
+        self.signedMediaReferences = signedMediaReferences
+        self.disconnectMediaPrefix = disconnectMediaPrefix
         listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { return }
@@ -391,11 +476,13 @@ private final class HLSFixtureServer {
                 let firstLine = String(data: data ?? Data(), encoding: .utf8)?
                     .components(separatedBy: "\r\n").first ?? ""
                 let name = firstLine.split(separator: " ").dropFirst().first.map(String.init) ?? ""
+                let token = String(data: data ?? Data(), encoding: .utf8)?.components(separatedBy: "\r\n")
+                    .first { $0.lowercased().hasPrefix("x-media-token:") }?
+                    .dropFirst("x-media-token:".count).trimmingCharacters(in: .whitespaces) ?? ""
                 self.lock.lock()
                 self.paths.append(name)
                 let authorized = firstLine.isEmpty == false &&
-                    String(data: data ?? Data(), encoding: .utf8)?
-                        .lowercased().contains("x-media-token: fixture-token") == true &&
+                    self.acceptedTokens.contains(token) &&
                     !(self.rejectMedia && name.components(separatedBy: "?")[0].hasSuffix(".ts"))
                 if !authorized { self.unauthorized.append(name) }
                 self.lock.unlock()
@@ -408,6 +495,11 @@ private final class HLSFixtureServer {
                 let file = authorized && allowed.contains(path)
                     ? try? Data(contentsOf: self.directory.appendingPathComponent(fixtureName)) : nil
                 var body = file ?? Data()
+                if self.signedMediaReferences, path == "index.m3u8" {
+                    let playlist = String(decoding: body, as: UTF8.self)
+                        .replacingOccurrences(of: ".ts\n", with: ".ts?X-Media-Token=\(token)\n")
+                    body = Data(playlist.utf8)
+                }
                 var contentRange: String?
                 if let header = String(data: data ?? Data(), encoding: .utf8)?.components(separatedBy: "\r\n")
                     .first(where: { $0.lowercased().hasPrefix("range: bytes=") }), file != nil {
@@ -430,7 +522,8 @@ private final class HLSFixtureServer {
                 if disconnect { self.disconnectedMedia = true }
                 self.lock.unlock()
                 if disconnect {
-                    connection.send(content: Data(header.utf8) + body.prefix(body.count / 2), completion: .contentProcessed { _ in connection.cancel() })
+                    let prefix = min(self.disconnectMediaPrefix ?? body.count / 2, body.count - 1)
+                    connection.send(content: Data(header.utf8) + body.prefix(prefix), completion: .contentProcessed { _ in connection.cancel() })
                 } else if path.hasSuffix(".ts"), file != nil, self.mediaTailDelay > 0 {
                     let split = min(body.count, 4096)
                     connection.send(content: Data(header.utf8) + body.prefix(split), completion: .contentProcessed { _ in

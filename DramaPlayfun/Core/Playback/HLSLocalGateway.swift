@@ -34,6 +34,7 @@ final class HLSLocalGateway: @unchecked Sendable {
         let key: Data
         let kind: Kind
         let authorization: HLSAuthorizationState
+        let cacheScope: String?
     }
 
     private let lock = NSLock()
@@ -50,7 +51,7 @@ final class HLSLocalGateway: @unchecked Sendable {
     var debugEvents: [String] {
         lock.lock()
         defer { lock.unlock() }
-        return events
+        return events + mediaTransport.debugEvents
     }
     private func trace(_ event: String) {
         lock.lock()
@@ -80,8 +81,9 @@ final class HLSLocalGateway: @unchecked Sendable {
         let port = try await readyPort()
         let group = UUID()
         let authorization = HLSAuthorizationState()
+        let cacheScope = identity.material.base64EncodedString() + ":" + key.base64EncodedString()
         let path = register(Route(group: group, remoteURL: remoteURL, token: token,
-                                  key: key, kind: .manifest, authorization: authorization), suffix: "m3u8")
+                                  key: key, kind: .manifest, authorization: authorization, cacheScope: cacheScope), suffix: "m3u8")
         let asset = AVURLAsset(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
         objc_setAssociatedObject(asset, &Self.leaseKey, Lease(gateway: self, group: group, authorization: authorization),
                                  .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
@@ -223,7 +225,8 @@ final class HLSLocalGateway: @unchecked Sendable {
         }
         if route.kind == .media {
             upstream.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-            mediaTransport.start(upstream, group: route.group, connection: connection, authorization: route.authorization)
+            mediaTransport.start(upstream, group: route.group, connection: connection,
+                                 authorization: route.authorization, cacheScope: route.cacheScope)
             return
         }
         do {
@@ -257,12 +260,14 @@ final class HLSLocalGateway: @unchecked Sendable {
                line.contains("METHOD=AES-128") {
                 return replacingURIs(in: line) { _ in
                     let path = register(Route(group: route.group, remoteURL: nil, token: route.token,
-                                              key: route.key, kind: .key, authorization: route.authorization), suffix: "key")
+                                              key: route.key, kind: .key, authorization: route.authorization,
+                                              cacheScope: route.cacheScope), suffix: "key")
                     return "http://127.0.0.1:\(currentPort())\(path)"
                 }
             }
             if line.hasPrefix("#") {
-                return replacingURIs(in: line) { registerResolved($0, base: base, route: route) }
+                let isKey = line.hasPrefix("#EXT-X-KEY:") || line.hasPrefix("#EXT-X-SESSION-KEY:")
+                return replacingURIs(in: line) { registerResolved($0, base: base, route: route, cacheable: !isKey) }
             }
             guard !line.isEmpty else { return line }
             return registerResolved(line, base: base, route: route)
@@ -280,13 +285,14 @@ final class HLSLocalGateway: @unchecked Sendable {
         return result
     }
 
-    private func registerResolved(_ reference: String, base: URL, route: Route) -> String {
+    private func registerResolved(_ reference: String, base: URL, route: Route, cacheable: Bool = true) -> String {
         guard let url = URL(string: reference, relativeTo: base)?.absoluteURL,
               url.scheme == "https" || url.isLoopbackHTTP else { return reference }
         let kind: Kind = ["m3u8", "m3u"].contains(url.pathExtension.lowercased()) ? .manifest : .media
         let suffix = kind == .manifest ? "m3u8" : (url.pathExtension.isEmpty ? "bin" : url.pathExtension)
         let path = register(Route(group: route.group, remoteURL: url, token: route.token,
-                                  key: route.key, kind: kind, authorization: route.authorization), suffix: suffix)
+                                  key: route.key, kind: kind, authorization: route.authorization,
+                                  cacheScope: cacheable ? route.cacheScope : nil), suffix: suffix)
         return "http://127.0.0.1:\(currentPort())\(path)"
     }
 

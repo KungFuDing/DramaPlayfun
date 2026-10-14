@@ -79,7 +79,9 @@ struct ProfileSettingsView: View {
     private var rowDivider: some View { Rectangle().fill(Color(white: 0.25)).frame(height: 0.5).padding(.horizontal, 14) }
 
     private func updateCacheSize() async {
-        cacheBytes = (try? await ImageCache.default.diskStorageSize) ?? 0
+        let imageBytes = (try? await ImageCache.default.diskStorageSize) ?? 0
+        let mediaBytes = await Task.detached(priority: .utility) { HLSMediaCache.shared.diskSize }.value
+        cacheBytes = imageBytes + mediaBytes
     }
 
     private func clearCache() async {
@@ -89,6 +91,7 @@ struct ProfileSettingsView: View {
         await withCheckedContinuation { continuation in
             ImageCache.default.clearDiskCache { continuation.resume() }
         }
+        await Task.detached(priority: .utility) { HLSMediaCache.shared.clear() }.value
         await updateCacheSize()
         clearingCache = false
     }

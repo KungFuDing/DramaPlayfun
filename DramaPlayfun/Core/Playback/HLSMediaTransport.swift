@@ -19,19 +19,48 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         var validator: String?
         var retries = 0
         let authorization: HLSAuthorizationState
+        let cacheScope: String?
+        var cacheWriter: HLSMediaCache.Writer?
 
-        init(group: UUID, connection: NWConnection, task: URLSessionDataTask, authorization: HLSAuthorizationState) {
+        init(group: UUID, connection: NWConnection, task: URLSessionDataTask,
+             authorization: HLSAuthorizationState, cacheScope: String?) {
             self.group = group
             self.connection = connection
             self.task = task
             self.authorization = authorization
+            self.cacheScope = cacheScope
+        }
+    }
+
+    private final class CachedTransfer: @unchecked Sendable {
+        let group: UUID
+        let connection: NWConnection
+        let reader: HLSMediaCache.Reader
+        init(group: UUID, connection: NWConnection, reader: HLSMediaCache.Reader) {
+            self.group = group; self.connection = connection; self.reader = reader
         }
     }
 
     private let lock = NSLock()
     private var transfers: [Int: Transfer] = [:]
+    private var cachedTransfers: [ObjectIdentifier: CachedTransfer] = [:]
+    private let cacheQueue = DispatchQueue(label: "drama.hls.cached-media", qos: .userInitiated)
     private var session: URLSession!
     private let logger = Logger(subsystem: "com.video.test.DramaPlayfun.playback", category: "media")
+    #if DEBUG
+    private var events: [String] = []
+    var debugEvents: [String] {
+        lock.lock(); defer { lock.unlock() }; return events
+    }
+    #endif
+    private func trace(_ event: String) {
+        #if DEBUG
+        lock.lock()
+        events.append(event)
+        if events.count > 128 { events.removeFirst(events.count - 128) }
+        lock.unlock()
+        #endif
+    }
 
     override init() {
         super.init()
@@ -45,10 +74,16 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         session = URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
     }
 
-    func start(_ request: URLRequest, group: UUID, connection: NWConnection, authorization: HLSAuthorizationState) {
+    func start(_ request: URLRequest, group: UUID, connection: NWConnection,
+               authorization: HLSAuthorizationState, cacheScope: String?) {
+        if let cacheScope, let reader = HLSMediaCache.shared.reader(for: request, scope: cacheScope) {
+            serveCached(reader, group: group, connection: connection)
+            return
+        }
         let task = session.dataTask(with: request)
         lock.lock()
-        transfers[task.taskIdentifier] = Transfer(group: group, connection: connection, task: task, authorization: authorization)
+        transfers[task.taskIdentifier] = Transfer(group: group, connection: connection, task: task,
+                                                authorization: authorization, cacheScope: cacheScope)
         lock.unlock()
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             switch state {
@@ -67,8 +102,59 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
     func cancel(group: UUID) {
         lock.lock()
         let tasks = transfers.values.filter { $0.group == group }.map(\.task)
+        let cached = cachedTransfers.values.filter { $0.group == group }
         lock.unlock()
         tasks.forEach { $0.cancel() }
+        cached.forEach { finishCached($0) }
+    }
+
+    private func serveCached(_ reader: HLSMediaCache.Reader, group: UUID, connection: NWConnection) {
+        let transfer = CachedTransfer(group: group, connection: connection, reader: reader)
+        lock.lock()
+        cachedTransfers[ObjectIdentifier(connection)] = transfer
+        lock.unlock()
+        connection.stateUpdateHandler = { [weak self] state in
+            if case .failed = state { self?.finishCached(transfer) }
+            if case .cancelled = state { self?.finishCached(transfer) }
+        }
+        let partial = reader.contentRange != nil
+        var header = "HTTP/1.1 \(partial ? "206 Partial Content" : "200 OK")\r\n"
+        header += "Content-Type: \(reader.contentType)\r\nContent-Length: \(reader.length)\r\n"
+        if let range = reader.contentRange { header += "Content-Range: \(range)\r\n" }
+        header += "Connection: close\r\n\r\n"
+        logger.debug("media cache hit bytes=\(reader.length)")
+        connection.send(content: Data(header.utf8), completion: .contentProcessed { [weak self] error in
+            if error != nil { self?.finishCached(transfer) }
+            else { self?.sendCachedChunk(transfer) }
+        })
+    }
+
+    private func sendCachedChunk(_ transfer: CachedTransfer) {
+        cacheQueue.async { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            let active = self.cachedTransfers[ObjectIdentifier(transfer.connection)] != nil
+            self.lock.unlock()
+            guard active else { return }
+            do {
+                let data = try transfer.reader.read()
+                transfer.connection.send(content: data.isEmpty ? nil : data, isComplete: data.isEmpty,
+                    completion: .contentProcessed { [weak self] error in
+                        if error != nil || data.isEmpty { self?.finishCached(transfer) }
+                        else { self?.sendCachedChunk(transfer) }
+                    })
+            } catch { self.finishCached(transfer) }
+        }
+    }
+
+    private func finishCached(_ transfer: CachedTransfer) {
+        lock.lock()
+        let removed = cachedTransfers.removeValue(forKey: ObjectIdentifier(transfer.connection))
+        lock.unlock()
+        guard removed != nil else { return }
+        transfer.connection.stateUpdateHandler = nil
+        transfer.connection.cancel()
+        cacheQueue.async { transfer.reader.close() }
     }
 
     private func cancel(connection: NWConnection) {
@@ -98,6 +184,7 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
             return
         }
         transfer.authorization.record(status: http.statusCode)
+        trace("media status=\(http.statusCode) length=\(http.expectedContentLength) retries=\(transfer.retries)")
         if transfer.retries > 0 {
             let start = transfer.rangeStart + Int64(transfer.receivedBytes)
             let end = transfer.rangeStart + transfer.expectedBytes - 1
@@ -130,6 +217,9 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
             transfer.rangeStart = start
         }
         transfer.validator = http.value(forHTTPHeaderField: "ETag") ?? http.value(forHTTPHeaderField: "Last-Modified")
+        if let request = dataTask.originalRequest, let scope = transfer.cacheScope {
+            transfer.cacheWriter = HLSMediaCache.shared.writer(for: request, response: http, scope: scope)
+        }
         var header = "HTTP/1.1 \(http.statusCode) \(http.statusCode == 206 ? "Partial Content" : "OK")\r\n"
         header += "Content-Type: \(http.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream")\r\n"
         header += transfer.chunked ? "Transfer-Encoding: chunked\r\n" : "Content-Length: \(http.expectedContentLength)\r\n"
@@ -147,6 +237,7 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
             logger.debug("media first-byte ms=\(Int(Date().timeIntervalSince(transfer.started) * 1000))")
         }
         transfer.receivedBytes += data.count
+        transfer.cacheWriter?.append(data)
         let body = transfer.chunked ? Data("\(String(data.count, radix: 16))\r\n".utf8) + data + Data("\r\n".utf8) : data
         // Keep the CDN request alive. Suspending a data task between chunks can
         // tear down HTTP/2 streams; wait for the loopback write on this dedicated
@@ -161,6 +252,7 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let transfer = transfer(for: task) else { return }
+        trace("media end code=\(error.map { ($0 as NSError).code } ?? 0) bytes=\(transfer.receivedBytes) expected=\(transfer.expectedBytes) retries=\(transfer.retries)")
         if let error, resumeIfPossible(transfer, after: error) { return }
         lock.lock()
         transfers[task.taskIdentifier] = nil
@@ -168,6 +260,8 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         if transfer.rejected { return }
         let connection = transfer.connection
         let hasCompleteBody = transfer.expectedBytes > 0 && Int64(transfer.receivedBytes) == transfer.expectedBytes
+        if error == nil || hasCompleteBody { transfer.cacheWriter?.finish(expectedLength: transfer.expectedBytes) }
+        else { transfer.cacheWriter?.discard() }
         if let error, !hasCompleteBody {
             logger.info("media failed code=\((error as NSError).code) bytes=\(transfer.receivedBytes)")
             if !transfer.sentHeaders {
@@ -186,7 +280,7 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         guard (error as NSError).domain == NSURLErrorDomain,
               code == URLError.networkConnectionLost.rawValue || code == URLError.timedOut.rawValue,
               transfer.retries == 0, transfer.sentHeaders, !transfer.rejected,
-              transfer.receivedBytes > 0, Int64(transfer.receivedBytes) < transfer.expectedBytes,
+              transfer.expectedBytes > 0, Int64(transfer.receivedBytes) < transfer.expectedBytes,
               var request = transfer.task.originalRequest else { return false }
         let start = transfer.rangeStart + Int64(transfer.receivedBytes)
         let end = transfer.rangeStart + transfer.expectedBytes - 1

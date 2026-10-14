@@ -9,8 +9,17 @@ struct CachedRemoteImage<Placeholder: View>: View {
         GeometryReader { geometry in
             Group {
                 if let url {
-                    KFImage(url)
-                        .placeholder { placeholder() }
+                    let resource = RemoteImageResource.resource(for: url)
+                    KFImage(source: .network(resource))
+                        .placeholder {
+                            // A recreated KFImage starts with its placeholder before onAppear
+                            // retrieves the cache. Render the memory hit in that first frame too.
+                            if let image = ImageCache.default.retrieveImageInMemoryCache(forKey: resource.cacheKey) {
+                                Image(uiImage: image).resizable().scaledToFill()
+                            } else {
+                                placeholder()
+                            }
+                        }
                         .cancelOnDisappear(true)
                         .resizable()
                         .scaledToFill()

@@ -232,36 +232,3 @@ struct ProfileDramaCard: View {
         }.buttonStyle(.plain).accessibilityIdentifier("profile-drama-\(drama.id)")
     }
 }
-
-struct ProfileHistoryView: View {
-    @Environment(AppContainer.self) private var app
-    @Environment(AppRouter.self) private var router
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 12) {
-                ForEach(app.watchHistory.items) { item in
-                    Button {
-                        item.prepareResume(in: app.library)
-                        router.openPlayback(item.drama)
-                    } label: {
-                        HStack(spacing: 12) {
-                            DramaPoster(drama: item.drama).frame(width: 72)
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(item.drama.title).font(.headline)
-                                Text(item.isOnline ? item.subtitle : "已下架").font(.footnote).foregroundStyle(.secondary)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }.padding(10).background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
-                    }.buttonStyle(.plain).disabled(!item.isOnline)
-                }
-                if app.watchHistory.isLoading { ProgressView().padding() }
-                if let error = app.watchHistory.errorMessage { Text(error).font(.footnote); Button("重试") { Task { await app.watchHistory.reload() } } }
-                if !app.watchHistory.isLoading, app.watchHistory.errorMessage == nil, app.watchHistory.items.isEmpty {
-                    ContentUnavailableView("还没有观看记录", systemImage: "clock")
-                }
-                if app.watchHistory.hasMore { Button("加载更多") { Task { await app.watchHistory.loadMore() } } }
-            }.padding(12)
-        }.screenBackground().navigationTitle("历史记录").navigationBarTitleDisplayMode(.inline)
-            .toolbar(.visible, for: .navigationBar).toolbar(.hidden, for: .tabBar)
-            .task { await app.watchHistory.reload() }.refreshable { await app.watchHistory.reload() }
-    }
-}

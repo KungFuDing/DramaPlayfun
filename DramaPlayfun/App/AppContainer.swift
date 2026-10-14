@@ -176,9 +176,23 @@ final class AppContainer {
             case "/mobile/v1/client/drama/progress":
                 response = #"{"code":200,"data":{"saved":true}}"#
             case "/mobile/v1/client/me/history/list":
-                response = ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture")
-                    ? #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":111,"rootDramaId":110,"dramaTitle":"历史测试剧","episodeId":1111,"episodeNo":3,"progressSeconds":65,"isOnline":"online"},{"dramaId":112,"dramaTitle":"历史测试剧乙","episodeId":1112,"episodeNo":5,"progressSeconds":30}]}}"#
-                    : #"{"code":200,"data":{"page":1,"hasMore":false,"list":[]}}"#
+                if ProcessInfo.processInfo.arguments.contains("-ProfileHistoryUITestFixture") {
+                    let titles = ["赶得上,就娶你", "全家抢我神笔许愿,全玩脱了", "重生后,我掀翻侯府"]
+                    let records: [[String: Any]] = (0..<6).map { index -> [String: Any] in
+                        let episode = index == 0 ? 3 : 12
+                        return ["dramaId": 111 + index, "rootDramaId": 110,
+                         "dramaTitle": titles[index % 3], "episodeId": 1111 + index,
+                         "episodeNo": episode, "progressSeconds": 65,
+                         "episodeText": index == 0 ? "3集/134集" : "12集/134集",
+                         "isOnline": index == 5 ? "offline" : "online"]
+                    }
+                    response = String(data: try! JSONSerialization.data(withJSONObject:
+                        ["code": 200, "data": ["page": 1, "hasMore": false, "list": records]]), encoding: .utf8)!
+                } else {
+                    response = ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture")
+                        ? #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":111,"rootDramaId":110,"dramaTitle":"历史测试剧","episodeId":1111,"episodeNo":3,"progressSeconds":65,"isOnline":"online"},{"dramaId":112,"dramaTitle":"历史测试剧乙","episodeId":1112,"episodeNo":5,"progressSeconds":30}]}}"#
+                        : #"{"code":200,"data":{"page":1,"hasMore":false,"list":[]}}"#
+                }
             case "/mobile/v1/drama/tag/list":
                 response = #"{"code":200,"data":{"list":[{"tagId":11,"tagName":"真人剧"},{"tagId":12,"tagName":"剧情"},{"tagId":13,"tagName":"古装"}]}}"#
             case "/mobile/v1/drama/tag/series/list":

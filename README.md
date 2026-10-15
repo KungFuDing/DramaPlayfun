@@ -75,6 +75,8 @@ Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴�
 
 所有 API 请求的 `appVersion` 读取 App 的 `CFBundleShortVersionString`，游客登录及版本检查使用同一版本；`modelName` 在模拟器上为 `Simulator`，真机按硬件标识映射为设备名称，未收录型号保留硬件标识；`platform` 读取系统名称，`systemVersion` 为系统名称和版本号（如 `iOS 26.5`）。这些字段在 Debug/Release 中统一由运行时提供，不接受调试配置覆盖。
 
+`ip` 和 `countryCode` 由公网查询取得，使用同一次响应中的公网 IPv4/IPv6 地址及对应的大写双字母国家/地区码，不使用设备地区设置。默认通过独立的 HTTPS GET 请求访问 [Country](https://country.is/)；可修改 `Config/Info.Debug.plist`、`Config/Info.plist` 的 `IPGeolocationURL` 替换为兼容接口（返回 `{"ip":"公网 IP","country":"国家简码"}`）。查询不携带 App 鉴权或设备 Headers。首次请求先查询，成功结果在内存缓存 5 分钟，并发查询合并；网络路径变化时清除缓存和旧网络的在途结果。查询最多等待 3 秒，失败时业务请求继续且省略这两个字段，30 秒后允许重试；国家未知时只发送已查到的 IP。静态 Debug 配置中的旧 IP/国家码不再生效。
+
 其余 Debug 专用请求头从本机 `Config/Debug.local.xcconfig` 注入（可参考 `Config/Debug.local.example.xcconfig`）；本地配置的令牌转换为 `Authorization: Bearer <token>`，启动游客登录后由返回的会话令牌覆盖。所有请求均不发送 `accessToken` 请求头，游客登录与加密配置请求不携带鉴权头。登录完成后再加载业务页面，失败可重试。本机配置文件已忽略提交。Xcode 控制台会脱敏显示令牌、deviceId 和 IP。
 
 首页顶部搜索进入独立搜索页，隐藏底部 Tab。最近搜索使用 `AppAPI.v1TheaterSearchHistory`，清空成功后移除记录；输入联想以 250ms 防抖调用 `AppAPI.v1TheaterSearchGuess`，点击搜索或历史词条调用 `AppAPI.v1TheaterSearch` 并支持分页，旧输入响应不会覆盖新结果。热播推荐复用首页热播数据，剧集点击进入播放器。搜索图标使用提供的 2x/3x 切图，海报与文案取接口数据。`SearchStoreTests` 覆盖接口契约、分页去重、取消与过期响应；`SearchUITests` 覆盖入口、历史复搜/清空、输入联想、结果与播放跳转。

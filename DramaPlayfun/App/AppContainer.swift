@@ -43,9 +43,14 @@ final class AppContainer {
         self.network = network ?? {
             #if DEBUG
             if let fixture { return fixture }
+            // Hosted unit tests exercise the lookup through injected stubs.
+            let locationProvider = NSClassFromString("XCTestCase") == nil ? NetworkLocationStore.live() : nil
+            #else
+            let locationProvider = NetworkLocationStore.live()
             #endif
             return APIClient(payloadCipher: APIPayloadCipher(password: "8Oq60JucZPKeyttJdhqX"),
-                usesServerEncryptionConfiguration: true, headerProvider: { _ in
+                usesServerEncryptionConfiguration: true,
+                networkLocationProvider: locationProvider, headerProvider: { _ in
             #if DEBUG
             DebugHTTPHeaders.current
             #else

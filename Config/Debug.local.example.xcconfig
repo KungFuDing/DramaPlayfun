@@ -1,7 +1,5 @@
 // Copy to Debug.local.xcconfig and fill in local Debug values.
 DEBUG_ACCESS_TOKEN =
-DEBUG_COUNTRY_CODE =
 DEBUG_DEVICE_ID =
-DEBUG_IP =
 DEBUG_LANGUAGE =
 HLS_SHARED_SECRET =

@@ -72,6 +72,7 @@ final class APIClient {
     private let configuration: APIConfiguration?
     private let provider: MoyaProvider<APITarget>
     private let headerProvider: (String) -> [String: String]
+    private let networkLocationProvider: (any NetworkLocationProviding)?
     private let clientMetadata = ClientMetadata.current
     private let payloadCipher: APIPayloadCipher?
     private let usesServerEncryptionConfiguration: Bool
@@ -86,9 +87,11 @@ final class APIClient {
          provider: MoyaProvider<APITarget>? = nil,
          payloadCipher: APIPayloadCipher? = nil,
          usesServerEncryptionConfiguration: Bool = false,
+         networkLocationProvider: (any NetworkLocationProviding)? = nil,
          headerProvider: @escaping (String) -> [String: String] = { _ in [:] }) {
         self.configuration = configuration
         self.headerProvider = headerProvider
+        self.networkLocationProvider = networkLocationProvider
         self.payloadCipher = payloadCipher
         self.usesServerEncryptionConfiguration = usesServerEncryptionConfiguration
         let timeout = configuration?.timeout ?? 30
@@ -135,10 +138,11 @@ final class APIClient {
         }
     }
 
-    private func headers(for path: String) -> [String: String] {
+    private func headers(for path: String, networkLocation: NetworkLocation?) -> [String: String] {
         var runtimeHeaders = clientMetadata.headers
+        if let networkLocation { runtimeHeaders.merge(networkLocation.headers) { _, current in current } }
         if let deviceIdentifier { runtimeHeaders["deviceId"] = deviceIdentifier }
-        let runtimeKeys = Set(runtimeHeaders.keys.map { $0.lowercased() })
+        let runtimeKeys = Set(runtimeHeaders.keys.map { $0.lowercased() }).union(["ip", "countrycode"])
         var values = headerProvider(path).filter {
             let key = $0.key.lowercased()
             return key != "accesstoken" && !runtimeKeys.contains(key)
@@ -174,10 +178,12 @@ final class APIClient {
                 try _Concurrency.Task<Never, Never>.checkCancellation()
                 requestCipher = enabled ? payloadCipher : nil
             } else { requestCipher = payloadCipher }
+            let networkLocation = await networkLocationProvider?.current()
+            try _Concurrency.Task<Never, Never>.checkCancellation()
             let data: Data
             do { data = try JSONEncoder().encode(body) }
             catch { throw APIError.encoding(error) }
-            var headers = headers(for: endpoint.path).filter {
+            var headers = headers(for: endpoint.path, networkLocation: networkLocation).filter {
                 !["content-type", "accept", "x-payload-encryption"].contains($0.key.lowercased())
             }
             let wireBody: Data

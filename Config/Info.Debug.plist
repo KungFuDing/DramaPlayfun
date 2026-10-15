@@ -6,6 +6,8 @@
     <string>保存短剧分享图片到相册，便于分享给朋友。</string>
     <key>APIBaseURL</key>
     <string>$(API_BASE_URL)</string>
+    <key>IPGeolocationURL</key>
+    <string>https://api.country.is/</string>
     <key>HLSSharedSecret</key>
     <string>$(HLS_SHARED_SECRET)</string>
     <key>NSAppTransportSecurity</key>
@@ -13,9 +15,7 @@
     <key>DebugHTTPHeaders</key>
     <dict>
         <key>accessToken</key><string>$(DEBUG_ACCESS_TOKEN)</string>
-        <key>countryCode</key><string>$(DEBUG_COUNTRY_CODE)</string>
         <key>deviceId</key><string>$(DEBUG_DEVICE_ID)</string>
-        <key>ip</key><string>$(DEBUG_IP)</string>
         <key>language</key><string>$(DEBUG_LANGUAGE)</string>
     </dict>
 </dict>

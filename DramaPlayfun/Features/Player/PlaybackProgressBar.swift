@@ -53,7 +53,7 @@ private struct ProgressSlider: UIViewRepresentable {
         slider.maximumValue = 1
         slider.minimumTrackTintColor = UIColor(Theme.accent)
         slider.maximumTrackTintColor = .white.withAlphaComponent(0.25)
-        slider.accessibilityLabel = "播放进度"
+        slider.accessibilityLabel = L10n.tr("播放进度")
         slider.accessibilityIdentifier = identifier
         slider.addTarget(context.coordinator, action: #selector(Coordinator.begin), for: .touchDown)
         slider.addTarget(context.coordinator, action: #selector(Coordinator.end), for: [.touchUpInside, .touchUpOutside])
@@ -64,6 +64,7 @@ private struct ProgressSlider: UIViewRepresentable {
 
     func updateUIView(_ slider: ScrubbingSlider, context: Context) {
         context.coordinator.parent = self
+        slider.accessibilityLabel = L10n.tr("播放进度")
         slider.isEnabled = isEnabled
         if !slider.isScrubbing && !preservesPreview { slider.setValue(Float(fraction), animated: false) }
         if !isEnabled && slider.isScrubbing { slider.cancelTracking(with: nil) }

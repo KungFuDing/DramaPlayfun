@@ -6,7 +6,11 @@ import Observation
 final class PlaybackSession {
     let player = AVPlayer()
     private(set) var isLoading = true
-    private(set) var errorMessage: String?
+    private var loadError: Error?
+    var errorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return loadError.map { L10n.errorMessage($0, fallback: "视频加载失败，请重试。") }
+    }
     private(set) var hasEnded = false
     private let request: PlaybackRequest
     private let repository: any DramaRepository
@@ -23,7 +27,7 @@ final class PlaybackSession {
 
     func run() async {
         isLoading = true
-        errorMessage = nil
+        loadError = nil
         hasEnded = false
         defer { isLoading = false }
         do {
@@ -77,7 +81,7 @@ final class PlaybackSession {
         } catch is CancellationError {
             player.pause()
         } catch {
-            errorMessage = error.localizedDescription
+            loadError = error
             player.pause()
         }
     }
@@ -107,12 +111,12 @@ final class PlaybackSession {
     }
 }
 
-private enum PlaybackError: LocalizedError {
+private enum PlaybackError: AppLocalizedError {
     case failed, timeout
     var errorDescription: String? {
         switch self {
-        case .failed: "视频加载失败，请重试。"
-        case .timeout: "视频加载超时，请检查网络后重试。"
+        case .failed: L10n.text("视频加载失败，请重试。")
+        case .timeout: L10n.text("视频加载超时，请检查网络后重试。")
         }
     }
 }

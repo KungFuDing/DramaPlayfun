@@ -5,7 +5,11 @@ import Observation
 final class GuestSessionStore {
     private(set) var isReady = false
     private(set) var isLoading = false
-    private(set) var errorMessage: String?
+    private var signInError: Error?
+    var errorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return signInError?.appLocalizedDescription
+    }
     private let network: APIClient
     private let deviceIdentifierProvider: any DeviceIdentifierProviding
 
@@ -20,7 +24,7 @@ final class GuestSessionStore {
     func signInIfNeeded() async {
         guard !isReady, !isLoading else { return }
         isLoading = true
-        errorMessage = nil
+        signInError = nil
         defer { isLoading = false }
         do {
             try Task.checkCancellation()
@@ -39,7 +43,7 @@ final class GuestSessionStore {
             isReady = true
         } catch is CancellationError {
         } catch {
-            errorMessage = error.localizedDescription
+            signInError = error
         }
     }
 
@@ -55,7 +59,7 @@ final class GuestSessionStore {
     }
 }
 
-nonisolated private enum GuestSessionError: LocalizedError {
+nonisolated private enum GuestSessionError: AppLocalizedError {
     case missingToken
-    var errorDescription: String? { "登录未返回有效的访问令牌，请重试。" }
+    var errorDescription: String? { L10n.text("登录未返回有效的访问令牌，请重试。") }
 }

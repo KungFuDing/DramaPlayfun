@@ -7,7 +7,7 @@ enum EpisodeUnlockOutcome: Equatable {
     case needsRecharge
 }
 
-enum EpisodeUnlockError: LocalizedError {
+enum EpisodeUnlockError: AppLocalizedError {
     case playbackUnavailable
     case walletUnavailable
     case membershipUnavailable
@@ -16,11 +16,11 @@ enum EpisodeUnlockError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .playbackUnavailable: "本集已解锁，播放地址暂时不可用，请重试。"
-        case .walletUnavailable: "暂时无法获取金币余额，请稍后重试。"
-        case .membershipUnavailable: "会员播放权益暂未更新，请稍后重试。"
-        case .accessUnavailable: "暂时无法确认本集播放权限，请稍后重试。"
-        case .settingsUnavailable: "暂时无法读取自动解锁设置，请稍后重试。"
+        case .playbackUnavailable: L10n.text("本集已解锁，播放地址暂时不可用，请重试。")
+        case .walletUnavailable: L10n.text("暂时无法获取金币余额，请稍后重试。")
+        case .membershipUnavailable: L10n.text("会员播放权益暂未更新，请稍后重试。")
+        case .accessUnavailable: L10n.text("暂时无法确认本集播放权限，请稍后重试。")
+        case .settingsUnavailable: L10n.text("暂时无法读取自动解锁设置，请稍后重试。")
         }
     }
 }

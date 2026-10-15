@@ -9,7 +9,7 @@ final class PlayerUnlockUITests: XCTestCase {
         selectEpisode(6, in: app)
         let toast = app.staticTexts["player-unlock-toast"]
         XCTAssertTrue(toast.waitForExistence(timeout: 5))
-        XCTAssertTrue(toast.label.contains("20金币"))
+        XCTAssertTrue(toast.label.contains("20金幣"))
         assertPlayable(6, in: app)
         let progress = app.sliders["player-progress-6"]
         let start = Double((progress.value as? String ?? "").replacingOccurrences(of: "%", with: "")) ?? -1
@@ -61,7 +61,7 @@ final class PlayerUnlockUITests: XCTestCase {
         XCTAssertFalse(app.otherElements["player-unlock-dialog"].exists)
         let progress = app.sliders["player-progress-6"]
         scrubNearEnd(progress)
-        XCTAssertTrue(app.buttons["播放视频"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["播放影片"].waitForExistence(timeout: 10))
         XCTAssertEqual(progress.value as? String, "100%", "应播放到本集结束，而不是在拖动时暂停")
         XCTAssertEqual(app.scrollViews["player-episode-feed"].value as? String, "第6集",
                        "关闭自动播放后本集结束应停留当前集")
@@ -112,8 +112,8 @@ final class PlayerUnlockUITests: XCTestCase {
         expectation(for: NSPredicate(format: "value == %@", "1"), evaluatedWith: walletAutoPlay)
         waitForExpectations(timeout: 5)
         app.buttons["wallet-back"].tap()
-        app.tabBars.buttons["首页"].tap()
-        let banner = app.buttons["推荐剧集，推荐测试"]
+        app.tabBars.buttons["首頁"].tap()
+        let banner = app.buttons["推薦劇集，推荐测试"]
         XCTAssertTrue(banner.waitForExistence(timeout: 5))
         banner.tap()
         selectEpisode(6, in: app)
@@ -127,10 +127,11 @@ final class PlayerUnlockUITests: XCTestCase {
     private func launchPlayer(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         // Ignore persisted playback history from previous app launches in this suite.
-        app.launchArguments = ["-PlayerUnlockUITestFixture", "-PlaybackProgressUITestFixture",
+        app.launchArguments = ["-profile.language.v1", "zh-Hant",
+                               "-PlayerUnlockUITestFixture", "-PlaybackProgressUITestFixture",
                                "-library.progress.v1", "{}"] + arguments
         app.launch()
-        let banner = app.buttons["推荐剧集，推荐测试"]
+        let banner = app.buttons["推薦劇集，推荐测试"]
         XCTAssertTrue(banner.waitForExistence(timeout: 10))
         banner.tap()
         XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))

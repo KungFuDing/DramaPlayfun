@@ -26,8 +26,16 @@ final class TheaterFeedStore {
     private(set) var hasLoaded = false
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
-    private(set) var errorMessage: String?
-    private(set) var loadMoreErrorMessage: String?
+    private var loadError: Error?
+    private var loadMoreError: Error?
+    var errorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return loadError?.appLocalizedDescription
+    }
+    var loadMoreErrorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return loadMoreError?.appLocalizedDescription
+    }
 
     private(set) var likingIDs: Set<Drama.ID> = []
     private(set) var favoritingIDs: Set<Drama.ID> = []
@@ -67,8 +75,8 @@ final class TheaterFeedStore {
         let requestGeneration = generation
         isLoading = true
         isLoadingMore = false
-        errorMessage = nil
-        loadMoreErrorMessage = nil
+        loadError = nil
+        loadMoreError = nil
         defer { isLoading = false }
         do {
             let result = try await network.request(AppAPI.v2ClientList,
@@ -81,7 +89,7 @@ final class TheaterFeedStore {
             hasLoaded = true
         } catch is CancellationError {
         } catch {
-            errorMessage = error.localizedDescription
+            loadError = error
         }
     }
 
@@ -89,7 +97,7 @@ final class TheaterFeedStore {
         guard hasLoaded, hasMore, !isLoading, !isLoadingMore else { return }
         let requestGeneration = generation
         isLoadingMore = true
-        loadMoreErrorMessage = nil
+        loadMoreError = nil
         defer {
             if requestGeneration == generation { isLoadingMore = false }
         }
@@ -106,7 +114,7 @@ final class TheaterFeedStore {
             hasMore = result.hasMore ?? false
         } catch is CancellationError {
         } catch {
-            if requestGeneration == generation { loadMoreErrorMessage = error.localizedDescription }
+            if requestGeneration == generation { loadMoreError = error }
         }
     }
 
@@ -155,7 +163,7 @@ final class TheaterFeedStore {
         let first = raw.episodes?.first(where: { $0.episodeNo == 1 })
         let episodeID = first?.episodeId ?? raw.episodeId
         let episode = episodeID.map {
-            Episode(id: String($0), number: 1, title: "第1集", requiresMembership: false)
+            Episode(id: String($0), number: 1, title: "", requiresMembership: false)
         }
         let tags = raw.tagNames ?? []
         let category = DramaCategory.allCases.first { category in
@@ -181,16 +189,16 @@ final class TheaterFeedStore {
 }
 
 
-nonisolated enum TheaterInteractionError: LocalizedError {
+nonisolated enum TheaterInteractionError: AppLocalizedError {
     case invalidEpisode, missingShareText, missingCover, imageRendering, photoPermission, progressRejected
     var errorDescription: String? {
         switch self {
-        case .invalidEpisode: "剧集信息无效，请重新加载。"
-        case .missingShareText: "暂无有效分享内容，请重试。"
-        case .missingCover: "暂无短剧封面，无法生成分享图片。"
-        case .imageRendering: "分享图片生成失败，请重试。"
-        case .photoPermission: "请在系统设置中允许添加照片后重试。"
-        case .progressRejected: "观看进度保存失败。"
+        case .invalidEpisode: L10n.text("剧集信息无效，请重新加载。")
+        case .missingShareText: L10n.text("暂无有效分享内容，请重试。")
+        case .missingCover: L10n.text("暂无短剧封面，无法生成分享图片。")
+        case .imageRendering: L10n.text("分享图片生成失败，请重试。")
+        case .photoPermission: L10n.text("请在系统设置中允许添加照片后重试。")
+        case .progressRejected: L10n.text("观看进度保存失败。")
         }
     }
 }

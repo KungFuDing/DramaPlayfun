@@ -9,18 +9,18 @@ struct WelfareView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                CoinPageHeader(title: "福利", identifier: "welfare-back")
+                CoinPageHeader(title: L10n.tr("福利"), identifier: "welfare-back")
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         VStack(alignment: .leading, spacing: 0) {
-                            Text("赚取金币")
-                            Text("解锁剧集").padding(.leading, 28)
+                            Text(L10n.tr("赚取金币"))
+                            Text(L10n.tr("解锁剧集")).padding(.leading, 28)
                         }.font(.system(size: 28, weight: .heavy)).foregroundStyle(Color(red: 1, green: 0.94, blue: 0.85))
                             .frame(maxWidth: .infinity, alignment: .leading).frame(height: 85, alignment: .topLeading)
                             .padding(.leading, 14).padding(.top, 4)
                         signCard
                         HStack(spacing: 0) {
-                            Text("做任务赚金币").font(.system(size: 16, weight: .semibold))
+                            Text(L10n.tr("做任务赚金币")).font(.system(size: 16, weight: .semibold))
                             Image("WelfareTitleGlow").resizable().frame(width: 34, height: 34).padding(.leading, -16)
                         }.padding(.top, 24).padding(.bottom, 8)
                         LazyVStack(spacing: 12) {
@@ -31,11 +31,11 @@ struct WelfareView: View {
                         if app.welfare.isLoading { ProgressView().frame(maxWidth: .infinity).padding(20) }
                         if let error = app.welfare.error {
                             Text(error).font(.footnote).foregroundStyle(.secondary).padding(.top, 12)
-                            Button("重新加载") { Task { await app.welfare.reload() } }.padding(.vertical, 12)
+                            Button(L10n.tr("重新加载")) { Task { await app.welfare.reload() } }.padding(.vertical, 12)
                         }
                         if let error = app.wallet.balanceError {
                             Text(error).font(.footnote).foregroundStyle(.secondary).padding(.top, 12)
-                            Button("重试余额") { Task { await app.wallet.reloadBalance() } }.padding(.vertical, 12)
+                            Button(L10n.tr("重试余额")) { Task { await app.wallet.reloadBalance() } }.padding(.vertical, 12)
                         }
                     }.padding(.horizontal, 12).padding(.bottom, 32)
                 }.scrollIndicators(.hidden)
@@ -51,9 +51,9 @@ struct WelfareView: View {
         .toolbar(.hidden, for: .navigationBar).toolbar(.hidden, for: .tabBar).buttonStyle(WelfareButtonStyle())
         .task { await reload() }
         .alert(item: $activeTask) { task in
-            Alert(title: Text(task.title), message: Text("在剧场\(task.title)，完成任务后金币将按活动规则自动发放。"),
-                primaryButton: .default(Text("去完成")) { dismiss(); router.selectedTab = .theater },
-                secondaryButton: .cancel(Text("取消")))
+            Alert(title: Text(task.title), message: Text(L10n.tr("在剧场%@，完成任务后金币将按活动规则自动发放。", task.title)),
+                primaryButton: .default(Text(L10n.tr("去完成"))) { dismiss(); router.selectedTab = .theater },
+                secondaryButton: .cancel(Text(L10n.tr("取消"))))
         }
     }
 
@@ -67,7 +67,7 @@ struct WelfareView: View {
         VStack(spacing: 0) {
             NavigationLink { WalletView() } label: {
                 HStack(spacing: 6) {
-                    Text("金币余额").font(.system(size: 14)).foregroundStyle(Color(white: 0.58))
+                    Text(L10n.tr("金币余额")).font(.system(size: 14)).foregroundStyle(Color(white: 0.58))
                     Spacer()
                     Image("WelfareCoin").resizable().frame(width: 21, height: 21)
                     Text(app.wallet.balanceText).font(.system(size: 20, weight: .medium))
@@ -75,11 +75,7 @@ struct WelfareView: View {
                 }.padding(.horizontal, 12).frame(height: 45).contentShape(Rectangle())
             }.accessibilityIdentifier("welfare-wallet")
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 4) {
-                    Text("已连续签到")
-                    Text("\(app.welfare.continuousDays)").foregroundStyle(Theme.accent)
-                    Text("天")
-                }.font(.system(size: 15)).padding(.horizontal, 6).padding(.top, 16).padding(.bottom, 16)
+                Text(L10n.tr("已连续签到%d天", app.welfare.continuousDays)).font(.system(size: 15)).padding(.horizontal, 6).padding(.top, 16).padding(.bottom, 16)
                 WelfareDayGrid(days: app.welfare.days, today: app.welfare.today, signed: app.welfare.hasReceivedToday)
                 Button { Task { await app.welfare.signIn() } } label: {
                     Image(app.welfare.hasReceivedToday ? "WelfareSignedButton" : "WelfareSignButton")
@@ -87,14 +83,14 @@ struct WelfareView: View {
                         .overlay {
                             if app.welfare.isSigning { ProgressView().tint(Color(red: 0.36, green: 0.21, blue: 0.06)) }
                             else {
-                                Text(app.welfare.hasReceivedToday ? "已签到" : "签到")
+                                Text(app.welfare.hasReceivedToday ? L10n.tr("已签到") : L10n.tr("签到"))
                                     .font(.system(size: 19, weight: .semibold))
                                     .foregroundStyle(app.welfare.hasReceivedToday ? .white : Color(red: 0.36, green: 0.21, blue: 0.06))
                             }
                         }
                 }.frame(maxWidth: .infinity).padding(.top, 24).padding(.bottom, 16)
                     .disabled(app.welfare.hasReceivedToday || app.welfare.isSigning || app.welfare.isLoading || !app.welfare.hasLoaded)
-                    .accessibilityLabel(app.welfare.hasReceivedToday ? "已签到" : "签到")
+                    .accessibilityLabel(app.welfare.hasReceivedToday ? L10n.tr("已签到") : L10n.tr("签到"))
                     .accessibilityIdentifier("welfare-sign")
             }.padding(.horizontal, 12)
                 .background {
@@ -145,7 +141,7 @@ private struct WelfareDayCell: View {
     let isToday: Bool
     var body: some View {
         VStack(spacing: 6) {
-            Text("第\(day.id)天").font(.system(size: 12))
+            Text(L10n.tr("第%d天", day.id)).font(.system(size: 12))
             HStack(spacing: 4) {
                 Image("WelfareCoin").resizable().frame(width: 16, height: 16)
                 Text("+\(day.coins)").font(.system(size: 16, weight: .medium))
@@ -153,8 +149,8 @@ private struct WelfareDayCell: View {
             if day.received {
                 Image("WelfareCheck").resizable().frame(width: 16, height: 16)
             } else if isToday {
-                Text("今天").font(.system(size: 11)).foregroundStyle(Color(red: 0.33, green: 0.23, blue: 0.08))
-                    .frame(width: 28, height: 16).background(Theme.accent, in: Capsule())
+                Text(L10n.tr("今天")).font(.system(size: 11)).foregroundStyle(Color(red: 0.33, green: 0.23, blue: 0.08))
+                    .padding(.horizontal, 6).frame(minWidth: 28).frame(height: 16).background(Theme.accent, in: Capsule())
             }
         }.frame(maxWidth: .infinity).frame(height: 74)
             .background(background, in: RoundedRectangle(cornerRadius: 8))
@@ -164,7 +160,7 @@ private struct WelfareDayCell: View {
             }
             .opacity(day.received ? 0.5 : 1)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("第\(day.id)天，\(day.coins)金币，\(day.received ? "已领取" : isToday ? "今天" : "待签到")")
+            .accessibilityLabel(L10n.tr("第%d天，%lld金币，%@", day.id, day.coins, day.received ? L10n.tr("已领取") : isToday ? L10n.tr("今天") : L10n.tr("待签到")))
     }
 
     private var background: LinearGradient {
@@ -190,7 +186,7 @@ private struct WelfareTaskRow: View {
             Spacer(minLength: 4)
             Button(action: action) {
                 HStack(spacing: 3) {
-                    if task.isComplete { Text("已完成").font(.system(size: 13)) }
+                    if task.isComplete { Text(L10n.tr("已完成")).font(.system(size: 13)) }
                     else {
                         Image("WelfareCoin").resizable().frame(width: 14, height: 14)
                         Text("+\(task.coins)").font(.system(size: 14))
@@ -200,7 +196,7 @@ private struct WelfareTaskRow: View {
                     .background(task.isComplete ? .clear : Theme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
                     .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(task.isComplete ? Color(white: 0.58) : Theme.accent, lineWidth: 0.5) }
             }.disabled(task.isComplete).accessibilityIdentifier("welfare-task-\(task.id)")
-                .accessibilityLabel(task.isComplete ? "\(task.title)，已完成" : "\(task.title)，奖励\(task.coins)金币")
+                .accessibilityLabel(task.isComplete ? L10n.tr("%@，已完成", task.title) : L10n.tr("%@，奖励%lld金币", task.title, task.coins))
         }.padding(.horizontal, 12).frame(height: 64)
             .background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 12))
     }

@@ -56,7 +56,7 @@ struct ContentView: View {
                 }
                 .tabItem {
                     Label {
-                        Text(tab.rawValue)
+                        Text(tab.title)
                     } icon: {
                         Image(tab.iconAsset(isSelected: router.selectedTab == tab))
                             .renderingMode(.original)
@@ -76,7 +76,7 @@ struct ContentView: View {
         .sheet(isPresented: $router.membershipPresented) {
             NavigationStack { MembershipView(showsNavigationBar: true).toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { router.membershipPresented = false }
+                    Button(L10n.tr("完成")) { router.membershipPresented = false }
                 }
             } }
         }

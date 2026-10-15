@@ -8,7 +8,7 @@ final class ProfileUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-ProfileUITestFixture"]
         app.launch()
-        app.tabBars.buttons["我的"].tap()
+        openProfile(in: app)
         let settings = app.buttons["profile-settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["profile-membership"].exists)
@@ -22,20 +22,30 @@ final class ProfileUITests: XCTestCase {
         app.buttons["settings-语言切换"].tap()
         let english = app.buttons["settings-language-en"]
         XCTAssertTrue(english.waitForExistence(timeout: 5))
-        app.buttons["settings-language-zh"].tap()
-        XCTAssertTrue(app.buttons["settings-language-zh"].isSelected)
+        app.buttons["settings-language-zh-Hant"].tap()
+        XCTAssertTrue(app.buttons["settings-language-zh-Hant"].isSelected)
         capture(app, "语言切换")
         english.tap()
         XCTAssertTrue(english.isSelected)
-        app.buttons["收起语言切换"].tap()
+        app.buttons["settings-panel-close"].tap()
         app.buttons["settings-语言切换"].tap()
         XCTAssertTrue(english.waitForExistence(timeout: 5))
         XCTAssertTrue(english.isSelected)
-        app.buttons["收起语言切换"].tap()
+        app.buttons["settings-panel-close"].tap()
+        XCTAssertTrue(app.staticTexts["Settings"].exists)
+        app.terminate()
+        app.launch()
+        openProfile(in: app)
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        settings.tap()
+        app.buttons["settings-语言切换"].tap()
+        XCTAssertTrue(english.waitForExistence(timeout: 5))
+        XCTAssertTrue(english.isSelected)
+        app.buttons["settings-panel-close"].tap()
         app.buttons["settings-联系客服"].tap()
-        XCTAssertTrue(app.staticTexts["邮箱:contact@idoltimeltd.co.uk"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Email: contact@idoltimeltd.co.uk"].waitForExistence(timeout: 5))
         capture(app, "联系客服")
-        app.buttons["关闭联系客服"].tap()
+        app.buttons["settings-contact-close"].tap()
         app.buttons["settings-注销账号"].tap()
         XCTAssertTrue(app.buttons["settings-deactivate-cancel"].waitForExistence(timeout: 5))
         capture(app, "账号注销")
@@ -48,11 +58,17 @@ final class ProfileUITests: XCTestCase {
     @MainActor
     func testActiveMembershipCard() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-ProfileUITestFixture", "-ProfileVIPUITestFixture"]
+        app.launchArguments = ["-ProfileUITestFixture", "-ProfileVIPUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
         app.tabBars.buttons["我的"].tap()
-        XCTAssertTrue(app.staticTexts["已开通,可享所有权益"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["已開通，可享所有權益"].waitForExistence(timeout: 10))
         capture(app, "我的-已开通会员")
+    }
+
+    @MainActor private func openProfile(in app: XCUIApplication) {
+        let profile = app.tabBars.buttons.matching(NSPredicate(format: "label IN %@", ["Profile", "我的"])).firstMatch
+        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        profile.tap()
     }
 
     @MainActor private func capture(_ app: XCUIApplication, _ name: String) {

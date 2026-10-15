@@ -114,7 +114,7 @@ struct AppUpdatePanel: View {
                     .foregroundStyle(Color(white: 0.8))
                     .frame(minHeight: 16)
                     .padding(.top, 9)
-                    .accessibilityLabel("新版本 \(notice.version)")
+                    .accessibilityLabel(L10n.tr("新版本 %@", notice.version))
                     .accessibilityIdentifier("app-update-version")
             }
 
@@ -132,7 +132,7 @@ struct AppUpdatePanel: View {
         HStack(spacing: 16) {
             if !notice.isForced {
                 Button(action: onLater) {
-                    Text("稍后")
+                    Text(L10n.tr("稍后"))
                         .font(.system(size: buttonSize, weight: .medium))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
@@ -149,7 +149,7 @@ struct AppUpdatePanel: View {
                     if isOpening {
                         ProgressView().tint(Color(white: 0.2))
                     }
-                    Text(isOpening ? "正在前往…" : "前往更新")
+                    Text(isOpening ? L10n.tr("正在前往…") : L10n.tr("前往更新"))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
@@ -176,7 +176,7 @@ struct AppUpdatePanel: View {
             .gesture(DragGesture(minimumDistance: 10).onEnded { value in
                 if value.translation.height > 30 { dismissIfAllowed() }
             })
-            .accessibilityLabel("稍后更新")
+            .accessibilityLabel(L10n.tr("稍后更新"))
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { dismissIfAllowed() }
             .accessibilityIdentifier("app-update-handle")

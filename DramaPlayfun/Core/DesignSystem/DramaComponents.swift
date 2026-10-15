@@ -14,7 +14,7 @@ struct DramaPoster: View {
                     Text(drama.title).font(.headline).multilineTextAlignment(.center)
                 }.padding()
             }
-            if let badge = drama.displayBadge {
+            if let badge = drama.badge?.trimmingCharacters(in: .whitespacesAndNewlines), !badge.isEmpty {
                 DramaBadge(title: badge)
             }
         }
@@ -29,11 +29,13 @@ private struct DramaBadge: View {
     let title: String
 
     var body: some View {
-        switch title {
-        case "新品":
-            HomeBadge(background: "HomeBadgeNewBackground", label: "HomeBadgeNew")
-        case "爆款":
-            HomeBadge(background: "HomeBadgeHotBackground", label: "HomeBadgeHot")
+        switch title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "new", "新品":
+            HomeBadge(background: "HomeBadgeNewBackground", label: L10n.tr("新品"))
+        case "hot", "爆款":
+            HomeBadge(background: "HomeBadgeHotBackground", label: L10n.tr("爆款"))
+        case "最新":
+            HomeBadge(background: "HomeBadgeNewBackground", label: L10n.tr("最新"))
         default:
             Text(title).font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 5)
                 .background(Color.indigo)
@@ -48,7 +50,9 @@ private struct HomeBadge: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Image(background).resizable().frame(width: 42, height: 22)
-            Image(label).resizable().scaledToFit().frame(width: 25, height: 12).padding(.top, 4).padding(.leading, 4)
+            Text(label).font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .frame(width: 34, height: 14).padding(.top, 3).padding(.leading, 2)
         }
         .frame(width: 42, height: 22, alignment: .topLeading)
     }
@@ -73,7 +77,7 @@ struct DramaCard: View {
             DramaPoster(drama: drama)
             Text(drama.title).font(.subheadline).lineLimit(2)
             if !drama.displayTags.isEmpty || drama.episodeCount > 0 {
-                Text([drama.displayTags, drama.episodeCount > 0 ? "全\(drama.episodeCount)集" : ""]
+                Text([drama.displayTags, drama.episodeCount > 0 ? L10n.tr("全%d集", drama.episodeCount) : ""]
                     .filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -85,7 +89,7 @@ struct DramaGrid: View {
     let dramas: [Drama]
     var body: some View {
         if dramas.isEmpty {
-            ContentUnavailableView("暂无剧集", systemImage: "film", description: Text("试试其他分类或关键词"))
+            ContentUnavailableView(L10n.tr("暂无剧集"), systemImage: "film", description: Text(L10n.tr("试试其他分类或关键词")))
         } else {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], alignment: .leading, spacing: 24) {
                 ForEach(dramas) { DramaCard(drama: $0) }
@@ -110,7 +114,7 @@ struct CategoryPicker: View {
                                         .scaledToFit()
                                         .frame(width: 18, height: 18)
                                 }
-                                Text(category.title)
+                                Text(category.displayTitle)
                             }
                                 .font(.subheadline.weight(.medium)).padding(.horizontal, 16).padding(.vertical, 10)
                                 .background(selection == category.id ? Theme.accent : Theme.surface)
@@ -132,11 +136,11 @@ struct CatalogStatus: View {
     let catalog: CatalogStore
     var body: some View {
         if catalog.isLoading && catalog.dramas.isEmpty {
-            ProgressView("加载剧集…").frame(maxWidth: .infinity).padding(40)
+            ProgressView(L10n.tr("加载剧集…")).frame(maxWidth: .infinity).padding(40)
         } else if let message = catalog.errorMessage {
             VStack(spacing: 12) {
                 Text(message).foregroundStyle(.secondary)
-                Button("重新加载") { Task { await catalog.reload() } }
+                Button(L10n.tr("重新加载")) { Task { await catalog.reload() } }
             }.frame(maxWidth: .infinity).padding()
         }
     }

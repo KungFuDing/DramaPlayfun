@@ -43,7 +43,7 @@ final class SearchStoreTests: XCTestCase {
         XCTAssertEqual(store.results.first?.rootDramaID, 10)
         XCTAssertEqual(store.results.first?.summary, "接口简介")
         XCTAssertEqual(store.results.first?.tagNames, ["都市", "甜宠"])
-        XCTAssertEqual(store.results.first?.displayBadge, "新品")
+        XCTAssertEqual(store.results.first?.displayBadge, L10n.tr("新品"))
         XCTAssertEqual(store.results.first?.coverURL?.absoluteString, "https://example.invalid/a.jpg")
         XCTAssertEqual(store.history, ["都市"])
         XCTAssertTrue(store.hasMore)

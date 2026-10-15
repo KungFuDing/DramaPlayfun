@@ -1,6 +1,5 @@
 // Optional local values used only by Debug builds.
 DEBUG_ACCESS_TOKEN =
-DEBUG_LANGUAGE =
 HLS_SHARED_SECRET =
 #include? "Debug.local.xcconfig"
 

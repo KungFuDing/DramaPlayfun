@@ -5,7 +5,11 @@ import Observation
 final class DramaPlaybackStore {
     private(set) var items: [TheaterFeedItem] = []
     private(set) var isLoading = false
-    private(set) var errorMessage: String?
+    private var loadError: Error?
+    var errorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return loadError?.appLocalizedDescription
+    }
     private(set) var likingIDs: Set<String> = []
     private(set) var isFavoriting = false
     private let network: APIClient
@@ -40,7 +44,7 @@ final class DramaPlaybackStore {
     func load() async {
         guard !isLoading else { return }
         isLoading = true
-        errorMessage = nil
+        loadError = nil
         defer { isLoading = false }
         do {
             let loaded: [TheaterFeedItem]
@@ -61,9 +65,9 @@ final class DramaPlaybackStore {
             }
             try Task.checkCancellation()
             items = loaded
-            if loaded.isEmpty { errorMessage = "暂无可播放剧集。" }
+            if loaded.isEmpty { loadError = DramaPlaybackError.noPlayableEpisodes }
         } catch is CancellationError {
-        } catch { errorMessage = error.localizedDescription }
+        } catch { loadError = error }
     }
 
     static func makeItems(_ response: APIModels.V1GetDramaEpisodeListRes, fallback: Drama,
@@ -79,7 +83,7 @@ final class DramaPlaybackStore {
         return (response.episodes ?? []).compactMap { raw -> TheaterFeedItem? in
             guard let id = raw.episodeId, let number = raw.episodeNo, number > 0,
                   seen.insert(String(id)).inserted else { return nil }
-            let episode = Episode(id: String(id), number: number, title: "第\(number)集",
+            let episode = Episode(id: String(id), number: number, title: "",
                 requiresMembership: false, unlockCoin: raw.unlockCoin ?? 0,
                 isUnlocked: raw.isUnlocked == true || authorizedEpisodeIDs.contains(String(id)), looked: raw.looked)
             let url = raw.videoUrl.flatMap(URL.init(string:)).flatMap { url -> URL? in
@@ -208,4 +212,9 @@ final class DramaPlaybackStore {
         _ = try await network.request(AppAPI.v1ClientDramaEpisodeFeedback,
             body: .init(episodeId: episodeID, categoryCode: categoryCode), unwrapEnvelope: true)
     }
+}
+
+private enum DramaPlaybackError: AppLocalizedError {
+    case noPlayableEpisodes
+    var errorDescription: String? { L10n.text("暂无可播放剧集。") }
 }

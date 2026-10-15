@@ -39,11 +39,11 @@ struct ShortDramaDetailView: View {
                 Button { dismiss() } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "chevron.left").font(.system(size: 21, weight: .light))
-                        Text("详情").font(.system(size: 17, weight: .medium))
+                        Text(L10n.tr("详情")).font(.system(size: 17, weight: .medium))
                     }
                     .foregroundStyle(.white).padding(.horizontal, 18).frame(height: 44)
                     .shadow(color: .black.opacity(0.5), radius: 5)
-                }.accessibilityLabel("返回").accessibilityIdentifier("short-drama-back")
+                }.accessibilityLabel(L10n.tr("返回")).accessibilityIdentifier("short-drama-back")
             }
         }
         .background(Theme.background.ignoresSafeArea())
@@ -57,9 +57,9 @@ struct ShortDramaDetailView: View {
             async let recommendations: Void = store.loadRecommendations()
             _ = await (detail, recommendations)
         }
-        .alert("操作失败", isPresented: Binding(get: { store.favoriteError != nil },
+        .alert(L10n.tr("操作失败"), isPresented: Binding(get: { store.favoriteError != nil },
             set: { if !$0 { store.favoriteError = nil } })) {
-            Button("知道了", role: .cancel) { store.favoriteError = nil }
+            Button(L10n.tr("知道了"), role: .cancel) { store.favoriteError = nil }
         } message: { Text(store.favoriteError ?? "") }
     }
 
@@ -81,7 +81,7 @@ struct ShortDramaDetailView: View {
             HStack(spacing: 6) {
                 if store.isFavoriting || store.isLoadingDetail { ProgressView().tint(store.isFavorited ? Theme.accent : Theme.background) }
                 else { Image(systemName: "star.fill").font(.system(size: 16)) }
-                Text(store.isFavorited ? "已追剧" : "追剧").font(.system(size: 16, weight: .semibold))
+                Text(store.isFavorited ? L10n.tr("已追剧") : L10n.tr("追剧")).font(.system(size: 16, weight: .semibold))
             }
             .foregroundStyle(store.isFavorited ? Theme.accent : Theme.background)
             .frame(maxWidth: .infinity).frame(height: 46)
@@ -90,12 +90,12 @@ struct ShortDramaDetailView: View {
         }
         .buttonStyle(.plain).disabled(!store.hasDetail || store.isFavoriting)
         .accessibilityIdentifier("short-drama-follow")
-        .accessibilityValue(store.isFavorited ? "已追剧" : "未追剧")
+        .accessibilityValue(store.isFavorited ? L10n.tr("已追剧") : L10n.tr("未追剧"))
     }
 
     private var recommendations: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("为你推荐").font(.system(size: 15, weight: .semibold))
+            Text(L10n.tr("为你推荐")).font(.system(size: 15, weight: .semibold))
                 .background(alignment: .trailing) {
                     Image("HomeHeadingGlow").resizable().scaledToFit().frame(width: 38, height: 27).offset(x: 12)
                 }.padding(.horizontal, 12)
@@ -103,14 +103,14 @@ struct ShortDramaDetailView: View {
             else if let error = store.recommendationError {
                 retryMessage(error) { Task { await store.loadRecommendations() } }.padding(.horizontal, 12)
             } else if store.recommendations.isEmpty {
-                Text("暂无推荐").font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 12)
+                Text(L10n.tr("暂无推荐")).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 12)
             } else {
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 16) {
                         ForEach(store.recommendations) { drama in
                             Button {
                                 recommendedPlayback = PlaybackRequest(drama: drama,
-                                    episode: Episode(id: "", number: 1, title: "第1集", requiresMembership: false))
+                                    episode: Episode(id: "", number: 1, title: "", requiresMembership: false))
                             } label: {
                                 VStack(alignment: .leading, spacing: 8) {
                                     DramaPoster(drama: drama)
@@ -130,7 +130,7 @@ struct ShortDramaDetailView: View {
     private func retryMessage(_ message: String, retry: @escaping () -> Void) -> some View {
         VStack(spacing: 8) {
             Text(message).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button("重新加载", action: retry).font(.subheadline).foregroundStyle(Theme.accent)
+            Button(L10n.tr("重新加载"), action: retry).font(.subheadline).foregroundStyle(Theme.accent)
         }.frame(maxWidth: .infinity)
     }
 }
@@ -201,10 +201,10 @@ private struct ShortDramaRating: View {
                         .overlay { if index == selectedIndex { Circle().stroke(.white, lineWidth: 3) } }
                         .position(x: x, y: y)
                     if index != selectedIndex {
-                        Text("评分" + scores[index]).font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
+                        Text(L10n.tr("评分%@", scores[index])).font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
                             .position(x: x, y: y + 17)
                     } else {
-                        Text("评分" + scores[index]).font(.system(size: 14)).foregroundStyle(Color(red: 0.96, green: 0.79, blue: 0.28))
+                        Text(L10n.tr("评分%@", scores[index])).font(.system(size: 14)).foregroundStyle(Color(red: 0.96, green: 0.79, blue: 0.28))
                             .padding(.horizontal, 10).padding(.vertical, 3)
                             .background(LinearGradient(colors: [Color(red: 0.53, green: 0.46, blue: 0.25),
                                 Color(red: 0.3, green: 0.22, blue: 0.12)], startPoint: .top, endPoint: .bottom), in: Capsule())
@@ -228,13 +228,13 @@ private struct ShortDramaSummary: View {
                 tags
                 ScrollView(.horizontal) { tags }.scrollIndicators(.hidden)
             }
-            Text("剧情简介").font(.system(size: 15, weight: .medium)).padding(.top, 14)
-            Text(drama.summary.isEmpty ? "暂无简介" : drama.summary)
+            Text(L10n.tr("剧情简介")).font(.system(size: 15, weight: .medium)).padding(.top, 14)
+            Text(drama.summary.isEmpty ? L10n.tr("暂无简介") : drama.summary)
                 .font(.system(size: 13)).foregroundStyle(.white.opacity(0.6)).lineSpacing(7)
                 .lineLimit(isExpanded ? nil : 3).frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("short-drama-summary")
             if !drama.summary.isEmpty {
-                Button(isExpanded ? "收起" : "展开") { isExpanded.toggle() }
+                Button(isExpanded ? L10n.tr("收起") : L10n.tr("展开")) { isExpanded.toggle() }
                     .font(.system(size: 12)).foregroundStyle(Theme.accent)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .accessibilityIdentifier("short-drama-expand")
@@ -246,7 +246,7 @@ private struct ShortDramaSummary: View {
     private var tags: some View {
         HStack(spacing: 10) {
             ForEach(Array(drama.tagNames.enumerated()), id: \.offset) { _, tag in chip(tag) }
-            if drama.episodeCount > 0 { chip("共\(drama.episodeCount)集") }
+            if drama.episodeCount > 0 { chip(L10n.tr("共%d集", drama.episodeCount)) }
         }
     }
     private func chip(_ title: String) -> some View {
@@ -294,7 +294,7 @@ final class ShortDramaDetailStore {
             app.library.setFavorite(drama.id, isFavorite: isFavorited)
             hasDetail = true
         } catch is CancellationError {
-        } catch { detailError = error.localizedDescription }
+        } catch { detailError = error.appLocalizedDescription }
     }
 
     func loadRecommendations() async {
@@ -316,7 +316,7 @@ final class ShortDramaDetailStore {
                     tagNames: raw.tagNames ?? [], rootDramaID: raw.rootDramaId)
             }
         } catch is CancellationError {
-        } catch { recommendationError = error.localizedDescription }
+        } catch { recommendationError = error.appLocalizedDescription }
     }
 
     func toggleFavorite() async -> Bool {
@@ -335,6 +335,6 @@ final class ShortDramaDetailStore {
             isFavorited = value
             app.library.setFavorite(drama.id, isFavorite: isFavorited)
             return true
-        } catch { favoriteError = error.localizedDescription; return false }
+        } catch { favoriteError = error.appLocalizedDescription; return false }
     }
 }

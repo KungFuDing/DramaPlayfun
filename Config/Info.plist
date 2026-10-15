@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>NSPhotoLibraryAddUsageDescription</key>
-    <string>保存短剧分享图片到相册，便于分享给朋友。</string>
+    <string>Save drama sharing images to your photo library to share with friends.</string>
     <key>APIBaseURL</key>
     <string>$(API_BASE_URL)</string>
     <key>IPGeolocationURL</key>

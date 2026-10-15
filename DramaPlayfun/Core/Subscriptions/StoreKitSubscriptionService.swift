@@ -6,7 +6,8 @@ final class StoreKitSubscriptionService: SubscriptionService {
     private let loadProducts: @MainActor ([String]) async throws -> [Product]
     private var products: [Product] = []
     private var deliveries: [UInt64: Task<Void, Error>] = [:]
-    private(set) var transactionMessage: String?
+    private var transactionError: Error?
+    var transactionMessage: String? { transactionError.map { L10n.errorMessage($0, fallback: "购买服务暂不可用，请稍后重试。") } }
 
     init(backend: StorePurchaseBackend,
          loadProducts: @escaping @MainActor ([String]) async throws -> [Product] = { try await Product.products(for: $0) }) {
@@ -88,7 +89,7 @@ final class StoreKitSubscriptionService: SubscriptionService {
             guard !Task.isCancelled else { return }
             if case .verified(let transaction) = result {
                 do { try await deliver(transaction) }
-                catch { transactionMessage = error.localizedDescription }
+                catch { transactionError = error }
             }
         }
         await onChange()
@@ -99,7 +100,7 @@ final class StoreKitSubscriptionService: SubscriptionService {
                 try await deliver(transaction)
                 await onChange()
             } catch {
-                transactionMessage = error.localizedDescription
+                transactionError = error
                 await onChange()
             }
         }
@@ -119,7 +120,7 @@ final class StoreKitSubscriptionService: SubscriptionService {
         deliveries[transaction.id] = delivery
         defer { deliveries[transaction.id] = nil }
         try await delivery.value
-        transactionMessage = nil
+        transactionError = nil
     }
 
     private static func matches(_ product: Product, category: MembershipCategory) -> Bool {
@@ -134,14 +135,12 @@ final class StoreKitSubscriptionService: SubscriptionService {
 
     private static func periodDescription(_ period: Product.SubscriptionPeriod?) -> String {
         guard let period else { return "" }
-        let unit: String
         switch period.unit {
-        case .day: unit = "天"
-        case .week: unit = "周"
-        case .month: unit = "个月"
-        case .year: unit = "年"
-        @unknown default: unit = "期"
+        case .day: return period.value == 1 ? L10n.tr("每天") : L10n.tr("每%d天", period.value)
+        case .week: return period.value == 1 ? L10n.tr("每1周") : L10n.tr("每%d周", period.value)
+        case .month: return period.value == 1 ? L10n.tr("每月") : L10n.tr("每%d个月", period.value)
+        case .year: return period.value == 1 ? L10n.tr("每1年") : L10n.tr("每%d年", period.value)
+        @unknown default: return L10n.tr("每%d期", period.value)
         }
-        return "每\(period.value)\(unit)"
     }
 }

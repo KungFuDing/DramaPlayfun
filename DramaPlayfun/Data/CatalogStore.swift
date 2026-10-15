@@ -5,7 +5,11 @@ import Observation
 final class CatalogStore {
     private(set) var dramas: [Drama] = []
     private(set) var isLoading = false
-    private(set) var errorMessage: String?
+    private var loadError: Error?
+    var errorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return loadError?.appLocalizedDescription
+    }
     private(set) var hasLoaded = false
     private let repository: any DramaRepository
 
@@ -19,14 +23,14 @@ final class CatalogStore {
     func reload() async {
         guard !isLoading else { return }
         isLoading = true
-        errorMessage = nil
+        loadError = nil
         defer { isLoading = false }
         do {
             dramas = try await repository.fetchDramas()
             hasLoaded = true
         } catch is CancellationError {
         } catch {
-            errorMessage = error.localizedDescription
+            loadError = error
         }
     }
 
@@ -34,7 +38,7 @@ final class CatalogStore {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return dramas.filter {
             (category == .all || $0.category == category) &&
-            (query.isEmpty || $0.title.localizedStandardContains(query) || $0.category.rawValue.localizedStandardContains(query))
+            (query.isEmpty || $0.title.localizedStandardContains(query) || $0.category.rawValue.localizedStandardContains(query) || $0.category.title.localizedStandardContains(query))
         }
     }
 }

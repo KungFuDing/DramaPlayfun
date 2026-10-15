@@ -1,16 +1,16 @@
 import Foundation
 import Security
 
-nonisolated enum DeviceIdentifierError: Error, LocalizedError, Equatable {
+nonisolated enum DeviceIdentifierError: Error, AppLocalizedError, Equatable {
     case keychain(OSStatus)
     case corruptStoredIdentifier
 
     var errorDescription: String? {
         switch self {
         case .keychain:
-            "暂时无法读取或保存设备标识，请解锁设备后重试。"
+            L10n.text("暂时无法读取或保存设备标识，请解锁设备后重试。")
         case .corruptStoredIdentifier:
-            "设备标识数据异常，无法继续请求。"
+            L10n.text("设备标识数据异常，无法继续请求。")
         }
     }
 }

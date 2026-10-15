@@ -6,10 +6,10 @@ final class MembershipUITests: XCTestCase {
     @MainActor
     func testMembershipFiveDesignStatesAndRechargeSelection() {
         let app = XCUIApplication()
-        app.launchArguments.append("-MembershipUITestFixture")
+        app.launchArguments = ["-MembershipUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["会员"].waitForExistence(timeout: 10))
-        app.tabBars.buttons["会员"].tap()
+        XCTAssertTrue(app.tabBars.buttons["會員"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["會員"].tap()
         let weekly = app.buttons["membership-buy-weekly"]
         XCTAssertTrue(weekly.waitForExistence(timeout: 10))
         XCTAssertTrue(weekly.isEnabled)
@@ -34,13 +34,13 @@ final class MembershipUITests: XCTestCase {
         XCTAssertTrue(app.buttons["membership-buy-coins"].label.contains("$8.99"))
         capture(app, "充值")
         app.buttons["membership-buy-coins"].tap()
-        XCTAssertEqual(app.staticTexts["membership-message"].label, "充值成功，金币已到账")
+        XCTAssertEqual(app.staticTexts["membership-message"].label, "儲值成功，金幣已到帳")
     }
 
     @MainActor
     func testWalletOpensRechargeAndCanDismiss() {
         let app = XCUIApplication()
-        app.launchArguments.append("-MembershipUITestFixture")
+        app.launchArguments = ["-MembershipUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["我的"].waitForExistence(timeout: 10))
         app.tabBars.buttons["我的"].tap()
@@ -57,10 +57,10 @@ final class MembershipUITests: XCTestCase {
     @MainActor
     func testHorizontalPagingKeepsTabsAndCoinSelectionInSync() {
         let app = XCUIApplication()
-        app.launchArguments.append("-MembershipUITestFixture")
+        app.launchArguments = ["-MembershipUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["会员"].waitForExistence(timeout: 10))
-        app.tabBars.buttons["会员"].tap()
+        XCTAssertTrue(app.tabBars.buttons["會員"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["會員"].tap()
         let weekly = app.scrollViews["membership-page-weekly"]
         let yearly = app.scrollViews["membership-page-yearly"]
         let coins = app.scrollViews["membership-page-coins"]

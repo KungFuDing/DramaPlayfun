@@ -6,10 +6,10 @@ import Foundation
 final class MembershipUITestService: SubscriptionService {
     private var asset = MembershipEntitlement()
     func plans() async throws -> [MembershipPlan] {
-        [MembershipPlan(id: "fixture.week", title: "周会员", price: "¥20", period: "每1周", category: .weekly),
-         MembershipPlan(id: "fixture.year", title: "年会员", price: "¥200", period: "每1年", category: .yearly)] +
+        [MembershipPlan(id: "fixture.week", title: L10n.tr("周会员"), price: "¥20", period: L10n.tr("每1周"), category: .weekly),
+         MembershipPlan(id: "fixture.year", title: L10n.tr("年会员"), price: "¥200", period: L10n.tr("每1年"), category: .yearly)] +
         [500, 1000, 1500, 2000, 5000, 10000].enumerated().map { index, amount in
-            MembershipPlan(id: "fixture.coins.\(index)", title: "金币", price: ["$4.99", "$8.99", "$12.99", "$16.99", "$39.99", "$79.99"][index],
+            MembershipPlan(id: "fixture.coins.\(index)", title: L10n.tr("金币"), price: ["$4.99", "$8.99", "$12.99", "$16.99", "$39.99", "$79.99"][index],
                            period: "", category: .coins, coinAmount: Int64(amount), giftCoinAmount: index == 0 ? 0 : 100)
         }
     }

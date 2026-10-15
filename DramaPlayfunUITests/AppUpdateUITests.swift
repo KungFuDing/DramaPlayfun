@@ -8,7 +8,7 @@ final class AppUpdateUITests: XCTestCase {
         let app = launch()
         let panel = app.otherElements["app-update-panel"]
         XCTAssertTrue(panel.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["新版本已就绪"].exists)
+        XCTAssertTrue(app.staticTexts["新版本已就緒"].exists)
         XCTAssertEqual(app.staticTexts["app-update-version"].label, "新版本 1.1.6")
         XCTAssertTrue(app.buttons["app-update-confirm"].isHittable)
         let later = app.buttons["app-update-later"]
@@ -36,7 +36,7 @@ final class AppUpdateUITests: XCTestCase {
         let app = launch(arguments: ["-AppUpdateForced", "-AppUpdateInvalidURL"])
         let panel = app.otherElements["app-update-panel"]
         XCTAssertTrue(panel.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["版本升级提醒"].exists)
+        XCTAssertTrue(app.staticTexts["版本升級提醒"].exists)
         XCTAssertEqual(app.staticTexts["app-update-version"].label, "新版本 1.1.6")
         XCTAssertFalse(app.buttons["app-update-later"].exists)
         let confirm = app.buttons["app-update-confirm"]
@@ -53,7 +53,7 @@ final class AppUpdateUITests: XCTestCase {
         XCTAssertFalse(app.tabBars.buttons["我的"].isHittable)
 
         confirm.tap()
-        XCTAssertTrue(app.staticTexts["更新地址暂不可用，请稍后重试。"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["更新連結暫時無法使用，請稍後重試。"].waitForExistence(timeout: 5))
         XCTAssertTrue(panel.exists)
         XCTAssertTrue(confirm.isEnabled)
         XCTAssertFalse(app.buttons["app-update-later"].exists)
@@ -78,7 +78,7 @@ final class AppUpdateUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         app.activate()
         XCTAssertTrue(app.otherElements["app-update-panel"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["版本升级提醒"].exists)
+        XCTAssertTrue(app.staticTexts["版本升級提醒"].exists)
         XCTAssertTrue(app.buttons["app-update-confirm"].isHittable,
                       "强制更新应覆盖已经打开的充值弹窗")
         XCTAssertFalse(app.buttons["app-update-later"].exists)
@@ -89,7 +89,7 @@ final class AppUpdateUITests: XCTestCase {
     @MainActor
     func testForcedUpdateAppearsAboveFullScreenPlayback() {
         let app = launch(arguments: ["-AppUpdateForced", "-AppUpdateAfterForeground", "-PlayerUnlockUITestFixture"])
-        let banner = app.buttons["推荐剧集，推荐测试"]
+        let banner = app.buttons["推薦劇集，推荐测试"]
         XCTAssertTrue(banner.waitForExistence(timeout: 10))
         banner.tap()
         let back = app.buttons["player-back"]
@@ -107,7 +107,7 @@ final class AppUpdateUITests: XCTestCase {
     @MainActor
     private func launch(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-AppUpdateUITestFixture"] + arguments
+        app.launchArguments = ["-profile.language.v1", "zh-Hant", "-AppUpdateUITestFixture"] + arguments
         app.launch()
         return app
     }

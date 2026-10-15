@@ -29,7 +29,7 @@ final class MembershipTests: XCTestCase {
         let plans = products.map(\.plan)
         XCTAssertEqual(plans.map(\.price), [(19.99).formatted(.currency(code: "CNY")),
                                             (8.99).formatted(.currency(code: "USD"))])
-        XCTAssertEqual(plans.map(\.period), ["每1周", ""])
+        XCTAssertEqual(plans.map(\.period), [L10n.tr("每1周"), ""])
         XCTAssertEqual(plans.last?.coinAmount, 600)
         XCTAssertEqual(plans.last?.giftCoinAmount, 100)
         XCTAssertTrue(plans.allSatisfy { !$0.isAvailableForPurchase })
@@ -39,9 +39,9 @@ final class MembershipTests: XCTestCase {
         for amount: Double? in [nil, -1, .infinity, -Double.infinity, .nan] {
             let plan = StoreProductConfiguration(id: "year", category: .yearly,
                 priceAmount: amount, priceCurrency: "USD").plan
-            XCTAssertEqual(plan.price, "价格待更新")
-            XCTAssertEqual(plan.title, "年会员")
-            XCTAssertEqual(plan.period, "每1年")
+            XCTAssertEqual(plan.price, L10n.tr("价格待更新"))
+            XCTAssertEqual(plan.title, L10n.tr("年会员"))
+            XCTAssertEqual(plan.period, L10n.tr("每1年"))
             XCTAssertFalse(plan.isAvailableForPurchase)
         }
         for currency: String? in [nil, "", "  "] {
@@ -221,7 +221,7 @@ final class MembershipTests: XCTestCase {
         let store = MembershipStore(service: service)
         await store.purchase(.init(id: "coin", title: "金币", price: "$4.99", period: "", category: .coins))
         XCTAssertFalse(store.isActive)
-        XCTAssertEqual(store.message, "充值成功，金币已到账")
+        XCTAssertEqual(store.message, L10n.tr("充值成功，金币已到账"))
     }
 
     private var catalog: String { #"{"code":200,"data":{"coinProducts":[{"channelProductId":"coin","coinAmount":500}]}}"# }

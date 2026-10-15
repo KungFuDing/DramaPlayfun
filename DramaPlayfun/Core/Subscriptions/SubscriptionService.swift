@@ -4,7 +4,14 @@ enum MembershipCategory: String, CaseIterable, Identifiable {
     case weekly, yearly, coins
     var id: Self { self }
     var title: String {
-        switch self { case .weekly: "周会员"; case .yearly: "年会员"; case .coins: "充值" }
+        switch self { case .weekly: L10n.tr("周会员"); case .yearly: L10n.tr("年会员"); case .coins: L10n.tr("充值") }
+    }
+    var renewalPeriod: String {
+        switch self {
+        case .weekly: L10n.tr("每1周")
+        case .yearly: L10n.tr("每1年")
+        case .coins: ""
+        }
     }
     var assetPrefix: String { self == .weekly ? "MembershipWeekly" : "MembershipYearly" }
 }
@@ -18,6 +25,8 @@ struct MembershipPlan: Identifiable, Equatable {
     var coinAmount: Int64 = 0
     var giftCoinAmount: Int64 = 0
     var isAvailableForPurchase = true
+    var usesPricePlaceholder = false
+    var displayPrice: String { usesPricePlaceholder ? L10n.tr("价格待更新") : price }
 }
 
 struct MembershipEntitlement: Equatable {

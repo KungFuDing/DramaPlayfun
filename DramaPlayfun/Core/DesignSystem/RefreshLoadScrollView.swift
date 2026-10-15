@@ -125,9 +125,9 @@ struct RefreshLoadScrollView<Content: View>: View {
                 }
                 .frame(width: 22, height: 22)
             }
-            Text(refreshPhase == .refreshing ? "正在刷新…" :
-                 refreshPhase == .finished ? "刷新完成" :
-                 progress >= 1 ? "松开立即刷新" : "继续下拉刷新 \(Int(progress * 100))%")
+            Text(refreshPhase == .refreshing ? L10n.tr("正在刷新…") :
+                 refreshPhase == .finished ? L10n.tr("刷新完成") :
+                 progress >= 1 ? L10n.tr("松开立即刷新") : L10n.tr("继续下拉刷新 %d%%", Int(progress * 100)))
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white)
         }
@@ -136,9 +136,9 @@ struct RefreshLoadScrollView<Content: View>: View {
         .background(.black.opacity(0.86), in: Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("refresh-status")
-        .accessibilityLabel(refreshPhase == .refreshing ? "正在刷新" :
-                            refreshPhase == .finished ? "刷新完成" :
-                            progress >= 1 ? "松开立即刷新" : "继续下拉刷新")
+        .accessibilityLabel(refreshPhase == .refreshing ? L10n.tr("正在刷新") :
+                            refreshPhase == .finished ? L10n.tr("刷新完成") :
+                            progress >= 1 ? L10n.tr("松开立即刷新") : L10n.tr("继续下拉刷新"))
         .accessibilityValue(refreshPhase == .idle ? "\(Int(progress * 100))%" : "")
     }
 
@@ -158,7 +158,7 @@ struct RefreshLoadScrollView<Content: View>: View {
 
     @ViewBuilder private var footer: some View {
         if isLoadingMore || isRequestingLoad {
-            ProgressView("加载更多…")
+            ProgressView(L10n.tr("加载更多…"))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
         } else if let loadError {
@@ -166,7 +166,7 @@ struct RefreshLoadScrollView<Content: View>: View {
                 requestLoadMore(allowRetry: true)
             } label: {
                 VStack(spacing: 4) {
-                    Text("加载失败，点击重试")
+                    Text(L10n.tr("加载失败，点击重试"))
                     Text(loadError).font(.caption).lineLimit(2)
                 }
                 .frame(maxWidth: .infinity)

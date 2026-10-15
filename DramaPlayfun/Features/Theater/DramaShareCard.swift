@@ -39,7 +39,7 @@ struct DramaShareCard: View {
                     .frame(width: 125 * unit, height: 125 * unit)
                     .background(.white, in: RoundedRectangle(cornerRadius: 12 * unit))
                     .overlay(RoundedRectangle(cornerRadius: 12 * unit).stroke(.orange, lineWidth: unit))
-                    .accessibilityLabel("短剧分享二维码")
+                    .accessibilityLabel(L10n.tr("短剧分享二维码"))
             }
             .frame(height: 130 * unit)
             .offset(x: 24 * unit, y: 724 * unit)

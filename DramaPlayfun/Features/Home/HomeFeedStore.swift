@@ -11,6 +11,13 @@ struct HomeShelf: Identifiable {
     let id: String
     let title: String
     let dramas: [Drama]
+    var displayTitle: String {
+        switch id {
+        case "demo-latest": L10n.tr("最新发布")
+        case "demo-exclusive": L10n.tr("独家播出")
+        default: title
+        }
+    }
 }
 
 struct HomeMoment: Identifiable {
@@ -19,7 +26,7 @@ struct HomeMoment: Identifiable {
     let lastEpisodeNumber: Int?
     var id: String { drama.id }
     var subtitle: String {
-        if let lastEpisodeNumber, lastEpisodeNumber > 0 { return "看到第\(lastEpisodeNumber)集" }
+        if let lastEpisodeNumber, lastEpisodeNumber > 0 { return L10n.tr("看到第%d集", lastEpisodeNumber) }
         return drama.displayTags
     }
 }
@@ -28,7 +35,11 @@ struct HomeMoment: Identifiable {
 final class HomeFeedStore {
     private(set) var moments: [HomeMoment] = []
     private(set) var isRefreshingMoments = false
-    private(set) var momentsErrorMessage: String?
+    private var momentsError: Error?
+    var momentsErrorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return momentsError?.appLocalizedDescription
+    }
     private var momentsGeneration = 0
     private(set) var banners: [HomeBanner] = []
     private(set) var shelves: [HomeShelf] = []
@@ -36,8 +47,16 @@ final class HomeFeedStore {
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
     private(set) var hasMoreHot = false
-    private(set) var homeErrorMessage: String?
-    private(set) var hotErrorMessage: String?
+    private var homeError: Error?
+    var homeErrorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return homeError?.appLocalizedDescription
+    }
+    private var hotError: Error?
+    var hotErrorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return hotError?.appLocalizedDescription
+    }
     private(set) var hasLoaded = false
     private var hotPage = 0
     private var requestGeneration = 0
@@ -56,12 +75,12 @@ final class HomeFeedStore {
         requestGeneration += 1
         momentsGeneration += 1
         let currentMoments = momentsGeneration
-        momentsErrorMessage = nil
+        momentsError = nil
         isLoadingMore = false
         hasMoreHot = false
         isLoading = true
-        homeErrorMessage = nil
-        hotErrorMessage = nil
+        homeError = nil
+        hotError = nil
         defer { isLoading = false }
         do {
             let home = try await network.request(AppAPI.v1TheaterHome, body: .init(), unwrapEnvelope: true)
@@ -93,7 +112,7 @@ final class HomeFeedStore {
         } catch is CancellationError {
             return
         } catch {
-            homeErrorMessage = error.localizedDescription
+            homeError = error
         }
         hasLoaded = true
         hotDramas = []
@@ -107,7 +126,7 @@ final class HomeFeedStore {
         momentsGeneration += 1
         let current = momentsGeneration
         isRefreshingMoments = true
-        momentsErrorMessage = nil
+        momentsError = nil
         defer { isRefreshingMoments = false }
         do {
             let result = try await network.request(AppAPI.v1ClientDramaRandomList,
@@ -117,7 +136,7 @@ final class HomeFeedStore {
             moments = (result.list ?? []).prefix(3).compactMap(Self.moment)
         } catch is CancellationError {
         } catch {
-            if current == momentsGeneration { momentsErrorMessage = error.localizedDescription }
+            if current == momentsGeneration { momentsError = error }
         }
     }
 
@@ -138,10 +157,10 @@ final class HomeFeedStore {
             hotDramas += (result.list ?? []).compactMap(Self.drama).filter { !existingIDs.contains($0.id) }
             hotPage = result.page ?? nextPage
             hasMoreHot = result.hasMore ?? false
-            hotErrorMessage = nil
+            hotError = nil
         } catch is CancellationError {
         } catch {
-            if generation == requestGeneration { hotErrorMessage = error.localizedDescription }
+            if generation == requestGeneration { hotError = error }
         }
     }
 

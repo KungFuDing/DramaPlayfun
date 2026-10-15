@@ -20,11 +20,11 @@ struct TheaterView: View {
                 } else if app.theaterFeed.items.isEmpty {
                     VStack(spacing: 20) {
                         if app.theaterFeed.isLoading || !app.theaterFeed.hasLoaded {
-                            ProgressView("正在加载剧场…")
+                            ProgressView(L10n.tr("正在加载剧场…"))
                         } else {
-                            ContentUnavailableView("暂无剧集", systemImage: "play.rectangle",
-                                description: Text("精彩故事即将上线"))
-                            Button("重新加载") { Task { await app.theaterFeed.reload() } }
+                            ContentUnavailableView(L10n.tr("theater.no_dramas"), systemImage: "play.rectangle",
+                                description: Text(L10n.tr("精彩故事即将上线")))
+                            Button(L10n.tr("重新加载")) { Task { await app.theaterFeed.reload() } }
                         }
                     }
                 } else {
@@ -57,7 +57,7 @@ struct TheaterView: View {
                     .accessibilityIdentifier("theater-feed")
                     .overlay(alignment: .bottom) {
                         if let error = app.theaterFeed.loadMoreErrorMessage {
-                            Button("加载更多失败，点击重试：\(error)") {
+                            Button(L10n.tr("加载更多失败，点击重试：%@", error)) {
                                 Task { await app.theaterFeed.loadMore() }
                             }
                             .font(.caption)
@@ -129,9 +129,9 @@ struct TheaterView: View {
         .fullScreenCover(item: $shareItem) { item in
             DramaShareView(item: item)
         }
-        .alert("签到失败", isPresented: Binding(get: { checkInError != nil },
+        .alert(L10n.tr("签到失败"), isPresented: Binding(get: { checkInError != nil },
             set: { if !$0 { checkInError = nil } })) {
-            Button("知道了", role: .cancel) { checkInError = nil }
+            Button(L10n.tr("知道了"), role: .cancel) { checkInError = nil }
         } message: { Text(checkInError ?? "") }
     }
 
@@ -142,9 +142,9 @@ struct TheaterView: View {
                 .frame(width: 24, height: 24)
                 .frame(width: 34)
             HStack(spacing: 6) {
-                Text("今日签到").foregroundStyle(.white)
+                Text(L10n.tr("今日签到")).foregroundStyle(.white)
                 if let coins = app.welfare.signPopupRewardCoin {
-                    Text("+\(coins)金币").foregroundStyle(Color(red: 1, green: 194 / 255, blue: 56 / 255))
+                    Text(L10n.tr("+%lld金币", coins)).foregroundStyle(Color(red: 1, green: 194 / 255, blue: 56 / 255))
                 }
             }
             .font(.system(size: 12))
@@ -157,7 +157,7 @@ struct TheaterView: View {
                     checkInError = app.welfare.error
                 }
             } label: {
-                Text("领取")
+                Text(L10n.tr("领取"))
                     .font(.system(size: 12)).foregroundStyle(Color(red: 0.2, green: 0.16, blue: 0.08))
                     .fixedSize()
                     .frame(width: 48, height: 29)
@@ -168,7 +168,8 @@ struct TheaterView: View {
             .accessibilityIdentifier("theater-check-in-receive")
             .padding(.trailing, 4)
         }
-        .frame(width: 210, height: 37)
+        .frame(minWidth: 210, minHeight: 37)
+        .fixedSize(horizontal: true, vertical: false)
         .background {
             LinearGradient(colors: [Color(red: 146 / 255, green: 106 / 255, blue: 39 / 255),
                                     Color(red: 84 / 255, green: 46 / 255, blue: 33 / 255)],
@@ -299,9 +300,9 @@ struct TheaterVideoPage: View {
         .foregroundStyle(.white)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(isDetail ? "player-episode-\(item.firstEpisode?.number ?? 1)" : "theater-video-\(drama.id)")
-        .alert("操作失败", isPresented: Binding(get: { interactionError != nil },
+        .alert(L10n.tr("操作失败"), isPresented: Binding(get: { interactionError != nil },
             set: { if !$0 { interactionError = nil } })) {
-            Button("知道了", role: .cancel) { interactionError = nil }
+            Button(L10n.tr("知道了"), role: .cancel) { interactionError = nil }
         } message: { Text(interactionError ?? "") }
     }
 
@@ -311,8 +312,8 @@ struct TheaterVideoPage: View {
         } else if case .unavailable(let error) = playback.states[item.id] {
             VStack(spacing: 12) {
                 Image(systemName: "play.slash").font(.largeTitle)
-                Text(error).font(.subheadline).multilineTextAlignment(.center)
-                Button("重试", action: onRetry).buttonStyle(.bordered)
+                Text(playback.errorMessage(for: item.id) ?? error).font(.subheadline).multilineTextAlignment(.center)
+                Button(L10n.tr("重试"), action: onRetry).buttonStyle(.bordered)
             }
             .padding(24).background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal, 48)
@@ -328,7 +329,7 @@ struct TheaterVideoPage: View {
                 } else {
                     Image(systemName: "play.fill").font(.system(size: 56)).foregroundStyle(.white.opacity(0.85))
                 }
-            }.accessibilityLabel("播放视频")
+            }.accessibilityLabel(L10n.tr("播放视频"))
         }
     }
 
@@ -340,26 +341,26 @@ struct TheaterVideoPage: View {
                     .contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityIdentifier("drama-detail-title-\(drama.id)")
             HStack(spacing: 6) {
-                tag("共\(drama.episodeCount)集")
-                tag("热度\(drama.heat.formatted())")
-                tag(drama.tagNames.first ?? drama.category.rawValue)
+                tag(L10n.tr("共%d集", drama.episodeCount))
+                tag(L10n.tr("热度%@", drama.heat.formatted()))
+                tag(drama.tagNames.first ?? drama.category.title)
             }
             if !isDetail {
                 Button(action: onEpisodes) {
                     HStack(spacing: 6) {
                         Image("TheaterEpisodes").renderingMode(.original)
                             .resizable().scaledToFit().frame(width: 20, height: 20)
-                        Text("更多剧集(第1集/共\(drama.episodeCount)集)").lineLimit(1).minimumScaleFactor(0.75)
+                        Text(L10n.tr("更多剧集(第1集/共%d集)", drama.episodeCount)).lineLimit(1).minimumScaleFactor(0.75)
                         Image("TheaterChevron").renderingMode(.original)
                             .resizable().scaledToFit().frame(width: 16, height: 16)
                     }.font(.subheadline).padding(10)
                         .background(.white.opacity(0.2), in: RoundedRectangle(cornerRadius: 6))
-                }.accessibilityLabel("更多剧集，\(drama.title)")
+                }.accessibilityLabel(L10n.tr("更多剧集，%@", drama.title))
             }
             HStack(alignment: .bottom, spacing: 8) {
                 if isExpanded {
                     ScrollView {
-                        Text("第\(item.firstEpisode?.number ?? 1)集 | \(drama.summary)")
+                        Text(L10n.tr("第%d集 | %@", item.firstEpisode?.number ?? 1, drama.summary))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
@@ -370,10 +371,10 @@ struct TheaterVideoPage: View {
                     .frame(height: min(max(summaryHeight, 20), 140))
                     .accessibilityIdentifier("theater-summary-scroll")
                 } else {
-                    Text("第\(item.firstEpisode?.number ?? 1)集 | \(drama.summary)").lineLimit(1)
+                    Text(L10n.tr("第%d集 | %@", item.firstEpisode?.number ?? 1, drama.summary)).lineLimit(1)
                         .accessibilityIdentifier("theater-summary-text")
                 }
-                Button(isExpanded ? "收起" : "展开") { isExpanded.toggle() }
+                Button(isExpanded ? L10n.tr("收起") : L10n.tr("展开")) { isExpanded.toggle() }
                     .fixedSize().foregroundStyle(.white)
             }.font(.subheadline).foregroundStyle(.white.opacity(0.7))
         }
@@ -393,13 +394,13 @@ struct TheaterVideoPage: View {
                         if let onLike { try await onLike() }
                         else { try await app.theaterFeed.toggleLike(item.id) }
                     }
-                    catch { interactionError = error.localizedDescription }
+                    catch { interactionError = error.appLocalizedDescription }
                 }
             } label: {
                 actionLabel(isLiked ? "TheaterLikeSelected" : "TheaterLike",
-                            title: isDetail ? item.firstEpisodeLikeCount.formatted() : (isLiked ? "已赞" : "点赞"))
+                            title: isDetail ? item.firstEpisodeLikeCount.formatted() : (isLiked ? L10n.tr("已赞") : L10n.tr("action.like")))
             }.disabled(app.theaterFeed.likingIDs.contains(item.id))
-                .accessibilityLabel(isLiked ? "取消点赞" : "点赞")
+                .accessibilityLabel(isLiked ? L10n.tr("取消点赞") : L10n.tr("action.like"))
                 .accessibilityIdentifier("theater-like-\(item.id)")
             Button {
                 Task {
@@ -407,16 +408,16 @@ struct TheaterVideoPage: View {
                         if let onFavorite { try await onFavorite() }
                         else { try await app.theaterFeed.toggleFavorite(item.id, library: app.library) }
                     }
-                    catch { interactionError = error.localizedDescription }
+                    catch { interactionError = error.appLocalizedDescription }
                 }
             } label: {
                 actionLabel(item.isFavorited ? "TheaterFavoriteSelected" : "TheaterFavorite",
-                            title: isDetail ? (item.favoriteCount ?? drama.heat).formatted() : (item.isFavorited ? "已收藏" : "收藏"))
+                            title: isDetail ? (item.favoriteCount ?? drama.heat).formatted() : (item.isFavorited ? L10n.tr("已收藏") : L10n.tr("action.favorite")))
             }.disabled(app.theaterFeed.favoritingIDs.contains(item.id))
-                .accessibilityLabel(item.isFavorited ? "取消收藏" : "收藏")
+                .accessibilityLabel(item.isFavorited ? L10n.tr("取消收藏") : L10n.tr("action.favorite"))
                 .accessibilityIdentifier("theater-favorite-\(item.id)")
             Button(action: onShare) {
-                actionLabel("TheaterShare", title: "分享")
+                actionLabel("TheaterShare", title: L10n.tr("分享"))
             }.accessibilityIdentifier("theater-share-\(item.id)")
         }
         .frame(width: 48)

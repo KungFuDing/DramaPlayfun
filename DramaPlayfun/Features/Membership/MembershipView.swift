@@ -39,8 +39,8 @@ struct MembershipView: View {
         .task { await store.loadPlans() }
         .task { await app.profile.loadSettings() }
         .manageSubscriptionsSheet(isPresented: $managingSubscription)
-        .alert("提示", isPresented: Binding(get: { documentMessage != nil }, set: { if !$0 { documentMessage = nil } })) {
-            Button("确定", role: .cancel) { documentMessage = nil }
+        .alert(L10n.tr("提示"), isPresented: Binding(get: { documentMessage != nil }, set: { if !$0 { documentMessage = nil } })) {
+            Button(L10n.tr("确定"), role: .cancel) { documentMessage = nil }
         } message: { Text(documentMessage ?? "") }
     }
 
@@ -54,7 +54,7 @@ struct MembershipView: View {
                     MembershipHero(category: category, entitlement: store.entitlement)
                         .padding(.top, -10)
                     MembershipBenefits(category: category).padding(.top, 10)
-                    Text("加入会员").font(.system(size: 16, weight: .semibold))
+                    Text(L10n.tr("加入会员")).font(.system(size: 16, weight: .semibold))
                         .padding(.top, 24).padding(.bottom, 11)
                     if let plan = plans.first(where: \.isAvailableForPurchase) ?? plans.first {
                         MembershipOffer(plan: plan, active: store.entitlement.isActive(for: category),
@@ -69,7 +69,7 @@ struct MembershipView: View {
                         .accessibilityIdentifier("membership-message")
                 }
                 if !store.isLoading, plans.contains(where: { !$0.isAvailableForPurchase }) {
-                    Button("重新加载商品") { Task { await store.loadPlans() } }
+                    Button(L10n.tr("重新加载商品")) { Task { await store.loadPlans() } }
                         .font(.system(size: 13)).foregroundStyle(Theme.accent).padding(.top, 14)
                         .accessibilityIdentifier("membership-reload-\(category.rawValue)")
                 }
@@ -98,10 +98,10 @@ struct MembershipView: View {
 
     private func unavailable(for category: MembershipCategory) -> some View {
         VStack(spacing: 10) {
-            if store.isLoading { ProgressView("正在加载商品…") }
+            if store.isLoading { ProgressView(L10n.tr("正在加载商品…")) }
             else {
-                Text(category == .coins ? "充值商品暂未开放" : "订阅方案暂未开放")
-                Button("重新加载") { Task { await store.loadPlans() } }.foregroundStyle(Theme.accent)
+                Text(category == .coins ? L10n.tr("充值商品暂未开放") : L10n.tr("订阅方案暂未开放"))
+                Button(L10n.tr("重新加载")) { Task { await store.loadPlans() } }.foregroundStyle(Theme.accent)
             }
         }.font(.system(size: 14)).frame(maxWidth: .infinity).frame(minHeight: 94)
             .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
@@ -124,7 +124,7 @@ struct MembershipView: View {
             } label: {
                 HStack(spacing: 8) {
                     if store.isPurchasing { ProgressView().tint(Color(red: 0.18, green: 0.12, blue: 0.02)) }
-                    Text(selectedCoin.map { "确认购买·\($0.price)" } ?? "暂无可购买商品")
+                    Text(selectedCoin.map { L10n.tr("确认购买·%@", $0.displayPrice) } ?? L10n.tr("暂无可购买商品"))
                         .font(.system(size: 15, weight: .semibold))
                 }.foregroundStyle(Color(red: 0.18, green: 0.12, blue: 0.02))
                     .frame(maxWidth: .infinity).frame(height: 48)
@@ -139,15 +139,15 @@ struct MembershipView: View {
     private var footer: some View {
         VStack(spacing: 12) {
             HStack(spacing: 8) {
-                Button("隐私政策") { openDocument(app.profile.config.privacyPolicyUrl) }
+                Button(L10n.tr("隐私政策")) { openDocument(app.profile.config.privacyPolicyUrl) }
                 Text("|").foregroundStyle(.white.opacity(0.2))
-                Button("用户协议") { openDocument(app.profile.config.userAgreementUrl) }
+                Button(L10n.tr("用户协议")) { openDocument(app.profile.config.userAgreementUrl) }
                 Text("|").foregroundStyle(.white.opacity(0.2))
-                Button("恢复购买") { Task { await store.restore() } }
+                Button(L10n.tr("恢复购买")) { Task { await store.restore() } }
                     .disabled(store.isPurchasing).accessibilityIdentifier("membership-restore")
             }.font(.system(size: 11)).foregroundStyle(Color(white: 0.78))
             if store.isActive {
-                Button("管理订阅") { managingSubscription = true }
+                Button(L10n.tr("管理订阅")) { managingSubscription = true }
                     .font(.system(size: 11)).foregroundStyle(Color(white: 0.6))
             }
         }.frame(maxWidth: .infinity)
@@ -155,7 +155,7 @@ struct MembershipView: View {
 
     private func openDocument(_ string: String?) {
         guard let string, let url = URL(string: string), ["https", "http"].contains(url.scheme?.lowercased() ?? "") else {
-            documentMessage = "文档暂时无法加载，请稍后重试。"
+            documentMessage = L10n.tr("文档暂时无法加载，请稍后重试。")
             return
         }
         openURL(url)
@@ -194,10 +194,10 @@ private struct MembershipHero: View {
                         .foregroundStyle(LinearGradient(colors: category == .weekly ?
                             [Color(red: 0.87, green: 0.92, blue: 1), Color(red: 0.52, green: 0.63, blue: 0.83)] :
                             [Color(red: 1, green: 0.96, blue: 0.72), Color(red: 1, green: 0.67, blue: 0)], startPoint: .top, endPoint: .bottom))
-                    Text(active ? "已开通,可享所有权益" : "开通会员立享所有权益")
+                    Text(active ? L10n.tr("已开通,可享所有权益") : L10n.tr("开通会员立享所有权益"))
                         .font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
                     if active, let expiry = entitlement.expirationDate {
-                        Text("会员有效期至 \(expiry.formatted(.iso8601.year().month().day().dateSeparator(.dash)))")
+                        Text(L10n.tr("会员有效期至 %@", expiry.formatted(.iso8601.year().month().day().dateSeparator(.dash))))
                             .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).padding(.top, 16)
                             .accessibilityIdentifier("membership-expiry")
                     }
@@ -209,11 +209,11 @@ private struct MembershipHero: View {
 
 private struct MembershipBenefits: View {
     let category: MembershipCategory
-    private let items = [("HD", "高清1080P", "享高清画面"), ("Unlimited", "无限制观看", "随意观看任意剧集"),
-                         ("Exclusive", "会员专享剧", "享高质量短剧"), ("Cache", "加速缓存", "流畅看剧更方便")]
+    private var items: [(String, String, String)] { [("HD", L10n.tr("高清1080P"), L10n.tr("享高清画面")), ("Unlimited", L10n.tr("无限制观看"), L10n.tr("随意观看任意剧集")),
+                         ("Exclusive", L10n.tr("会员专享剧"), L10n.tr("享高质量短剧")), ("Cache", L10n.tr("加速缓存"), L10n.tr("流畅看剧更方便"))] }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("会员权益").font(.system(size: 16, weight: .semibold))
+            Text(L10n.tr("会员权益")).font(.system(size: 16, weight: .semibold))
             LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], spacing: 10) {
                 ForEach(items, id: \.0) { item in
                     HStack(spacing: 12) {
@@ -236,18 +236,18 @@ private struct MembershipOffer: View {
     let purchase: () -> Void
     var body: some View {
         HStack(spacing: 14) {
-            Text(plan.price).font(.system(size: 23, weight: .medium))
+            Text(plan.displayPrice).font(.system(size: plan.usesPricePlaceholder ? 13 : 23, weight: .medium))
                 .foregroundStyle(plan.category == .weekly ? Color(red: 0.85, green: 0.9, blue: 0.97) : Color(red: 0.95, green: 0.89, blue: 0.77))
                 .lineLimit(1).minimumScaleFactor(0.55).frame(maxWidth: 84)
             VStack(alignment: .leading, spacing: 5) {
                 Text(plan.category.title).font(.system(size: 16, weight: .semibold))
-                Text("\(plan.period)以\(plan.price)自动续费，可随时取消")
+                Text(L10n.tr("%@以%@自动续费，可随时取消", plan.category.renewalPeriod, plan.displayPrice))
                     .font(.system(size: 12)).foregroundStyle(.white.opacity(0.4)).fixedSize(horizontal: false, vertical: true)
             }.frame(maxWidth: .infinity, alignment: .leading)
             Button(action: purchase) {
                 Group {
                     if busy { ProgressView().tint(.white) }
-                    else { Text(active ? "已开通" : "立即开通").font(.system(size: 14, weight: .medium)) }
+                    else { Text(active ? L10n.tr("已开通") : L10n.tr("立即开通")).font(.system(size: 14, weight: .medium)) }
                 }.foregroundStyle(active ? Color.white.opacity(0.55) : Color(red: 0.06, green: 0.12, blue: 0.20))
                     .frame(width: 80, height: 32)
                     .background {
@@ -274,14 +274,16 @@ private struct MembershipCoinTile: View {
                     Image("WelfareCoin").resizable().frame(width: 21, height: 21)
                     Text("+" + String(plan.coinAmount)).font(.system(size: 18, weight: .medium)).lineLimit(1).minimumScaleFactor(0.6)
                 }
-                Text(plan.price).font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
+                Text(plan.displayPrice).font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1).minimumScaleFactor(0.75)
                     .padding(.horizontal, 5).padding(.vertical, 1).background(.white.opacity(0.1), in: Capsule())
             }.frame(maxWidth: .infinity).frame(height: 110)
                 .background(selected ? Theme.accent.opacity(0.08) : .white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? Theme.accent : .white.opacity(0.22), lineWidth: 1))
                 .overlay(alignment: .topLeading) {
                     if plan.giftCoinAmount > 0 {
-                        Text("赠\(plan.giftCoinAmount)金币").font(.system(size: 11)).foregroundStyle(Color(white: 0.15))
+                        Text(L10n.tr("赠%lld金币", plan.giftCoinAmount)).font(.system(size: 11)).foregroundStyle(Color(white: 0.15))
+                            .lineLimit(1).minimumScaleFactor(0.7)
                             .padding(.horizontal, 6).frame(height: 19)
                             .background(Image("MembershipPromotion").resizable())
                             .offset(y: -6)
@@ -296,17 +298,17 @@ private struct MembershipTerms: View {
     let isRecharge: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(isRecharge ? "充值说明" : "订阅说明").font(.system(size: 14, weight: .bold))
+            Text(isRecharge ? L10n.tr("充值说明") : L10n.tr("订阅说明")).font(.system(size: 14, weight: .bold))
             VStack(alignment: .leading, spacing: 7) {
                 if isRecharge {
-                    Text("**1、金币用途**：充值获得的虚拟“金币”仅限在本 App 内解锁付费短剧剧集使用，无现金价值，**不支持提现、转让、转赠或在非本 App 渠道交易**。")
-                    Text("**2、到账时效**：金币充值成功后通常立即到账。如遇网络延迟，请尝试重新启动 App 或在个人中心联系客服。")
-                    Text("**3、退款政策**：鉴于虚拟数字化商品的特殊属性，**金币充值一旦成功即代表服务已完成，除法律明确规定外，不予退款**。")
-                    Text("4、**有效期限制**：直接充值购买的金币**永久有效**；通过每日签到、任务活动等方式获赠的“赠送金币/体验金币”可能存在有效期，过期将自动失效，请优先使用。")
+                    Text(LocalizedStringKey(L10n.tr("**1、金币用途**：充值获得的虚拟“金币”仅限在本 App 内解锁付费短剧剧集使用，无现金价值，**不支持提现、转让、转赠或在非本 App 渠道交易**。")))
+                    Text(LocalizedStringKey(L10n.tr("**2、到账时效**：金币充值成功后通常立即到账。如遇网络延迟，请尝试重新启动 App 或在个人中心联系客服。")))
+                    Text(LocalizedStringKey(L10n.tr("**3、退款政策**：鉴于虚拟数字化商品的特殊属性，**金币充值一旦成功即代表服务已完成，除法律明确规定外，不予退款**。")))
+                    Text(LocalizedStringKey(L10n.tr("4、**有效期限制**：直接充值购买的金币**永久有效**；通过每日签到、任务活动等方式获赠的“赠送金币/体验金币”可能存在有效期，过期将自动失效，请优先使用。")))
                 } else {
-                    Text("**1、畅享剧集**：订阅生效后，所有 **[DramaPlayfun]** 系列节目均可畅享观看，有效期内不限观看次数。")
-                    Text("**2、自动续费**：本订阅采用自动续费方式。若未取消，系统将在当前订阅到期前 **24 小时内**，自动从您的绑定账户扣取下一期费用，续费价格与当期价格一致。")
-                    Text("**3、随时管理**：您可随时管理或取消自动续订。如不再续订，请**至少提前 24 小时**操作：**iOS 路径**：通过“设置 > [您的 Apple ID] > 订阅 > [DramaPlayfun]”关闭。")
+                    Text(LocalizedStringKey(L10n.tr("**1、畅享剧集**：订阅生效后，所有 **[DramaPlayfun]** 系列节目均可畅享观看，有效期内不限观看次数。")))
+                    Text(LocalizedStringKey(L10n.tr("**2、自动续费**：本订阅采用自动续费方式。若未取消，系统将在当前订阅到期前 **24 小时内**，自动从您的绑定账户扣取下一期费用，续费价格与当期价格一致。")))
+                    Text(LocalizedStringKey(L10n.tr("**3、随时管理**：您可随时管理或取消自动续订。如不再续订，请**至少提前 24 小时**操作：**iOS 路径**：通过“设置 > [您的 Apple ID] > 订阅 > [DramaPlayfun]”关闭。")))
                 }
             }.font(.system(size: 13)).lineSpacing(7).fixedSize(horizontal: false, vertical: true)
         }.foregroundStyle(Color(white: 0.46)).frame(maxWidth: .infinity, alignment: .leading)

@@ -13,17 +13,18 @@ struct StoreProductConfiguration {
 
     var plan: MembershipPlan {
         let period: String = switch category {
-        case .weekly: "每1周"
-        case .yearly: "每1年"
+        case .weekly: L10n.text("每1周")
+        case .yearly: L10n.text("每1年")
         case .coins: ""
         }
         return MembershipPlan(id: id, title: title ?? category.title, price: displayPrice, period: period,
             category: category, coinAmount: coinAmount, giftCoinAmount: giftCoinAmount,
-            isAvailableForPurchase: false)
+            isAvailableForPurchase: false,
+            usesPricePlaceholder: priceAmount.map { !$0.isFinite || $0 < 0 } ?? true)
     }
 
     private var displayPrice: String {
-        guard let priceAmount, priceAmount.isFinite, priceAmount >= 0 else { return "价格待更新" }
+        guard let priceAmount, priceAmount.isFinite, priceAmount >= 0 else { return L10n.text("价格待更新") }
         guard let currency = priceCurrency?.trimmingCharacters(in: .whitespacesAndNewlines),
               !currency.isEmpty else { return priceAmount.formatted(.number) }
         return priceAmount.formatted(.currency(code: currency.uppercased()))
@@ -125,15 +126,15 @@ final class StorePurchaseBackend {
     }
 }
 
-enum StorePurchaseError: LocalizedError {
+enum StorePurchaseError: AppLocalizedError {
     case productUnavailable, unverified, unknown, awaitingGrant, orderUnavailable
     var errorDescription: String? {
         switch self {
-        case .productUnavailable: "该商品暂时无法购买，请稍后重试。"
-        case .orderUnavailable: "订单创建未完成，请稍后重试。"
-        case .unverified: "无法验证本次交易，请稍后恢复购买。"
-        case .unknown: "购买未完成，请稍后重试。"
-        case .awaitingGrant: "支付结果正在同步，权益尚未确认到账。请稍后点恢复购买重试。"
+        case .productUnavailable: L10n.text("该商品暂时无法购买，请稍后重试。")
+        case .orderUnavailable: L10n.text("订单创建未完成，请稍后重试。")
+        case .unverified: L10n.text("无法验证本次交易，请稍后恢复购买。")
+        case .unknown: L10n.text("购买未完成，请稍后重试。")
+        case .awaitingGrant: L10n.text("支付结果正在同步，权益尚未确认到账。请稍后点恢复购买重试。")
         }
     }
 }

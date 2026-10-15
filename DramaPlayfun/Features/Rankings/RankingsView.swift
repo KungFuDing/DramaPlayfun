@@ -95,7 +95,7 @@ private struct RankingBottomNavigation: View {
                     VStack(spacing: 4) {
                         Image(tab.iconAsset(isSelected: selected))
                             .resizable().scaledToFit().frame(width: 22, height: 22)
-                        Text(tab.rawValue).font(.system(size: 10))
+                        Text(tab.title).font(.system(size: 10))
                     }
                     .foregroundStyle(selected ? Theme.accent : .white.opacity(0.5))
                     .frame(maxWidth: .infinity)
@@ -124,11 +124,15 @@ private struct RankingHeader: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .offset(y: 12 * scale)
             VStack(spacing: 7 * scale) {
-                Image("RankingTitle")
-                    .resizable().scaledToFit()
-                    .frame(width: 204 * scale, height: 36 * scale)
-                Text("真实榜单   精品热播   神作推荐")
+                Text(L10n.tr("短剧排行榜"))
+                    .font(.system(size: 30 * scale, weight: .heavy))
+                    .foregroundStyle(Color(red: 1, green: 0.90, blue: 0.70))
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                    .frame(width: 230 * scale, height: 36 * scale)
+                Text(L10n.tr("真实榜单   精品热播   神作推荐"))
                     .font(.system(size: 12 * scale))
+                    .lineLimit(1).minimumScaleFactor(0.65)
+                    .frame(width: 230 * scale)
                     .foregroundStyle(Color(red: 0.85, green: 0.83, blue: 0.81))
             }
             .padding(.leading, 20 * scale)
@@ -136,7 +140,7 @@ private struct RankingHeader: View {
         }
         .frame(height: 140 * scale, alignment: .top)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("短剧排行榜，真实榜单、精品热播、神作推荐")
+        .accessibilityLabel(L10n.tr("短剧排行榜，真实榜单、精品热播、神作推荐"))
     }
 }
 
@@ -154,7 +158,7 @@ private struct RankingTabPicker: View {
                         Button {
                             withAnimation(.easeInOut(duration: 0.25)) { selection = tab.id }
                         } label: {
-                            Text(tab.title)
+                            Text(tab.displayTitle)
                                 .font(.system(size: 16 * scale, weight: .bold))
                                 .lineLimit(1).minimumScaleFactor(0.7)
                                 .foregroundStyle(.white.opacity(selected ? 1 : 0.7))
@@ -213,7 +217,7 @@ private struct RankingCategoryPager: View {
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: position, anchor: .leading)
             .accessibilityIdentifier("ranking-category-pages")
-            .accessibilityValue(feed.tabs.first(where: { $0.id == selection })?.title ?? "")
+            .accessibilityValue(feed.tabs.first(where: { $0.id == selection })?.displayTitle ?? "")
         }.frame(height: height)
     }
 }

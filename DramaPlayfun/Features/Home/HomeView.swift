@@ -45,7 +45,7 @@ struct HomeView: View {
                         if let message = app.homeFeed.homeErrorMessage {
                             VStack(spacing: 8) {
                                 Text(message).foregroundStyle(.secondary)
-                                Button("重新加载") { Task { await app.homeFeed.reload() } }
+                                Button(L10n.tr("重新加载")) { Task { await app.homeFeed.reload() } }
                             }
                             .frame(maxWidth: .infinity)
                         }
@@ -132,7 +132,7 @@ private struct HomeCategoryPager: View {
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: pagePosition, anchor: .leading)
             .accessibilityIdentifier("home-category-pages")
-            .accessibilityValue(tabs.first(where: { $0.id == selection })?.title ?? "")
+            .accessibilityValue(tabs.first(where: { $0.id == selection })?.displayTitle ?? "")
         }
         .frame(height: pageHeight)
     }
@@ -149,17 +149,17 @@ private struct HomeCategoryContent: View {
                 if app.homeFeed.hasLoaded {
                     HomeMomentsSection(feed: app.homeFeed)
                     ForEach(app.homeFeed.shelves) { shelf in
-                        HomeDramaShelf(title: shelf.title, dramas: shelf.dramas)
+                        HomeDramaShelf(title: shelf.displayTitle, dramas: shelf.dramas)
                     }
-                    HomeSectionTitle(title: "热播剧集") { router.selectedTab = .rankings }
+                    HomeSectionTitle(title: L10n.tr("热播剧集")) { router.selectedTab = .rankings }
                     if !app.homeFeed.hotDramas.isEmpty {
                         HomeWaterfallGrid(dramas: app.homeFeed.hotDramas)
                     }
                     if app.homeFeed.hotDramas.isEmpty && !app.homeFeed.isLoadingMore && app.homeFeed.hotErrorMessage == nil {
-                        ContentUnavailableView("暂无剧集", systemImage: "film")
+                        ContentUnavailableView(L10n.tr("暂无剧集"), systemImage: "film")
                     }
                 } else if app.homeFeed.isLoading {
-                    ProgressView("加载首页…").frame(maxWidth: .infinity).padding(.vertical, 36)
+                    ProgressView(L10n.tr("加载首页…")).frame(maxWidth: .infinity).padding(.vertical, 36)
                 }
             } else {
                 let state = app.homeCategories.page(for: category.id)
@@ -263,7 +263,7 @@ private struct HomeBannerCarousel: View {
             selectedIndex = 0
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("推荐剧集轮播")
+        .accessibilityLabel(L10n.tr("推荐剧集轮播"))
     }
 
     private var currentBanner: HomeBanner? {
@@ -288,7 +288,7 @@ private struct HomeBannerPage: View {
             .frame(height: 370)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("推荐剧集，\(banner.drama.title)")
+        .accessibilityLabel(L10n.tr("推荐剧集，%@", banner.drama.title))
     }
 }
 
@@ -332,7 +332,7 @@ private struct HomeSearchBar: View {
                 HStack(spacing: 9) {
                     Image("HomeSearch")
                         .resizable().scaledToFit().frame(width: 16, height: 16)
-                    Text("请输入剧名、类型").foregroundStyle(.white.opacity(0.6))
+                    Text(L10n.tr("请输入剧名、类型")).foregroundStyle(.white.opacity(0.6))
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 13).frame(height: 44)
@@ -340,7 +340,7 @@ private struct HomeSearchBar: View {
                 .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.26)))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("搜索剧集")
+            .accessibilityLabel(L10n.tr("搜索剧集"))
             .accessibilityIdentifier("home-search")
 
             Button(action: onGiftTap) {
@@ -352,7 +352,7 @@ private struct HomeSearchBar: View {
                     .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 11))
                     .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.32)))
             }
-            .accessibilityLabel("会员礼遇")
+            .accessibilityLabel(L10n.tr("会员礼遇"))
         }
     }
 }
@@ -374,7 +374,7 @@ struct HomeSectionTitle: View {
             Spacer()
             Button(action: onMore) {
                 HStack(spacing: 6) {
-                    Text("更多")
+                    Text(L10n.tr("更多"))
                     Image("HomeChevron")
                         .renderingMode(.template)
                         .resizable()
@@ -415,7 +415,7 @@ private struct HomeWaterfallGrid: View {
 
     var body: some View {
         if dramas.isEmpty {
-            ContentUnavailableView("暂无剧集", systemImage: "film", description: Text("试试其他分类或关键词"))
+            ContentUnavailableView(L10n.tr("暂无剧集"), systemImage: "film", description: Text(L10n.tr("试试其他分类或关键词")))
                 .frame(maxWidth: .infinity).padding(.vertical, 36)
         } else {
             HStack(alignment: .top, spacing: 14) {
@@ -472,7 +472,7 @@ struct ContinueWatchingSection: View {
         let history = app.library.recentProgress
         if !history.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                HomeSectionTitle(title: "继续观看") { router.selectedTab = .profile }
+                HomeSectionTitle(title: L10n.tr("继续观看")) { router.selectedTab = .profile }
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 14) {
                         ForEach(history, id: \.dramaID) { progress in
@@ -482,7 +482,7 @@ struct ContinueWatchingSection: View {
                                         DramaPoster(drama: drama).frame(width: 74)
                                         VStack(alignment: .leading, spacing: 8) {
                                             Text(drama.title).font(.subheadline.weight(.medium)).lineLimit(2)
-                                            Text("第\(progress.episodeNumber)集 · 剩余\(remainingMinutes(progress))分钟").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                            Text(L10n.tr("第%d集 · 剩余%d分钟", progress.episodeNumber, remainingMinutes(progress))).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                             ProgressView(value: progress.fraction).tint(Theme.accent)
                                         }
                                     }

@@ -27,8 +27,8 @@ final class AppUpdateTests: XCTestCase {
         }
         await store.checkForUpdates()
         let notice = try XCTUnwrap(store.notice)
-        XCTAssertEqual(notice.title, "版本升级提醒")
-        XCTAssertEqual(notice.content, "为了保障服务稳定，请完成本次版本升级后继续使用")
+        XCTAssertEqual(notice.title, L10n.tr("版本升级提醒"))
+        XCTAssertEqual(notice.content, L10n.tr("为了保障服务稳定，请完成本次版本升级后继续使用"))
         XCTAssertTrue(notice.isForced)
         XCTAssertNil(notice.downloadURL)
         store.dismiss()
@@ -49,8 +49,8 @@ final class AppUpdateTests: XCTestCase {
             "{\"code\":200,\"data\":{\"hasUpdate\":true,\"latestVersion\":\"\(version)\",\"forceUpdate\":\(forced)}}"
         }
         await store.checkForUpdates()
-        XCTAssertEqual(store.notice?.title, "新版本已就绪")
-        XCTAssertEqual(store.notice?.content, "本次更新优化了播放体验，并带来更多内容推荐。立即更新，体验更流畅")
+        XCTAssertEqual(store.notice?.title, L10n.tr("新版本已就绪"))
+        XCTAssertEqual(store.notice?.content, L10n.tr("本次更新优化了播放体验，并带来更多内容推荐。立即更新，体验更流畅"))
         store.dismiss()
         XCTAssertNil(store.notice)
         await store.checkForUpdates()

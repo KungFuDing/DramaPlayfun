@@ -22,16 +22,16 @@ extension DramaRepository {
     }
 }
 
-enum CatalogError: LocalizedError {
+enum CatalogError: AppLocalizedError {
     case notFound
     case mediaNotConfigured
     case episodeLocked
 
     var errorDescription: String? {
         switch self {
-        case .notFound: "未找到该剧集，请刷新后重试。"
-        case .mediaNotConfigured: "此剧暂未提供播放资源，请稍后再试。"
-        case .episodeLocked: "本集尚未解锁，请先在选集页解锁。"
+        case .notFound: L10n.text("未找到该剧集，请刷新后重试。")
+        case .mediaNotConfigured: L10n.text("此剧暂未提供播放资源，请稍后再试。")
+        case .episodeLocked: L10n.text("本集尚未解锁，请先在选集页解锁。")
         }
     }
 }

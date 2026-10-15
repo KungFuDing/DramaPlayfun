@@ -1,17 +1,10 @@
 import Foundation
 import Observation
 
-struct ProfileLanguage: Identifiable {
-    let id: String
-    let title: String
-    static let defaults = [ProfileLanguage(id: "zh", title: "中文"),
-        ProfileLanguage(id: "en", title: "English"), ProfileLanguage(id: "ja", title: "にほんご"),
-        ProfileLanguage(id: "ko", title: "한국어")]
-}
-
 enum ProfileCollection: String, CaseIterable, Identifiable {
     case favorites = "收藏", likes = "点赞"
     var id: Self { self }
+    var title: String { L10n.tr(rawValue) }
 }
 
 @MainActor @Observable
@@ -19,17 +12,20 @@ final class ProfileStore {
     private(set) var profile = APIModels.V1GetMyProfileRes()
     private(set) var hasLoadedProfile = false
     private(set) var config = AppConfiguration()
-    private(set) var languages = ProfileLanguage.defaults
     private(set) var collections: [ProfileCollection: [Drama]] = [:]
     private(set) var loading: Set<ProfileCollection> = []
-    private(set) var errors: [ProfileCollection: String] = [:]
+    private var failures: [ProfileCollection: Error] = [:]
+    var errors: [ProfileCollection: String] {
+        _ = LocalizationStore.shared.language
+        return failures.mapValues(\.appLocalizedDescription)
+    }
     private(set) var hasMore: [ProfileCollection: Bool] = [:]
     private var pages: [ProfileCollection: Int] = [:]
     private var network: APIClient
 
     init(network: APIClient) { self.network = network }
 
-    var nickname: String { profile.nickname.flatMap { $0.isEmpty ? nil : $0 } ?? "短剧爱好者" }
+    var nickname: String { profile.nickname.flatMap { $0.isEmpty ? nil : $0 } ?? L10n.tr("短剧爱好者") }
     var autoPlaysNext: Bool { profile.autoPlayNext != "off" }
 
     func setAutoPlayNext(_ enabled: Bool) async throws {
@@ -66,17 +62,6 @@ final class ProfileStore {
         } catch {
             config = AppConfiguration()
         }
-        do {
-            let result = try await network.request(AppAPI.v1ClientLanguageList, body: .init(), unwrapEnvelope: true)
-            try Task.checkCancellation()
-            var ids = Set<String>()
-            let options = (result.list ?? []).sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }.compactMap { item -> ProfileLanguage? in
-                guard let code = item.languageCode, !code.isEmpty, ids.insert(code).inserted,
-                      let title = item.translatedName ?? item.languageName, !title.isEmpty else { return nil }
-                return ProfileLanguage(id: code, title: title)
-            }
-            if !options.isEmpty { languages = options }
-        } catch { }
     }
 
     func load(_ collection: ProfileCollection, refresh: Bool = false) async {
@@ -84,7 +69,7 @@ final class ProfileStore {
         if !refresh, collections[collection] != nil, hasMore[collection] != true { return }
         let page = refresh ? 1 : (pages[collection] ?? 0) + 1
         loading.insert(collection)
-        errors[collection] = nil
+        failures[collection] = nil
         defer { loading.remove(collection) }
         do {
             let dramas: [Drama]
@@ -107,7 +92,7 @@ final class ProfileStore {
             pages[collection] = page
             hasMore[collection] = more
         } catch is CancellationError {
-        } catch { errors[collection] = error.localizedDescription }
+        } catch { failures[collection] = error }
     }
 
     func updateNickname(_ nickname: String) async throws {
@@ -122,7 +107,7 @@ final class ProfileStore {
         collections = [:]
         pages = [:]
         hasMore = [:]
-        errors = [:]
+        failures = [:]
     }
 
     private static func drama(id: Int64?, rootID: Int64?, title: String?, cover: String?, summary: String?) -> Drama? {

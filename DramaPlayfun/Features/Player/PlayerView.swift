@@ -78,10 +78,10 @@ struct PlayerView: View {
                 Color.black
                 if store.items.isEmpty || !isReady {
                     VStack(spacing: 16) {
-                        if store.isLoading || !isReady { ProgressView("正在加载剧集…") }
+                        if store.isLoading || !isReady { ProgressView(L10n.tr("正在加载剧集…")) }
                         else {
-                            Text(store.errorMessage ?? "暂无剧集")
-                            Button("重试") { attempt += 1 }
+                            Text(store.errorMessage ?? L10n.tr("player.no_episodes"))
+                            Button(L10n.tr("重试")) { attempt += 1 }
                         }
                     }.padding(32)
                 } else {
@@ -99,7 +99,7 @@ struct PlayerView: View {
                     .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
                     .scrollPosition(id: $selectedID, anchor: .top)
                     .accessibilityIdentifier("player-episode-feed")
-                    .accessibilityValue("第\(currentItem?.firstEpisode?.number ?? 1)集")
+                    .accessibilityValue(L10n.tr("第%d集", currentItem?.firstEpisode?.number ?? 1))
                     .task {
                         await Task.yield()
                         if let selectedID { proxy.scrollTo(selectedID, anchor: .top) }
@@ -112,7 +112,7 @@ struct PlayerView: View {
                             Image("PlayerPauseBackground").resizable().scaledToFit()
                             Image("PlayerPause").resizable().scaledToFit().frame(width: 28, height: 28)
                         }.frame(width: 68, height: 68)
-                    }.accessibilityLabel("暂停")
+                    }.accessibilityLabel(L10n.tr("暂停"))
                 }
             }
             .overlay(alignment: .top) { header.padding(.top, max(geometry.safeAreaInsets.top, 54) + 8) }
@@ -228,28 +228,28 @@ struct PlayerView: View {
             NavigationStack {
                 MembershipView(initialCategory: category, showsNavigationBar: true).toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("完成") { membershipDestination = nil }
+                        Button(L10n.tr("完成")) { membershipDestination = nil }
                     }
                 }
             }
         }
-        .alert("操作失败", isPresented: Binding(get: { unlockError != nil },
+        .alert(L10n.tr("操作失败"), isPresented: Binding(get: { unlockError != nil },
             set: { if !$0 { unlockError = nil } })) {
-            Button("知道了", role: .cancel) { unlockError = nil }
+            Button(L10n.tr("知道了"), role: .cancel) { unlockError = nil }
         } message: { Text(unlockError ?? "") }
-        .confirmationDialog("剧集反馈", isPresented: Binding(get: { feedbackEpisode != nil },
+        .confirmationDialog(L10n.tr("剧集反馈"), isPresented: Binding(get: { feedbackEpisode != nil },
             set: { if !$0 { feedbackEpisode = nil } }), titleVisibility: .visible) {
             if let episode = feedbackEpisode {
-                ForEach([("播放异常", "playback_abnormal"), ("内容低俗", "vulgar"),
-                         ("侵权", "infringement"), ("其他", "other")], id: \.1) { title, code in
+                ForEach([(L10n.tr("播放异常"), "playback_abnormal"), (L10n.tr("内容低俗"), "vulgar"),
+                         (L10n.tr("侵权"), "infringement"), (L10n.tr("其他"), "other")], id: \.1) { title, code in
                     Button(title) { Task { await submitFeedback(episode, categoryCode: code) } }
                 }
             }
-            Button("取消", role: .cancel) { feedbackEpisode = nil }
+            Button(L10n.tr("取消"), role: .cancel) { feedbackEpisode = nil }
         }
-        .alert("反馈已提交", isPresented: $feedbackSubmitted) {
-            Button("知道了", role: .cancel) { }
-        } message: { Text("感谢你的反馈，我们会尽快处理。") }
+        .alert(L10n.tr("反馈已提交"), isPresented: $feedbackSubmitted) {
+            Button(L10n.tr("知道了"), role: .cancel) { }
+        } message: { Text(L10n.tr("感谢你的反馈，我们会尽快处理。")) }
     }
 
     private func episodePage(_ item: TheaterFeedItem) -> some View {
@@ -294,23 +294,23 @@ struct PlayerView: View {
             Button { playback.suspend(); dismiss() } label: {
                 Image("PlayerBack").resizable().scaledToFit().frame(width: 24, height: 24)
                     .frame(width: 44, height: 44)
-            }.accessibilityLabel("返回").accessibilityIdentifier("player-back")
+            }.accessibilityLabel(L10n.tr("返回")).accessibilityIdentifier("player-back")
             Spacer()
             if !subtitleTracks.isEmpty {
                 Button { optionsKind = .subtitles } label: {
-                    Text("字幕").font(.system(size: 15)).padding(.horizontal, 7).padding(.vertical, 4)
+                    Text(L10n.tr("字幕")).font(.system(size: 15)).padding(.horizontal, 7).padding(.vertical, 4)
                         .overlay(RoundedRectangle(cornerRadius: 3).stroke(.white.opacity(0.6)))
                 }
                 .accessibilityIdentifier("player-subtitles")
                 .accessibilityValue(options(for: .subtitles).first(where: { $0.id == selectedSubtitleID })?.title ?? "")
             }
             Menu {
-                Button("反馈") { feedbackEpisode = currentItem?.firstEpisode }
+                Button(L10n.tr("反馈")) { feedbackEpisode = currentItem?.firstEpisode }
                     .disabled(currentItem?.firstEpisode == nil || isSubmittingFeedback)
             } label: {
                 Image("PlayerMore").resizable().scaledToFit().frame(width: 24, height: 24)
                     .frame(width: 44, height: 44)
-            }.accessibilityLabel("更多").accessibilityIdentifier("player-more")
+            }.accessibilityLabel(L10n.tr("更多")).accessibilityIdentifier("player-more")
         }.padding(.horizontal, 8)
     }
 
@@ -318,7 +318,7 @@ struct PlayerView: View {
         HStack(spacing: 10) {
             Button { showEpisodes = true } label: {
                 HStack {
-                    Text("选集·全\(store.items.count)集").lineLimit(1)
+                    Text(L10n.tr("选集·全%d集", store.items.count)).lineLimit(1).minimumScaleFactor(0.75)
                     Spacer(minLength: 4)
                     Image("PlayerEpisodesChevron").resizable().scaledToFit().frame(width: 16, height: 16)
                 }.padding(10).frame(maxWidth: .infinity)
@@ -327,15 +327,15 @@ struct PlayerView: View {
             Button { optionsKind = .quality } label: {
                 HStack(spacing: 4) {
                     Image("PlayerQuality").resizable().scaledToFit().frame(width: 16, height: 16)
-                    Text(quality == 0 ? "自动" : String(Int(quality)) + "P")
+                    Text(quality == 0 ? L10n.tr("自动") : String(Int(quality)) + "P")
                 }.padding(10).background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
-            }.accessibilityLabel("清晰度")
+            }.accessibilityLabel(L10n.tr("清晰度"))
                 .accessibilityIdentifier("player-quality")
-                .accessibilityValue(quality == 0 ? "自动" : String(Int(quality)) + "P")
+                .accessibilityValue(quality == 0 ? L10n.tr("自动") : String(Int(quality)) + "P")
             Button { optionsKind = .speed } label: {
                 Text("\(rate.formatted())x").padding(10)
                     .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
-            }.accessibilityLabel("播放速度")
+            }.accessibilityLabel(L10n.tr("播放速度"))
                 .accessibilityIdentifier("player-speed")
                 .accessibilityValue("\(rate.formatted())x")
         }.font(.system(size: 14)).padding(.horizontal, 12).padding(.vertical, 10)
@@ -379,7 +379,7 @@ struct PlayerView: View {
                     updatePlayback()
                 } catch {
                     guard !Task.isCancelled, isMounted, selectedID == item.id else { return }
-                    unlockError = error.localizedDescription
+                    unlockError = error.appLocalizedDescription
                 }
             }
         } else { playback.retry(item.id) }
@@ -395,7 +395,7 @@ struct PlayerView: View {
         changingAutoUnlock = true
         defer { changingAutoUnlock = false }
         do { try await app.profile.setAutoPlayNext(enabled) }
-        catch { unlockError = error.localizedDescription }
+        catch { unlockError = error.appLocalizedDescription }
     }
 
     private func submitFeedback(_ episode: Episode, categoryCode: String) async {
@@ -406,7 +406,7 @@ struct PlayerView: View {
         do {
             try await store.reportFeedback(episode, categoryCode: categoryCode)
             feedbackSubmitted = true
-        } catch { unlockError = error.localizedDescription }
+        } catch { unlockError = error.appLocalizedDescription }
     }
 
     private func resolveAccess(_ episode: Episode, automatically: Bool) async {
@@ -418,7 +418,7 @@ struct PlayerView: View {
             switch outcome {
             case .unlocked(let coins):
                 pendingUnlock = nil
-                if coins > 0 { unlockToast = "成功扣除\(coins)金币，已解锁第\(episode.number)集" }
+                if coins > 0 { unlockToast = L10n.tr("成功扣除%lld金币，已解锁第%d集", coins, episode.number) }
             case .needsConfirmation:
                 break // The page-local unlock layer remains swipeable.
             case .needsRecharge:
@@ -428,7 +428,7 @@ struct PlayerView: View {
         } catch is CancellationError {
         } catch {
             guard !Task.isCancelled, isMounted, selectedID == episode.id else { return }
-            unlockError = error.localizedDescription
+            unlockError = error.appLocalizedDescription
             updatePlayback()
         }
     }
@@ -444,7 +444,7 @@ struct PlayerView: View {
     private func options(for kind: PlayerOptionsKind) -> [PlayerOption] {
         switch kind {
         case .quality:
-            return [PlayerOption(id: "0", title: "自动"), PlayerOption(id: "480", title: "480P"),
+            return [PlayerOption(id: "0", title: L10n.tr("自动")), PlayerOption(id: "480", title: "480P"),
                 PlayerOption(id: "720", title: "720P"), PlayerOption(id: "1080", title: "1080P", isVIP: true)]
         case .speed:
             return ["0.75", "1", "1.5", "2", "3"].map { PlayerOption(id: $0, title: "\($0)x") }
@@ -506,13 +506,8 @@ struct PlayerView: View {
     }
 
     private func subtitleTitle(_ option: AVMediaSelectionOption) -> String {
-        let language = subtitleLanguage(option).lowercased().replacingOccurrences(of: "_", with: "-")
-        switch language.split(separator: "-").first {
-        case "zh": return "中文"
-        case "en": return "English"
-        case "ja": return "にほんご"
-        case "ko": return "한국어"
-        default: return option.displayName
-        }
+        let language = subtitleLanguage(option).replacingOccurrences(of: "_", with: "-")
+        let locale = LocalizationStore.shared.language.locale
+        return locale.localizedString(forIdentifier: language) ?? option.displayName
     }
 }

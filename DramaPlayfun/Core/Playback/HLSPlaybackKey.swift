@@ -22,14 +22,14 @@ struct HLSKeyIdentity: Hashable, Sendable {
     }
 }
 
-enum HLSKeyError: LocalizedError {
+enum HLSKeyError: AppLocalizedError {
     case missingConfiguration, invalidIdentity, invalidMediaToken
 
     var errorDescription: String? {
         switch self {
-        case .missingConfiguration: "视频密钥配置缺失。"
-        case .invalidIdentity: "视频剧集标识无效。"
-        case .invalidMediaToken: "视频授权参数缺失。"
+        case .missingConfiguration: L10n.text("视频密钥配置缺失。")
+        case .invalidIdentity: L10n.text("视频剧集标识无效。")
+        case .invalidMediaToken: L10n.text("视频授权参数缺失。")
         }
     }
 }

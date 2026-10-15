@@ -26,7 +26,7 @@ struct NetworkFailureContent: View {
                 .resizable().scaledToFit()
                 .frame(width: 92, height: 92)
                 .accessibilityHidden(true)
-            Text("网络不稳定,请重试")
+            Text(L10n.tr("网络不稳定,请重试"))
                 .font(.system(size: 13))
                 .foregroundStyle(Color(white: 0.6))
                 .multilineTextAlignment(.center)
@@ -40,7 +40,7 @@ struct NetworkFailureContent: View {
                 }
             } label: {
                 ZStack {
-                    Text("重试").opacity(isRetrying ? 0 : 1)
+                    Text(L10n.tr("重试")).opacity(isRetrying ? 0 : 1)
                     if isRetrying { ProgressView().tint(Theme.accent) }
                 }
                 .font(.system(size: 16))
@@ -52,7 +52,7 @@ struct NetworkFailureContent: View {
             }
             .buttonStyle(.plain)
             .disabled(isRetrying)
-            .accessibilityLabel(isRetrying ? "正在重试" : "重试")
+            .accessibilityLabel(isRetrying ? L10n.tr("正在重试") : L10n.tr("重试"))
             .accessibilityIdentifier("network-failure-retry")
             .padding(.top, 21)
         }

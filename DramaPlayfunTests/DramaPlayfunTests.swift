@@ -7,8 +7,8 @@ final class DramaPlayfunTests: XCTestCase {
     func testCatalogCombinesCategoryAndSearch() async {
         let store = CatalogStore(repository: DemoDramaRepository())
         await store.loadIfNeeded()
-        XCTAssertEqual(store.filtered(category: .romance, query: " 白月光 ").map(\.id), ["moon"])
-        XCTAssertTrue(store.filtered(category: .costume, query: "白月光").isEmpty)
+        XCTAssertEqual(store.filtered(category: .romance, query: " " + L10n.tr("重生之我和白月光") + " ").map(\.id), ["moon"])
+        XCTAssertTrue(store.filtered(category: .costume, query: L10n.tr("重生之我和白月光")).isEmpty)
     }
 
     func testLibraryPersistsFavoritesAndResumePosition() throws {

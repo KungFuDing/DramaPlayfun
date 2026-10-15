@@ -75,7 +75,7 @@ struct SearchView: View {
 
     @ViewBuilder private var matches: some View {
         if store.isSearching || store.isLoadingSuggestions {
-            ProgressView("搜索中…").frame(maxWidth: .infinity).padding(.vertical, 24)
+            ProgressView(L10n.tr("搜索中…")).frame(maxWidth: .infinity).padding(.vertical, 24)
         } else if store.searchError != nil {
             NetworkFailureContent {
                 if let submittedKeyword { await store.search(submittedKeyword) }
@@ -102,14 +102,14 @@ struct SearchView: View {
             ZStack(alignment: .trailing) {
                 Image("HomeHeadingGlow").resizable().scaledToFit()
                     .frame(width: 30, height: 30).offset(x: 11, y: 1)
-                Text("热播剧集").font(.system(size: 16, weight: .semibold))
+                Text(L10n.tr("热播剧集")).font(.system(size: 16, weight: .semibold))
             }.frame(height: 20)
             if !app.homeFeed.hotDramas.isEmpty {
                 SearchHotGrid(dramas: app.homeFeed.hotDramas)
             } else if app.homeFeed.isLoading || app.homeFeed.isLoadingMore {
-                ProgressView("加载剧集…").frame(maxWidth: .infinity).padding(24)
+                ProgressView(L10n.tr("加载剧集…")).frame(maxWidth: .infinity).padding(24)
             } else if app.homeFeed.hotErrorMessage == nil {
-                Text("暂无热播剧集").font(.subheadline).foregroundStyle(.secondary)
+                Text(L10n.tr("暂无热播剧集")).font(.subheadline).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity).padding(24)
             }
         }
@@ -141,18 +141,18 @@ private struct SearchInputBar: View {
             Button(action: onBack) {
                 Image("SearchBack").resizable().scaledToFit().frame(width: 22, height: 22)
                     .frame(width: 20, height: 34)
-            }.accessibilityLabel("返回").accessibilityIdentifier("search-back")
+            }.accessibilityLabel(L10n.tr("返回")).accessibilityIdentifier("search-back")
             HStack(spacing: 8) {
                 Image("SearchIcon").renderingMode(.template).resizable().scaledToFit()
                     .foregroundStyle(.white.opacity(0.65)).frame(width: 16, height: 16)
-                TextField("", text: $input, prompt: Text("请输入剧名、类型").foregroundStyle(.white.opacity(0.55)))
+                TextField("", text: $input, prompt: Text(L10n.tr("请输入剧名、类型")).foregroundStyle(.white.opacity(0.55)))
                     .font(.system(size: 14)).foregroundStyle(.white)
                     .focused(isFocused).submitLabel(.search)
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
-                    .onSubmit(onSearch).accessibilityLabel("请输入剧名、类型")
+                    .onSubmit(onSearch).accessibilityLabel(L10n.tr("请输入剧名、类型"))
                     .accessibilityIdentifier("search-input")
                 Button(action: onSearch) {
-                    Text("搜索").font(.system(size: 14)).foregroundStyle(Color(white: 0.12))
+                    Text(L10n.tr("搜索")).font(.system(size: 14)).foregroundStyle(Color(white: 0.12))
                         .frame(width: 56, height: 26)
                         .background(Theme.accent, in: RoundedRectangle(cornerRadius: 6))
                 }.accessibilityIdentifier("search-submit")
@@ -170,19 +170,19 @@ private struct SearchHistorySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("最近搜索").font(.system(size: 16, weight: .semibold))
+                Text(L10n.tr("最近搜索")).font(.system(size: 16, weight: .semibold))
                 Spacer()
                 Button { Task { await store.clearHistory() } } label: {
                     if store.isClearingHistory { ProgressView().frame(width: 16, height: 16) }
                     else { Image("SearchHistoryDelete").resizable().scaledToFit().frame(width: 16, height: 16) }
                 }
                 .frame(width: 22, height: 22).disabled(store.isClearingHistory || store.history.isEmpty)
-                .accessibilityLabel("清空最近搜索").accessibilityIdentifier("search-clear-history")
+                .accessibilityLabel(L10n.tr("清空最近搜索")).accessibilityIdentifier("search-clear-history")
             }.frame(height: 20)
             if let message = store.historyError {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(message).font(.caption).foregroundStyle(.secondary)
-                    Button("重新加载历史") { Task { await store.loadHistory() } }
+                    Button(L10n.tr("重新加载历史")) { Task { await store.loadHistory() } }
                 }
             }
             if !store.history.isEmpty {
@@ -199,7 +199,7 @@ private struct SearchHistorySection: View {
             } else if store.isLoadingHistory {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 12)
             } else if store.historyError == nil {
-                Text("暂无搜索记录").font(.system(size: 12)).foregroundStyle(Color(white: 0.6))
+                Text(L10n.tr("暂无搜索记录")).font(.system(size: 12)).foregroundStyle(Color(white: 0.6))
                     .padding(.vertical, 8).accessibilityIdentifier("search-history-empty")
             }
         }

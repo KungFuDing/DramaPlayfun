@@ -16,7 +16,7 @@ struct APIDramaRepository: DramaRepository {
             body: .init(dramaId: id), unwrapEnvelope: true)
         return (result.episodes ?? []).compactMap { item -> Episode? in
             guard let episodeID = item.episodeId, let number = item.episodeNo else { return nil }
-            return Episode(id: String(episodeID), number: number, title: "第\(number)集",
+            return Episode(id: String(episodeID), number: number, title: "",
                            requiresMembership: false, unlockCoin: item.unlockCoin ?? 0,
                            isUnlocked: item.isUnlocked ?? false)
         }.sorted { $0.number < $1.number }

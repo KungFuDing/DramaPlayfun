@@ -22,7 +22,7 @@ final class NetworkLocationHeaderTests: XCTestCase {
             requestCount += 1
             XCTAssertEqual(target.path, self.business.path)
             self.assertLocationHeaders(target, ip: "203.0.113.1", countryCode: "TW")
-            XCTAssertEqual(target.headers?["language"], "zh-Hans")
+            XCTAssertEqual(target.headers?["language"], AppLanguage.current.rawValue)
             return Data(#"{"accessToken":"business-token"}"#.utf8)
         }
 
@@ -82,7 +82,7 @@ final class NetworkLocationHeaderTests: XCTestCase {
         let client = try makeClient(networkLocationProvider: lookup, headers: staleHeaders) { target in
             requestCount += 1
             self.assertNoLocationHeaders(target)
-            XCTAssertEqual(target.headers?["language"], "zh-Hans")
+            XCTAssertEqual(target.headers?["language"], AppLanguage.current.rawValue)
             return Data(#"{"accessToken":"available-without-location"}"#.utf8)
         }
 

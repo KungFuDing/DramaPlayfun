@@ -13,7 +13,7 @@ final class EmptyStateUITests: XCTestCase {
 
         let empty = app.descendants(matching: .any)["search-empty"]
         XCTAssertTrue(empty.waitForExistence(timeout: 5))
-        XCTAssertEqual(empty.label, "暂无更多内容")
+        XCTAssertEqual(empty.label, "暫無更多內容")
         XCTAssertFalse(app.keyboards.firstMatch.exists)
         XCTAssertFalse(app.buttons["network-failure-retry"].exists)
         let hot = app.buttons["search-hot-31"]
@@ -35,7 +35,7 @@ final class EmptyStateUITests: XCTestCase {
 
         let retry = app.buttons["network-failure-retry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["网络不稳定,请重试"].exists)
+        XCTAssertTrue(app.staticTexts["網路不穩定，請重試"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["search-empty"].exists)
         capture(app, name: "搜索请求失败")
         retry.tap()
@@ -56,7 +56,7 @@ final class EmptyStateUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["榜单测试21"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["日榜"].isSelected)
         XCTAssertFalse(app.descendants(matching: .any)["network-failure-screen"].exists)
-        app.buttons["首页"].tap()
+        app.buttons["首頁"].tap()
         XCTAssertTrue(app.buttons["home-search"].waitForExistence(timeout: 5))
     }
 
@@ -74,6 +74,7 @@ final class EmptyStateUITests: XCTestCase {
     @MainActor private func launchSearch(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-SearchUITestFixture"] + arguments
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         XCTAssertTrue(app.buttons["home-search"].waitForExistence(timeout: 10))
         app.buttons["home-search"].tap()
@@ -84,6 +85,7 @@ final class EmptyStateUITests: XCTestCase {
     @MainActor private func launchRankings(arguments: [String]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-FeedUITestFixture"] + arguments
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         let rankings = app.tabBars.buttons["排行榜"]
         XCTAssertTrue(rankings.waitForExistence(timeout: 10))
@@ -93,9 +95,9 @@ final class EmptyStateUITests: XCTestCase {
 
     @MainActor private func assertRankingFailure(_ app: XCUIApplication) {
         XCTAssertTrue(app.descendants(matching: .any)["network-failure-screen"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["网络不稳定,请重试"].exists)
+        XCTAssertTrue(app.staticTexts["網路不穩定，請重試"].exists)
         XCTAssertTrue(app.buttons["network-failure-retry"].isHittable)
-        XCTAssertTrue(app.buttons["首页"].isHittable)
+        XCTAssertTrue(app.buttons["首頁"].isHittable)
         XCTAssertTrue(app.buttons["排行榜"].isSelected)
         XCTAssertFalse(app.staticTexts["榜单测试21"].exists)
     }

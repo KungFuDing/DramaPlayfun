@@ -13,8 +13,8 @@ struct ProfileHistoryView: View {
                     Image("SettingsBack").renderingMode(.original).resizable().scaledToFit()
                         .frame(width: 22, height: 22).frame(width: 40, height: 44)
                         .contentShape(Rectangle())
-                }.accessibilityLabel("返回").accessibilityIdentifier("profile-history-back")
-                Text("历史记录").font(.system(size: 16, weight: .semibold))
+                }.accessibilityLabel(L10n.tr("返回")).accessibilityIdentifier("profile-history-back")
+                Text(L10n.tr("历史记录")).font(.system(size: 16, weight: .semibold))
                 Spacer()
             }
             ScrollView {
@@ -47,15 +47,15 @@ struct ProfileHistoryView: View {
         if history.isLoading || history.isLoadingMore { ProgressView().padding() }
         if let error = history.errorMessage {
             Text(error).font(.footnote).foregroundStyle(.secondary)
-            Button("重试") { Task { await history.reload() } }.foregroundStyle(Theme.accent)
+            Button(L10n.tr("重试")) { Task { await history.reload() } }.foregroundStyle(Theme.accent)
         } else if !history.isLoading, history.items.isEmpty {
-            ContentUnavailableView("还没有观看记录", systemImage: "clock")
+            ContentUnavailableView(L10n.tr("还没有观看记录"), systemImage: "clock")
         }
         if let error = history.loadMoreErrorMessage {
             Text(error).font(.footnote).foregroundStyle(.secondary)
         }
         if history.hasMore {
-            Button(history.loadMoreErrorMessage == nil ? "加载更多" : "重新加载") {
+            Button(history.loadMoreErrorMessage == nil ? L10n.tr("加载更多") : L10n.tr("重新加载")) {
                 Task { await history.loadMore() }
             }.font(.system(size: 13)).foregroundStyle(Theme.accent)
                 .disabled(history.isLoading || history.isLoadingMore)
@@ -85,7 +85,7 @@ private struct ProfileHistoryCard: View {
     }
 
     private var progressText: String {
-        guard item.isOnline else { return "已下架" }
-        return item.episodeText ?? item.episodeNumber.map { "已看第\($0)集" } ?? "观看记录"
+        guard item.isOnline else { return L10n.tr("已下架") }
+        return item.episodeText ?? item.episodeNumber.map { L10n.tr("已看第%d集", $0) } ?? L10n.tr("观看记录")
     }
 }

@@ -6,6 +6,8 @@ struct DramaFeedTab: Identifiable, Hashable {
     let title: String
     let serverID: Int64?
 
+    var displayTitle: String { id == "featured" && serverID == nil ? L10n.tr("精选") : title }
+
     static let featured = DramaFeedTab(id: "featured", title: "精选", serverID: nil)
 }
 
@@ -16,8 +18,16 @@ struct DramaTabPage {
     var isLoading = false
     var isLoadingMore = false
     var hasLoaded = false
-    var errorMessage: String?
-    var loadMoreErrorMessage: String?
+    var loadError: Error?
+    var errorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return loadError?.appLocalizedDescription
+    }
+    var loadMoreError: Error?
+    var loadMoreErrorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return loadMoreError?.appLocalizedDescription
+    }
     var requestID = UUID()
 }
 
@@ -28,7 +38,11 @@ final class DramaTabFeedStore {
     private(set) var tabs: [DramaFeedTab]
     var selectedID: String
     private(set) var isLoadingTabs = false
-    private(set) var tabsErrorMessage: String?
+    private var tabsError: Error?
+    var tabsErrorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return tabsError?.appLocalizedDescription
+    }
     private(set) var hasLoadedTabs = false
     private(set) var pages: [String: DramaTabPage] = [:]
     private let network: APIClient
@@ -54,7 +68,7 @@ final class DramaTabFeedStore {
     func reloadTabs() async {
         guard !isLoadingTabs else { return }
         isLoadingTabs = true
-        tabsErrorMessage = nil
+        tabsError = nil
         defer { isLoadingTabs = false }
         do {
             var loaded: [DramaFeedTab]
@@ -81,7 +95,7 @@ final class DramaTabFeedStore {
             hasLoadedTabs = true
         } catch is CancellationError {
         } catch {
-            tabsErrorMessage = error.localizedDescription
+            tabsError = error
         }
     }
 
@@ -111,8 +125,8 @@ final class DramaTabFeedStore {
         state.requestID = requestID
         state.isLoading = refresh
         state.isLoadingMore = !refresh
-        if refresh { state.errorMessage = nil }
-        state.loadMoreErrorMessage = nil
+        if refresh { state.loadError = nil }
+        state.loadMoreError = nil
         pages[id] = state
         defer {
             if pages[id]?.requestID == requestID {
@@ -154,14 +168,14 @@ final class DramaTabFeedStore {
             updated.page = nextPage
             updated.hasMore = hasMore && (source != .rankings || refresh || !appended.isEmpty)
             updated.hasLoaded = true
-            updated.errorMessage = nil
-            updated.loadMoreErrorMessage = nil
+            updated.loadError = nil
+            updated.loadMoreError = nil
             pages[id] = updated
         } catch is CancellationError {
         } catch {
             if pages[id]?.requestID == requestID {
-                if refresh { pages[id]?.errorMessage = error.localizedDescription }
-                else { pages[id]?.loadMoreErrorMessage = error.localizedDescription }
+                if refresh { pages[id]?.loadError = error }
+                else { pages[id]?.loadMoreError = error }
             }
         }
     }

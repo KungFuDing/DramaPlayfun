@@ -58,7 +58,7 @@ struct PlayerUnlockConfirmationSheet: View {
                 Image("PlayerUnlockClose").resizable().scaledToFit()
                     .frame(width: 24, height: 24).frame(width: 44, height: 44)
             }
-            .accessibilityLabel("关闭解锁确认")
+            .accessibilityLabel(L10n.tr("关闭解锁确认"))
             .accessibilityIdentifier("player-unlock-close")
             .padding(.trailing, 2)
         }
@@ -69,7 +69,7 @@ struct PlayerUnlockConfirmationSheet: View {
                 .gesture(DragGesture(minimumDistance: 10).onEnded { value in
                     if value.translation.height > 30 { onClose() }
                 })
-                .accessibilityLabel("收起解锁确认")
+                .accessibilityLabel(L10n.tr("收起解锁确认"))
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { onClose() }
         }
@@ -84,13 +84,13 @@ struct PlayerUnlockConfirmationSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.7), lineWidth: 0.5))
             VStack(alignment: .leading, spacing: 10) {
                 Text(drama.title).font(.system(size: 14, weight: .medium)).lineLimit(2)
-                Text((drama.tagNames.isEmpty ? [drama.category.rawValue] : Array(drama.tagNames.prefix(3)))
+                Text((drama.tagNames.isEmpty ? [drama.category.title] : Array(drama.tagNames.prefix(3)))
                     .joined(separator: "   "))
                     .font(.system(size: 12)).foregroundStyle(Color(white: 0.6)).lineLimit(1)
                 HStack(spacing: 5) {
                     Image("PlayerUnlockEpisodeLock").resizable().scaledToFit()
                         .frame(width: 13, height: 13).accessibilityHidden(true)
-                    Text("解锁第\(episode.number)集").font(.system(size: 12))
+                    Text(L10n.tr("解锁第%d集", episode.number)).font(.system(size: 12))
                 }
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
@@ -101,9 +101,9 @@ struct PlayerUnlockConfirmationSheet: View {
 
     private var balances: some View {
         HStack(spacing: 11) {
-            PlayerUnlockCoinAmount(title: "账户余额", amount: balanceText, amountColor: Color(white: 0.9))
+            PlayerUnlockCoinAmount(title: L10n.tr("账户余额"), amount: balanceText, amountColor: Color(white: 0.9))
                 .accessibilityIdentifier("player-unlock-balance")
-            PlayerUnlockCoinAmount(title: "本集价格", amount: String(episode.unlockCoin), amountColor: accent)
+            PlayerUnlockCoinAmount(title: L10n.tr("本集价格"), amount: String(episode.unlockCoin), amountColor: accent)
                 .accessibilityIdentifier("player-unlock-price")
         }
     }
@@ -114,28 +114,28 @@ struct PlayerUnlockConfirmationSheet: View {
                 .frame(width: 40, height: 40).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Text("连续播放时自动解锁下一集")
-                        .font(.system(size: 14)).lineLimit(1).minimumScaleFactor(0.8)
+                    Text(L10n.tr("连续播放时自动解锁下一集"))
+                        .font(.system(size: 14)).lineLimit(2).minimumScaleFactor(0.8)
                     Spacer(minLength: 0)
-                    Toggle("连续播放时自动解锁下一集", isOn: Binding(
+                    Toggle(L10n.tr("连续播放时自动解锁下一集"), isOn: Binding(
                         get: { autoUnlocksNext }, set: onAutoUnlockChange
                     ))
                     .labelsHidden().toggleStyle(PlayerUnlockAutoNextToggleStyle(accent: accent))
                     .disabled(isUpdatingAutoUnlock || isUnlocking)
                     .accessibilityIdentifier("player-unlock-autoplay")
                 }
-                Text("开启后，下一集将自动使用金币解锁")
+                Text(L10n.tr("开启后，下一集将自动使用金币解锁"))
                     .font(.system(size: 12)).foregroundStyle(Color(white: 0.6))
-                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 9).frame(height: 67)
+        .padding(.horizontal, 9).padding(.vertical, 10).frame(minHeight: 67)
         .background(Color(white: 0.21), in: RoundedRectangle(cornerRadius: 12))
         .overlay(alignment: .topTrailing) {
             if isUpdatingAutoUnlock {
                 ProgressView().controlSize(.mini).tint(accent)
                     .padding(.top, 2).padding(.trailing, 22)
-                    .accessibilityLabel("正在更新自动解锁设置")
+                    .accessibilityLabel(L10n.tr("正在更新自动解锁设置"))
             }
         }
     }
@@ -145,7 +145,7 @@ struct PlayerUnlockConfirmationSheet: View {
             Button(action: onConfirm) {
                 HStack(spacing: 6) {
                     if isUnlocking { ProgressView().tint(Color(white: 0.2)) }
-                    Text(isUnlocking ? "正在解锁…" : "确认解锁·\(episode.unlockCoin)金币")
+                    Text(isUnlocking ? L10n.tr("正在解锁…") : L10n.tr("确认解锁·%lld金币", episode.unlockCoin))
                         .lineLimit(1).minimumScaleFactor(0.75)
                 }
                 .font(.system(size: 16, weight: .semibold)).foregroundStyle(Color(white: 0.2))
@@ -159,7 +159,7 @@ struct PlayerUnlockConfirmationSheet: View {
                 HStack(spacing: 6) {
                     Image("PlayerUnlockCrown").resizable().scaledToFit()
                         .frame(width: 16, height: 16).accessibilityHidden(true)
-                    Text("开通VIP").font(.system(size: 16, weight: .semibold))
+                    Text(L10n.tr("开通VIP")).font(.system(size: 16, weight: .semibold))
                 }
                 .foregroundStyle(accent).frame(width: 128, height: 46)
                 .overlay(Capsule().stroke(accent, lineWidth: 0.5))
@@ -179,6 +179,7 @@ private struct PlayerUnlockCoinAmount: View {
     var body: some View {
         HStack(spacing: 5) {
             Text(title).font(.system(size: 12)).foregroundStyle(Color(white: 0.6))
+                .lineLimit(2).minimumScaleFactor(0.85)
             HStack(spacing: 4) {
                 Text(amount).font(.system(size: 20, weight: .medium)).foregroundStyle(amountColor)
                     .lineLimit(1).minimumScaleFactor(0.6)
@@ -189,7 +190,7 @@ private struct PlayerUnlockCoinAmount: View {
         .padding(.horizontal, 8).frame(maxWidth: .infinity).frame(height: 52)
         .background(Color(white: 0.21), in: RoundedRectangle(cornerRadius: 12))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title)：\(amount)金币")
+        .accessibilityLabel(L10n.tr("%@：%@金币", title, amount))
     }
 }
 
@@ -205,8 +206,8 @@ private struct PlayerUnlockAutoNextToggleStyle: ToggleStyle {
                 }
                 .contentShape(Rectangle().inset(by: -11))
         }
-        .accessibilityLabel("连续播放时自动解锁下一集")
-        .accessibilityValue(configuration.isOn ? "开启" : "关闭")
+        .accessibilityLabel(L10n.tr("连续播放时自动解锁下一集"))
+        .accessibilityValue(configuration.isOn ? L10n.tr("开启") : L10n.tr("关闭"))
     }
 }
 

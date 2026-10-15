@@ -65,7 +65,7 @@ final class NetworkTests: XCTestCase {
             for key in ["appVersion", "modelName", "platform", "systemVersion"] {
                 XCTAssertEqual(headers.keys.filter { $0.lowercased() == key.lowercased() }.count, 1)
             }
-            XCTAssertEqual(headers["language"], "zh-Hans")
+            XCTAssertEqual(headers["language"], AppLanguage.current.rawValue)
         }
         let expectedPaths = [AppAPI.v1ClientTransportEncryptionConfig.path,
                              AppAPI.v1AuthGuestLogin.path, "/test/business"]
@@ -92,7 +92,7 @@ final class NetworkTests: XCTestCase {
         ]) { target in
             XCTAssertFalse(target.requestHeaders.keys.contains { $0.lowercased() == "accesstoken" })
             XCTAssertEqual(target.headers?["Authorization"], "Bearer configured-token")
-            XCTAssertEqual(target.headers?["language"], "zh-Hans")
+            XCTAssertEqual(target.headers?["language"], AppLanguage.current.rawValue)
         }
         let endpoint = APIEndpoint<APIModels.V1GuestLoginReq, APIModels.V1GuestLoginRes>(path: "/test/business")
         _ = try await client.request(endpoint, body: login)

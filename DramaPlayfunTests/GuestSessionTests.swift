@@ -41,7 +41,7 @@ final class GuestSessionTests: XCTestCase {
         XCTAssertFalse(requests[1].requestHeaders.keys.contains { $0.lowercased() == "accesstoken" })
         XCTAssertEqual(requests[1].headers?["Authorization"], "Bearer new-guest-token")
         XCTAssertNil(requests[1].headers?["AUTHORIZATION"])
-        XCTAssertEqual(requests[1].headers?["language"], "zh-Hans")
+        XCTAssertEqual(requests[1].headers?["language"], AppLanguage.current.rawValue)
     }
 
     func testMissingTokenKeepsGateClosedAndCanRetry() async throws {

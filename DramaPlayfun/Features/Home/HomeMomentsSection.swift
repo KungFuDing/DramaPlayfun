@@ -7,13 +7,13 @@ struct HomeMomentsSection: View {
         if let first = feed.moments.first {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Text("今日片刻").font(.system(size: 20, weight: .bold))
+                    Text(L10n.tr("今日片刻")).font(.system(size: 20, weight: .bold))
                     Spacer()
                     Button {
                         Task { await feed.refreshMoments() }
                     } label: {
                         HStack(spacing: 3) {
-                            Text("换一换")
+                            Text(L10n.tr("换一换"))
                             if feed.isRefreshingMoments {
                                 ProgressView().controlSize(.mini)
                             } else {

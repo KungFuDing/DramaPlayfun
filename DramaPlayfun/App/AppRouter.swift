@@ -4,6 +4,7 @@ import Observation
 enum AppTab: String, CaseIterable, Identifiable {
     case home = "首页", theater = "剧场", rankings = "排行榜", membership = "会员", profile = "我的"
     var id: Self { self }
+    var title: String { L10n.tr(rawValue) }
     private var iconAssetPrefix: String {
         switch self {
         case .home: "TabHome"
@@ -38,12 +39,12 @@ final class AppRouter {
 
     func openPlayback(_ drama: Drama, episode: Episode? = nil) {
         playback = PlaybackRequest(drama: drama, episode: episode ??
-            Episode(id: "", number: 1, title: "第1集", requiresMembership: false))
+            Episode(id: "", number: 1, title: "", requiresMembership: false))
     }
 
     func openPlayback(_ drama: Drama, episodeNumber: Int, preparation: PlaybackPreparation? = nil) {
         playback = PlaybackRequest(drama: drama,
-            episode: Episode(id: "", number: episodeNumber, title: "第\(episodeNumber)集", requiresMembership: false),
+            episode: Episode(id: "", number: episodeNumber, title: "", requiresMembership: false),
             startsFromBeginning: true, preparation: preparation)
     }
 

@@ -44,7 +44,7 @@ final class ShortDramaDetailTests: XCTestCase {
         XCTAssertTrue(store.isFavorited)
         XCTAssertTrue(store.app.library.favoriteIDs.contains("101"))
         XCTAssertEqual(store.recommendations.map(\.id), ["201", "202"])
-        XCTAssertEqual(store.recommendations.first?.displayBadge, "爆款")
+        XCTAssertEqual(store.recommendations.first?.displayBadge, L10n.tr("爆款"))
         let unfollowed = await store.toggleFavorite()
         XCTAssertTrue(unfollowed)
         let followed = await store.toggleFavorite()

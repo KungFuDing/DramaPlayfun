@@ -31,9 +31,9 @@ struct DramaShareView: View {
                             VStack(spacing: 16) {
                                 if let loadError {
                                     Text(loadError).multilineTextAlignment(.center).font(.subheadline)
-                                    Button("重试") { attempt += 1 }.buttonStyle(.bordered)
+                                    Button(L10n.tr("重试")) { attempt += 1 }.buttonStyle(.bordered)
                                 } else {
-                                    ProgressView("正在生成分享图片…").tint(.white)
+                                    ProgressView(L10n.tr("正在生成分享图片…")).tint(.white)
                                 }
                             }.frame(width: width, height: width * DramaShareCard.aspectRatio)
                         }
@@ -45,20 +45,21 @@ struct DramaShareView: View {
                                 .frame(width: 44, height: 44)
                         }
                         .offset(x: 10, y: -40)
-                        .accessibilityLabel("关闭分享")
+                        .accessibilityLabel(L10n.tr("关闭分享"))
                     }
                     if let content {
                         HStack(spacing: 12) {
                             Button { save(content, width: width) } label: {
                                 HStack(spacing: 7) {
                                     Image("ShareSave").renderingMode(.original)
-                                    Text(isSaving ? "保存中…" : "保存相册")
+                                    Text(isSaving ? L10n.tr("保存中…") : L10n.tr("保存相册"))
+                                        .lineLimit(2).minimumScaleFactor(0.85)
                                 }
                             }.disabled(isSaving)
                             Button { share(content, width: width) } label: {
                                 HStack(spacing: 7) {
                                     Image("ShareSend").renderingMode(.original)
-                                    Text("分享至")
+                                    Text(L10n.tr("分享至"))
                                 }
                             }.disabled(isSaving)
                         }
@@ -77,25 +78,25 @@ struct DramaShareView: View {
             loadError = nil
             do { content = try await DramaShareContent.load(item: item, network: app.network) }
             catch is CancellationError { }
-            catch { loadError = error.localizedDescription }
+            catch { loadError = L10n.errorMessage(error, fallback: "无法处理分享图片，请稍后重试。") }
         }
         .sheet(item: $activity) { payload in
             SystemImageShareView(image: payload.image) { type, completed, error in
                 activity = nil
-                if let error { actionMessage = error.localizedDescription }
+                if let error { actionMessage = L10n.errorMessage(error, fallback: "无法处理分享图片，请稍后重试。") }
                 if completed {
                     Task {
                         do {
                             try await DramaShareContent.reportShare(item: item,
                                 channel: DramaShareContent.channel(for: type), network: app.network)
-                        } catch { actionMessage = "图片已分享，分享记录上报失败：\(error.localizedDescription)" }
+                        } catch { actionMessage = L10n.tr("图片已分享，分享记录上报失败：%@", L10n.errorMessage(error, fallback: "无法处理分享图片，请稍后重试。")) }
                     }
                 }
             }
         }
-        .alert("提示", isPresented: Binding(get: { actionMessage != nil },
+        .alert(L10n.tr("提示"), isPresented: Binding(get: { actionMessage != nil },
                                            set: { if !$0 { actionMessage = nil } })) {
-            Button("知道了", role: .cancel) { actionMessage = nil }
+            Button(L10n.tr("知道了"), role: .cancel) { actionMessage = nil }
         } message: { Text(actionMessage ?? "") }
     }
 
@@ -106,16 +107,16 @@ struct DramaShareView: View {
             do {
                 let image = try content.render(drama: item.drama, width: width)
                 try await DramaShareContent.saveToPhotos(image)
-                actionMessage = "已保存到相册"
+                actionMessage = L10n.tr("已保存到相册")
                 do { try await DramaShareContent.reportShare(item: item, channel: "qr", network: app.network) }
-                catch { actionMessage = "已保存到相册，分享记录上报失败：\(error.localizedDescription)" }
-            } catch { actionMessage = error.localizedDescription }
+                catch { actionMessage = L10n.tr("已保存到相册，分享记录上报失败：%@", L10n.errorMessage(error, fallback: "无法处理分享图片，请稍后重试。")) }
+            } catch { actionMessage = L10n.errorMessage(error, fallback: "无法处理分享图片，请稍后重试。") }
         }
     }
 
     private func share(_ content: DramaShareContent, width: CGFloat) {
         do { activity = ShareImagePayload(image: try content.render(drama: item.drama, width: width)) }
-        catch { actionMessage = error.localizedDescription }
+        catch { actionMessage = L10n.errorMessage(error, fallback: "无法处理分享图片，请稍后重试。") }
     }
 }
 

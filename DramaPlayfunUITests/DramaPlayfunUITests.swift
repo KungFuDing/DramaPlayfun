@@ -26,6 +26,7 @@ final class DramaPlayfunUITests: XCTestCase {
     func testHomeHeaderFadesAndCategoriesStickOnScroll() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-FeedUITestFixture")
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
 
         let header = app.otherElements["home-top-controls"]
@@ -63,6 +64,7 @@ final class DramaPlayfunUITests: XCTestCase {
     func testHomeCategoryPagesAndButtonsStayInSync() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-FeedUITestFixture")
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
@@ -95,8 +97,9 @@ final class DramaPlayfunUITests: XCTestCase {
     func testHomeWaterfallKeepsEqualWidthsAndFixedGaps() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-FeedUITestFixture", "-WaterfallUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        let heading = app.staticTexts["热播剧集"].firstMatch
+        let heading = app.staticTexts["熱播劇集"].firstMatch
         let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
         let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
         for _ in 0..<6 {
@@ -124,8 +127,9 @@ final class DramaPlayfunUITests: XCTestCase {
     func testFeaturedSwipeSelectsLiveAction() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-FeedUITestFixture")
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        let heading = app.staticTexts["热播剧集"].firstMatch
+        let heading = app.staticTexts["熱播劇集"].firstMatch
         let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
         let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
         for _ in 0..<5 {
@@ -133,7 +137,7 @@ final class DramaPlayfunUITests: XCTestCase {
             bottom.press(forDuration: 0.05, thenDragTo: top)
         }
         XCTAssertTrue(heading.isHittable)
-        XCTAssertTrue(app.buttons["精选"].firstMatch.isSelected)
+        XCTAssertTrue(app.buttons["精選"].firstMatch.isSelected)
         let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.65))
         let left = app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.65))
         right.press(forDuration: 0.05, thenDragTo: left)
@@ -149,32 +153,33 @@ final class DramaPlayfunUITests: XCTestCase {
     func testTheaterServerActionsAndSharePoster() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TheaterUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["剧场"].waitForExistence(timeout: 10))
-        app.tabBars.buttons["剧场"].tap()
+        XCTAssertTrue(app.tabBars.buttons["劇場"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["劇場"].tap()
         let like = app.buttons["theater-like-101"]
         XCTAssertTrue(like.waitForExistence(timeout: 10))
         like.tap()
-        expectation(for: NSPredicate(format: "label == %@", "取消点赞"), evaluatedWith: like)
+        expectation(for: NSPredicate(format: "label == %@", "取消按讚"), evaluatedWith: like)
         waitForExpectations(timeout: 5)
         like.tap()
-        expectation(for: NSPredicate(format: "label == %@", "点赞"), evaluatedWith: like)
+        expectation(for: NSPredicate(format: "label == %@", "按讚"), evaluatedWith: like)
         waitForExpectations(timeout: 5)
         let favorite = app.buttons["theater-favorite-101"]
         favorite.tap()
         expectation(for: NSPredicate(format: "label == %@", "取消收藏"), evaluatedWith: favorite)
         waitForExpectations(timeout: 5)
         app.buttons["theater-share-101"].tap()
-        XCTAssertTrue(app.buttons["保存相册"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["儲存至相簿"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["分享至"].isHittable)
-        XCTAssertTrue(app.images["短剧分享二维码"].exists)
+        XCTAssertTrue(app.images["短劇分享 QR Code"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "剧场分享海报"
         screenshot.lifetime = .keepAlways
         add(screenshot)
-        app.buttons["保存相册"].tap()
+        app.buttons["儲存至相簿"].tap()
         XCTAssertTrue(app.alerts["提示"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.alerts["提示"].staticTexts["已保存到相册"].exists)
+        XCTAssertTrue(app.alerts["提示"].staticTexts["已儲存至相簿"].exists)
         app.alerts["提示"].buttons["知道了"].tap()
         app.buttons["分享至"].tap()
         let systemShare = app.otherElements["ActivityListView"]
@@ -187,8 +192,8 @@ final class DramaPlayfunUITests: XCTestCase {
         if close.exists { close.tap() }
         else if app.buttons["关闭"].exists { app.buttons["关闭"].tap() }
         else { app.swipeDown() }
-        XCTAssertTrue(app.buttons["关闭分享"].waitForExistence(timeout: 5))
-        app.buttons["关闭分享"].tap()
+        XCTAssertTrue(app.buttons["關閉分享"].waitForExistence(timeout: 5))
+        app.buttons["關閉分享"].tap()
         XCTAssertTrue(app.buttons["theater-share-101"].waitForExistence(timeout: 5))
     }
 
@@ -196,15 +201,16 @@ final class DramaPlayfunUITests: XCTestCase {
     func testTheaterFinishedPreviewOpensSecondEpisodeAndReturnsToFirstEpisodeStart() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TheaterUITestFixture", "-PlaybackProgressUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        app.tabBars.buttons["剧场"].tap()
+        app.tabBars.buttons["劇場"].tap()
         let theaterProgress = app.sliders["theater-progress-101"]
         XCTAssertTrue(theaterProgress.waitForExistence(timeout: 10))
         expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: theaterProgress)
         waitForExpectations(timeout: 10)
 
         // Leave history halfway through episode 2 before finishing the preview.
-        app.buttons["更多剧集，剧场测试甲"].tap()
+        app.buttons["更多劇集，剧场测试甲"].tap()
         app.buttons["player-episodes"].tap()
         app.buttons["episode-selection-2"].tap()
         let secondProgress = app.sliders["player-progress-2"]
@@ -256,21 +262,22 @@ final class DramaPlayfunUITests: XCTestCase {
         }, evaluatedWith: theaterProgress)
         waitForExpectations(timeout: 10)
         XCTAssertFalse(feed.exists, "Returning must not immediately open episode 2 again")
-        XCTAssertTrue(app.tabBars.buttons["剧场"].isSelected)
+        XCTAssertTrue(app.tabBars.buttons["劇場"].isSelected)
     }
 
     @MainActor
     func testTheaterAndPlayerProgressCanScrubAboveTheVisibleTrack() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TheaterUITestFixture", "-PlaybackProgressUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        app.tabBars.buttons["剧场"].tap()
+        app.tabBars.buttons["劇場"].tap()
         let theaterProgress = app.sliders["theater-progress-101"]
         XCTAssertTrue(theaterProgress.waitForExistence(timeout: 10))
         expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: theaterProgress)
         waitForExpectations(timeout: 10)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
-        XCTAssertTrue(app.buttons["播放视频"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["播放影片"].waitForExistence(timeout: 5))
         XCTAssertGreaterThanOrEqual(theaterProgress.frame.height, 44)
         let theaterPage = app.otherElements["theater-video-101"]
         XCTAssertLessThanOrEqual(theaterProgress.frame.maxY - 10 - theaterPage.staticTexts["theater-summary-text"].frame.maxY, 18,
@@ -282,11 +289,11 @@ final class DramaPlayfunUITests: XCTestCase {
             return value > 65 && value < 85
         }, evaluatedWith: theaterProgress)
         waitForExpectations(timeout: 10)
-        XCTAssertTrue(app.buttons["播放视频"].exists, "Scrubbing must preserve the paused state")
-        theaterPage.buttons["展开"].tap()
+        XCTAssertTrue(app.buttons["播放影片"].exists, "Scrubbing must preserve the paused state")
+        theaterPage.buttons["展開"].tap()
         XCTAssertTrue(theaterPage.buttons["收起"].waitForExistence(timeout: 5))
         theaterPage.buttons["收起"].tap()
-        let episodes = app.buttons["更多剧集，剧场测试甲"]
+        let episodes = app.buttons["更多劇集，剧场测试甲"]
         XCTAssertTrue(episodes.isHittable, "Horizontal scrubbing must not change the feed page")
         episodes.tap()
 
@@ -295,7 +302,7 @@ final class DramaPlayfunUITests: XCTestCase {
         expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: playerProgress)
         waitForExpectations(timeout: 10)
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
-        XCTAssertTrue(app.buttons["播放视频"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["播放影片"].waitForExistence(timeout: 5))
         XCTAssertGreaterThanOrEqual(playerProgress.frame.height, 44)
         let playerPage = app.otherElements["player-episode-1"]
         XCTAssertLessThanOrEqual(playerProgress.frame.maxY - 10 - playerPage.staticTexts["theater-summary-text"].frame.maxY, 18)
@@ -307,8 +314,8 @@ final class DramaPlayfunUITests: XCTestCase {
             return value > 20 && value < 40
         }, evaluatedWith: playerProgress)
         waitForExpectations(timeout: 10)
-        XCTAssertTrue(app.buttons["播放视频"].exists)
-        playerPage.buttons["展开"].tap()
+        XCTAssertTrue(app.buttons["播放影片"].exists)
+        playerPage.buttons["展開"].tap()
         XCTAssertTrue(playerPage.buttons["收起"].waitForExistence(timeout: 5))
         playerPage.buttons["收起"].tap()
         XCTAssertEqual(app.scrollViews["player-episode-feed"].value as? String, "第1集")
@@ -318,15 +325,16 @@ final class DramaPlayfunUITests: XCTestCase {
     func testTheaterPagesVerticallyAndOpensEpisodes() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-TheaterUITestFixture")
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        app.tabBars.buttons["剧场"].tap()
-        let first = app.buttons["更多剧集，剧场测试甲"]
+        app.tabBars.buttons["劇場"].tap()
+        let first = app.buttons["更多劇集，剧场测试甲"]
         XCTAssertTrue(first.waitForExistence(timeout: 10))
         XCTAssertTrue(first.isHittable)
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.8))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.15))
         start.press(forDuration: 0.05, thenDragTo: end)
-        let second = app.buttons["更多剧集，剧场测试乙"]
+        let second = app.buttons["更多劇集，剧场测试乙"]
         expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: second)
         waitForExpectations(timeout: 5)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
@@ -348,11 +356,12 @@ final class DramaPlayfunUITests: XCTestCase {
     func testRankingsUseServerTabsAndReplaceListOnSelection() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-FeedUITestFixture")
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         app.tabBars.buttons["排行榜"].tap()
         XCTAssertTrue(app.staticTexts["榜单测试21"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["日榜"].isSelected)
-        XCTAssertFalse(app.buttons["精选"].exists)
+        XCTAssertFalse(app.buttons["精選"].exists)
         app.buttons["周榜"].tap()
         XCTAssertTrue(app.staticTexts["榜单测试22"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["周榜"].isSelected)
@@ -377,17 +386,18 @@ final class DramaPlayfunUITests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
         app.staticTexts["榜单测试21"].tap()
-        XCTAssertTrue(app.navigationBars["剧集详情"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["劇集詳情"].waitForExistence(timeout: 5))
     }
 
     @MainActor
     func testHomeContinueWatchingUsesServerHistoryAndHidesWhenEmpty() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-HistoryUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         let title = app.staticTexts["历史测试剧"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["第3集 · 已观看 1:05"].exists)
+        XCTAssertTrue(app.staticTexts["第3集 · 已觀看 1:05"].exists)
         let section = app.otherElements["home-continue-watching"]
         XCTAssertTrue(section.exists)
         app.buttons["history-111"].tap()
@@ -398,6 +408,7 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["历史测试剧"].firstMatch.exists)
         app.terminate()
         app.launchArguments = ["-FeedUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         XCTAssertTrue(app.staticTexts["最新发布"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.otherElements["home-continue-watching"].exists)
@@ -407,6 +418,7 @@ final class DramaPlayfunUITests: XCTestCase {
     func testFeaturedMomentsLayoutAndNavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-FeedUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         let heading = app.staticTexts["今日片刻"]
         XCTAssertTrue(heading.waitForExistence(timeout: 5))
@@ -426,9 +438,9 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertTrue(app.buttons["home-moment-52"].exists)
         XCTAssertTrue(app.buttons["home-moment-53"].exists)
         XCTAssertFalse(app.buttons["home-moment-41"].exists)
-        XCTAssertFalse(app.navigationBars["剧集详情"].exists, "换一换只能刷新数据，不能跳转页面")
+        XCTAssertFalse(app.navigationBars["劇集詳情"].exists, "换一换只能刷新数据，不能跳转页面")
         XCTAssertTrue(app.buttons["home-moments-refresh"].isHittable)
-        XCTAssertTrue(app.tabBars.buttons["首页"].isSelected)
+        XCTAssertTrue(app.tabBars.buttons["首頁"].isSelected)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "首页今日片刻"
         screenshot.lifetime = .keepAlways
@@ -441,10 +453,11 @@ final class DramaPlayfunUITests: XCTestCase {
     func testTheaterSummaryExpandsUpwardWithoutUnusedHeight() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TheaterUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        app.tabBars.buttons["剧场"].tap()
+        app.tabBars.buttons["劇場"].tap()
         let page = app.otherElements["theater-video-101"]
-        let expand = page.buttons["展开"]
+        let expand = page.buttons["展開"]
         XCTAssertTrue(expand.waitForExistence(timeout: 5))
         let collapsed = page.staticTexts["theater-summary-text"]
         let originalBottom = collapsed.frame.maxY
@@ -465,8 +478,9 @@ final class DramaPlayfunUITests: XCTestCase {
     func testPlayerPagesThroughDramaAndSelectsEpisode() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-FeedUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        let banner = app.buttons["推荐剧集，推荐测试"]
+        let banner = app.buttons["推薦劇集，推荐测试"]
         XCTAssertTrue(banner.waitForExistence(timeout: 10))
         banner.tap()
         let feed = app.scrollViews["player-episode-feed"]
@@ -507,8 +521,9 @@ final class DramaPlayfunUITests: XCTestCase {
     func testEpisodeSheetRangesAndUnlockStates() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-PlayerUnlockUITestFixture", "-EpisodesUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        let banner = app.buttons["推荐剧集，推荐测试"]
+        let banner = app.buttons["推薦劇集，推荐测试"]
         XCTAssertTrue(banner.waitForExistence(timeout: 10))
         banner.tap()
         app.buttons["player-episodes"].tap()
@@ -519,10 +534,10 @@ final class DramaPlayfunUITests: XCTestCase {
         add(initialScreenshot)
         XCTAssertTrue(panel.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["episode-range-1"].isSelected)
-        XCTAssertEqual(app.buttons["episode-selection-2"].value as? String, "已观看")
+        XCTAssertEqual(app.buttons["episode-selection-2"].value as? String, "已觀看")
         XCTAssertEqual(app.buttons["episode-selection-3"].value as? String, "可播放")
-        XCTAssertEqual(app.buttons["episode-selection-11"].value as? String, "已解锁")
-        XCTAssertEqual(app.buttons["episode-selection-17"].value as? String, "需10金币解锁")
+        XCTAssertEqual(app.buttons["episode-selection-11"].value as? String, "已解鎖")
+        XCTAssertEqual(app.buttons["episode-selection-17"].value as? String, "需10金幣解鎖")
         app.buttons["episode-selection-3"].tap()
         XCTAssertFalse(panel.exists)
         app.buttons["player-episodes"].tap()
@@ -557,8 +572,9 @@ final class DramaPlayfunUITests: XCTestCase {
     func testSwipingToPaidEpisodeShowsUnlockDialogAndOpensMembership() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-PlayerUnlockUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        let banner = app.buttons["推荐剧集，推荐测试"]
+        let banner = app.buttons["推薦劇集，推荐测试"]
         XCTAssertTrue(banner.waitForExistence(timeout: 10))
         banner.tap()
         app.buttons["player-episodes"].tap()
@@ -571,7 +587,7 @@ final class DramaPlayfunUITests: XCTestCase {
         let dialog = app.otherElements["player-unlock-dialog"]
         bottom.press(forDuration: 0.05, thenDragTo: top)
         XCTAssertTrue(dialog.waitForExistence(timeout: 5), "余额不足时滑到付费集应显示浮层")
-        XCTAssertTrue(app.staticTexts["本集需要解锁"].exists)
+        XCTAssertTrue(app.staticTexts["本集需要解鎖"].exists)
         XCTAssertTrue(app.buttons["player-unlock-coins"].isHittable)
         XCTAssertTrue(app.buttons["player-back"].isHittable, "一级浮层不能遮挡左上角返回按钮")
         XCTAssertFalse(app.otherElements["player-unlock-confirmation"].exists)
@@ -611,8 +627,9 @@ final class DramaPlayfunUITests: XCTestCase {
     func testPlayerQualityAndSpeedSheetsRememberSelections() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-FeedUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        let banner = app.buttons["推荐剧集，推荐测试"]
+        let banner = app.buttons["推薦劇集，推荐测试"]
         XCTAssertTrue(banner.waitForExistence(timeout: 10))
         banner.tap()
         XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))
@@ -626,11 +643,11 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertTrue(app.buttons["player-quality-480"].exists)
         XCTAssertTrue(app.buttons["player-quality-720"].exists)
         let vip = app.buttons["player-quality-1080"]
-        XCTAssertEqual(vip.value as? String, "会员专享")
+        XCTAssertEqual(vip.value as? String, "會員專享")
         vip.tap()
         XCTAssertFalse(qualityPanel.exists)
         XCTAssertEqual(quality.value as? String, "1080P")
-        XCTAssertFalse(app.navigationBars["会员"].exists, "1080P 暂不校验会员权限")
+        XCTAssertFalse(app.navigationBars["會員"].exists, "1080P 暂不校验会员权限")
         quality.tap()
         XCTAssertTrue(vip.isSelected)
         let selectedQuality = XCTAttachment(screenshot: app.screenshot())
@@ -668,8 +685,9 @@ final class DramaPlayfunUITests: XCTestCase {
     func testShortDramaDetailFromTheaterLoadsAndFollows() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TheaterUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        app.tabBars.buttons["剧场"].tap()
+        app.tabBars.buttons["劇場"].tap()
         let title = app.buttons["drama-detail-title-101"]
         XCTAssertTrue(title.waitForExistence(timeout: 10))
         title.tap()
@@ -677,14 +695,14 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["共68集"].exists)
         let score = app.staticTexts["short-drama-score"]
         XCTAssertTrue(score.exists)
-        XCTAssertTrue(["评分7.5", "评分8.0", "评分8.5", "评分9.0", "评分9.5"].contains(score.label))
+        XCTAssertTrue(["評分7.5", "評分8.0", "評分8.5", "評分9.0", "評分9.5"].contains(score.label))
         let initialScore = score.label
         let follow = app.buttons["short-drama-follow"]
         follow.tap()
-        expectation(for: NSPredicate(format: "value == '已追剧'"), evaluatedWith: follow)
+        expectation(for: NSPredicate(format: "value == '已追劇'"), evaluatedWith: follow)
         waitForExpectations(timeout: 5)
         follow.tap()
-        expectation(for: NSPredicate(format: "value == '未追剧'"), evaluatedWith: follow)
+        expectation(for: NSPredicate(format: "value == '未追劇'"), evaluatedWith: follow)
         waitForExpectations(timeout: 5)
         let collapsedHeight = app.staticTexts["short-drama-summary"].frame.height
         app.buttons["short-drama-expand"].tap()
@@ -701,16 +719,17 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertTrue(app.buttons["short-drama-back"].waitForExistence(timeout: 5))
         app.buttons["short-drama-back"].tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.tabBars.buttons["剧场"].isHittable)
+        XCTAssertTrue(app.tabBars.buttons["劇場"].isHittable)
     }
 
     @MainActor
     func testShortDramaDetailFromPlayerPreservesEpisodeAndFavorite() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TheaterUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        app.tabBars.buttons["剧场"].tap()
-        let episodes = app.buttons["更多剧集，剧场测试甲"]
+        app.tabBars.buttons["劇場"].tap()
+        let episodes = app.buttons["更多劇集，剧场测试甲"]
         XCTAssertTrue(episodes.waitForExistence(timeout: 10))
         episodes.tap()
         let feed = app.scrollViews["player-episode-feed"]
@@ -721,7 +740,7 @@ final class DramaPlayfunUITests: XCTestCase {
         try XCTUnwrap(app.buttons.matching(identifier: "drama-detail-title-101").allElementsBoundByIndex.first(where: \.isHittable)).tap()
         XCTAssertTrue(app.staticTexts["详情测试101"].waitForExistence(timeout: 5))
         app.buttons["short-drama-follow"].tap()
-        expectation(for: NSPredicate(format: "value == '已追剧'"), evaluatedWith: app.buttons["short-drama-follow"])
+        expectation(for: NSPredicate(format: "value == '已追劇'"), evaluatedWith: app.buttons["short-drama-follow"])
         waitForExpectations(timeout: 5)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "短剧详情已追剧"
@@ -748,7 +767,9 @@ final class DramaPlayfunUITests: XCTestCase {
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
+            let app = XCUIApplication()
+            app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
+            app.launch()
         }
     }
 }

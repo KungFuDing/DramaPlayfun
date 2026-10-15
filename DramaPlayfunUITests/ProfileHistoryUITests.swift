@@ -7,6 +7,7 @@ final class ProfileHistoryUITests: XCTestCase {
     func testThreeColumnHistoryAndResumePlayback() {
         let app = XCUIApplication()
         app.launchArguments = ["-ProfileUITestFixture", "-ProfileHistoryUITestFixture"]
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["我的"].waitForExistence(timeout: 10))
         app.tabBars.buttons["我的"].tap()

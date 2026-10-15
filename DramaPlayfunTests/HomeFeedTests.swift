@@ -32,11 +32,11 @@ final class HomeFeedTests: XCTestCase {
         XCTAssertEqual(feed.moments.map(\.id), ["41", "42", "43"])
         XCTAssertEqual(feed.moments.first?.drama.rootDramaID, 40)
         XCTAssertEqual(feed.moments.first?.landscapeURL?.absoluteString, "https://example.invalid/landscape.jpg")
-        XCTAssertEqual(feed.moments.first?.subtitle, "看到第4集")
+        XCTAssertEqual(feed.moments.first?.subtitle, L10n.tr("看到第%d集", 4))
         XCTAssertEqual(feed.shelves.first?.dramas.first?.displayTags, "都市")
         XCTAssertEqual(feed.hotDramas.map(\.id), ["31"])
         XCTAssertEqual(feed.hotDramas.first?.summary, "剧情简介")
-        XCTAssertEqual(feed.hotDramas.first?.displayBadge, "爆款")
+        XCTAssertEqual(feed.hotDramas.first?.displayBadge, L10n.tr("爆款"))
         XCTAssertEqual(feed.hotDramas.first?.coverURL?.absoluteString, "https://example.invalid/cover.jpg")
         XCTAssertTrue(feed.hasMoreHot)
 

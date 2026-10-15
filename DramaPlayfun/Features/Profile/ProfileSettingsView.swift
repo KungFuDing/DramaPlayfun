@@ -8,9 +8,9 @@ private enum SettingsPanel: String, Identifiable {
     var id: Self { self }
     var title: String {
         switch self {
-        case .language: "语言切换"
-        case .contact: "联系客服"
-        case .deactivate: "确定要注销帐户吗？"
+        case .language: L10n.tr("语言切换")
+        case .contact: L10n.tr("联系客服")
+        case .deactivate: L10n.tr("确定要注销帐户吗？")
         }
     }
 }
@@ -31,30 +31,30 @@ struct ProfileSettingsView: View {
                     Image("SettingsBack").renderingMode(.original).resizable().scaledToFit()
                         .frame(width: 22, height: 22)
                         .frame(width: 22, height: 44)
-                }.accessibilityLabel("返回").accessibilityIdentifier("settings-back")
-                Text("设置").font(.system(size: 18, weight: .semibold))
+                }.accessibilityLabel(L10n.tr("返回")).accessibilityIdentifier("settings-back")
+                Text(L10n.tr("设置")).font(.system(size: 18, weight: .semibold))
                 Spacer()
             }.padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 18)
             ScrollView {
                 VStack(spacing: 10) {
-                    SettingsRow(title: "清理缓存", icon: "SettingsCache", detail: clearingCache ? "清理中…" : "\(cacheBytes / 1_000_000)mb") {
+                    SettingsRow(title: L10n.tr("清理缓存"), identifier: "清理缓存", icon: "SettingsCache", detail: clearingCache ? L10n.tr("清理中…") : "\(cacheBytes / 1_000_000) MB") {
                         Task { await clearCache() }
                     }.disabled(clearingCache).frame(height: 48)
                         .background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 12))
                     VStack(spacing: 0) {
-                        SettingsRow(title: "联系客服", icon: "SettingsContact") { panel = .contact }
+                        SettingsRow(title: L10n.tr("联系客服"), identifier: "联系客服", icon: "SettingsContact") { panel = .contact }
                         rowDivider
-                        SettingsRow(title: "语言切换", icon: "SettingsLanguage") { panel = .language }
+                        SettingsRow(title: L10n.tr("语言切换"), identifier: "语言切换", icon: "SettingsLanguage") { panel = .language }
                         rowDivider
-                        SettingsRow(title: "隐私政策", icon: "SettingsPrivacy") { openDocument(app.profile.config.privacyPolicyUrl, title: "隐私政策") }
+                        SettingsRow(title: L10n.tr("隐私政策"), identifier: "隐私政策", icon: "SettingsPrivacy") { openDocument(app.profile.config.privacyPolicyUrl, title: L10n.tr("隐私政策")) }
                         rowDivider
-                        SettingsRow(title: "用户协议", icon: "SettingsAgreement") { openDocument(app.profile.config.userAgreementUrl, title: "用户协议") }
+                        SettingsRow(title: L10n.tr("用户协议"), identifier: "用户协议", icon: "SettingsAgreement") { openDocument(app.profile.config.userAgreementUrl, title: L10n.tr("用户协议")) }
                         rowDivider
-                        SettingsRow(title: "注销账号", icon: "SettingsDeactivate") { panel = .deactivate }
+                        SettingsRow(title: L10n.tr("注销账号"), identifier: "注销账号", icon: "SettingsDeactivate") { panel = .deactivate }
                     }.background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 12))
                 }.padding(.horizontal, 12)
             }.scrollIndicators(.hidden)
-            Text("v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")版本")
+            Text(L10n.tr("v%@版本", Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"))
                 .font(.system(size: 12)).foregroundStyle(Color(white: 0.58)).padding(.bottom, 58)
         }
         .foregroundStyle(.white).background(Theme.background.ignoresSafeArea())
@@ -68,8 +68,8 @@ struct ProfileSettingsView: View {
         }
         .animation(.easeOut(duration: 0.22), value: panel)
         .sheet(item: $document) { SettingsWebDocument(url: $0.url).ignoresSafeArea() }
-        .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-            Button("确定", role: .cancel) { message = nil }
+        .alert(L10n.tr("提示"), isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button(L10n.tr("确定"), role: .cancel) { message = nil }
         } message: { Text(message ?? "") }
         .task {
             await updateCacheSize()
@@ -99,7 +99,7 @@ struct ProfileSettingsView: View {
 
     private func openDocument(_ text: String?, title: String) {
         guard let text, let url = URL(string: text), ["https", "http"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
-            message = "暂未配置\(title)，请联系客服。"
+            message = L10n.tr("暂未配置%@，请联系客服。", title)
             return
         }
         document = SettingsDocument(url: url)
@@ -108,6 +108,7 @@ struct ProfileSettingsView: View {
 
 private struct SettingsRow: View {
     let title: String
+    let identifier: String
     let icon: String
     var detail: String? = nil
     let action: () -> Void
@@ -121,7 +122,7 @@ private struct SettingsRow: View {
                 if let detail { Text(detail).font(.system(size: 13)).foregroundStyle(Color(white: 0.58)) }
                 Image("ProfileChevron").resizable().frame(width: 16, height: 16)
             }.padding(.horizontal, 14).frame(minHeight: 51.5).contentShape(Rectangle())
-        }.accessibilityIdentifier("settings-\(title)")
+        }.accessibilityIdentifier("settings-\(identifier)")
     }
 }
 
@@ -129,7 +130,7 @@ private struct SettingsBottomPanel: View {
     @Environment(AppContainer.self) private var app
     let kind: SettingsPanel
     let onClose: () -> Void
-    @AppStorage("profile.language.v1") private var selectedLanguage = "zh"
+    @State private var localization = LocalizationStore.shared
     @State private var isDeactivating = false
     @State private var error: String?
     @State private var copiedEmail: String?
@@ -139,7 +140,8 @@ private struct SettingsBottomPanel: View {
             ZStack(alignment: .bottom) {
                 Color.black.opacity(0.45).contentShape(Rectangle())
                     .onTapGesture { if !isDeactivating { onClose() } }
-                    .accessibilityLabel("关闭\(kind.title)弹窗")
+                    .accessibilityLabel(L10n.tr("关闭%@弹窗", kind.title))
+                    .accessibilityIdentifier("settings-panel-dismiss")
                 VStack(spacing: 0) {
                     Text(kind.title).font(.system(size: 16, weight: .semibold)).frame(height: 24)
                         .padding(.top, 32)
@@ -159,7 +161,8 @@ private struct SettingsBottomPanel: View {
                     Button { if !isDeactivating { onClose() } } label: {
                         Capsule().fill(Color(white: 0.55)).frame(width: 43, height: 6)
                             .padding(.top, 2).frame(width: 76, height: 24, alignment: .top).contentShape(Rectangle())
-                    }.accessibilityLabel("收起\(kind.title)")
+                    }.accessibilityLabel(L10n.tr("收起%@", kind.title))
+                        .accessibilityIdentifier("settings-panel-close")
                         .gesture(DragGesture(minimumDistance: 10).onEnded { value in
                             if value.translation.height > 30, !isDeactivating { onClose() }
                         })
@@ -169,21 +172,22 @@ private struct SettingsBottomPanel: View {
                         Button(action: onClose) {
                             Image(systemName: "xmark").font(.system(size: 23, weight: .regular))
                                 .foregroundStyle(Color(white: 0.7)).frame(width: 44, height: 44)
-                        }.padding(.top, 2).padding(.trailing, 2).accessibilityLabel("关闭联系客服")
+                        }.padding(.top, 2).padding(.trailing, 2).accessibilityLabel(L10n.tr("关闭联系客服"))
+                            .accessibilityIdentifier("settings-contact-close")
                     }
                 }
                 .accessibilityElement(children: .contain).accessibilityIdentifier("settings-\(kind.rawValue)-panel")
             }
         }
         .ignoresSafeArea().buttonStyle(.plain)
-        .alert("注销失败", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-            Button("确定", role: .cancel) { error = nil }
+        .alert(L10n.tr("注销失败"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button(L10n.tr("确定"), role: .cancel) { error = nil }
         } message: { Text(error ?? "") }
     }
 
     private func panelHeight(bottomInset: CGFloat) -> CGFloat {
         switch kind {
-        case .language: max(354, CGFloat((app.profile.languages.count + 1) / 2) * 56 + 122)
+        case .language: max(354, CGFloat((AppLanguage.allCases.count + 1) / 2) * 56 + 122)
         case .contact: 124 + max(bottomInset, 34)
         case .deactivate: 320 + max(bottomInset, 34)
         }
@@ -192,13 +196,13 @@ private struct SettingsBottomPanel: View {
     private var languageOptions: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 11), GridItem(.flexible(), spacing: 11)], spacing: 10) {
-                ForEach(app.profile.languages) { language in
-                    Button { selectedLanguage = language.id } label: {
+                ForEach(AppLanguage.allCases) { language in
+                    Button { localization.select(language) } label: {
                         Text(language.title).font(.system(size: 14)).frame(maxWidth: .infinity).frame(height: 46)
-                            .foregroundStyle(language.id == selectedLanguage ? Color(white: 0.18) : Color(white: 0.87))
-                            .background(language.id == selectedLanguage ? Theme.accent : Color(white: 0.23), in: RoundedRectangle(cornerRadius: 8))
+                            .foregroundStyle(language == localization.language ? Color(white: 0.18) : Color(white: 0.87))
+                            .background(language == localization.language ? Theme.accent : Color(white: 0.23), in: RoundedRectangle(cornerRadius: 8))
                     }.accessibilityIdentifier("settings-language-\(language.id)")
-                        .accessibilityAddTraits(language.id == selectedLanguage ? .isSelected : [])
+                        .accessibilityAddTraits(language == localization.language ? .isSelected : [])
                 }
             }
         }.scrollIndicators(.hidden)
@@ -206,12 +210,12 @@ private struct SettingsBottomPanel: View {
 
     private var contact: some View {
         HStack(spacing: 8) {
-            Text("邮箱:\(app.profile.config.customerServiceEmail)")
+            Text(L10n.tr("邮箱:%@", app.profile.config.customerServiceEmail))
                 .font(.system(size: 14)).foregroundStyle(Color(white: 0.7))
                 .lineLimit(1).minimumScaleFactor(0.75).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button(action: copyContactEmail) {
-                Text(copiedEmail == app.profile.config.customerServiceEmail ? "已复制" : "复制")
+                Text(copiedEmail == app.profile.config.customerServiceEmail ? L10n.tr("已复制") : L10n.tr("复制"))
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.accent)
                     .frame(width: 52, height: 44).contentShape(Rectangle())
             }.accessibilityIdentifier("settings-copy-email")
@@ -236,25 +240,25 @@ private struct SettingsBottomPanel: View {
         VStack(spacing: 20) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("注销后，您将放弃以下权益且**无法找回**：")
-                    Text("1. **虚拟财产清空：** 帐户内剩余的**看剧金币、充值余额及未过期的会员VIP权益**将自动失效。")
-                    Text("2. **观看记录清除：** 您的追剧历史、收藏列表、点赞数据将被永久删除。")
-                    Text("3. **帐号关系解除：** 帐号绑定关系及个人资料将全部清空。")
-                    Text("请确保所有订单已完成，注销后将无法处理相关售后问题。")
+                    Text(LocalizedStringKey(L10n.tr("注销后，您将放弃以下权益且**无法找回**：")))
+                    Text(LocalizedStringKey(L10n.tr("1. **虚拟财产清空：** 帐户内剩余的**看剧金币、充值余额及未过期的会员VIP权益**将自动失效。")))
+                    Text(LocalizedStringKey(L10n.tr("2. **观看记录清除：** 您的追剧历史、收藏列表、点赞数据将被永久删除。")))
+                    Text(LocalizedStringKey(L10n.tr("3. **帐号关系解除：** 帐号绑定关系及个人资料将全部清空。")))
+                    Text(L10n.tr("请确保所有订单已完成，注销后将无法处理相关售后问题。"))
                         .italic()
                 }
                 .font(.system(size: 14)).foregroundStyle(Color(white: 0.7)).lineSpacing(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }.scrollIndicators(.hidden)
             HStack(spacing: 16) {
-                Button("我再想想", action: onClose).font(.system(size: 16, weight: .medium))
+                Button(L10n.tr("我再想想"), action: onClose).font(.system(size: 16, weight: .medium))
                     .foregroundStyle(Color(white: 0.7)).frame(maxWidth: .infinity).frame(height: 46)
                     .overlay { Capsule().strokeBorder(Color(white: 0.58), lineWidth: 0.5) }
                     .disabled(isDeactivating).accessibilityIdentifier("settings-deactivate-cancel")
                 Button { Task { await deactivateAccount() } } label: {
                     Group {
                         if isDeactivating { ProgressView().tint(Color(white: 0.18)) }
-                        else { Text("确认注销").font(.system(size: 16, weight: .medium)) }
+                        else { Text(L10n.tr("确认注销")).font(.system(size: 16, weight: .medium)) }
                     }.foregroundStyle(Color(white: 0.18)).frame(maxWidth: .infinity).frame(height: 46)
                         .background(Theme.accent, in: Capsule())
                 }.disabled(isDeactivating).accessibilityIdentifier("settings-deactivate-confirm")
@@ -272,7 +276,7 @@ private struct SettingsBottomPanel: View {
             app.watchHistory.clearAccountData()
             onClose()
             await app.guestSession.startNewSession()
-        } catch { self.error = error.localizedDescription }
+        } catch { self.error = error.appLocalizedDescription }
     }
 }
 

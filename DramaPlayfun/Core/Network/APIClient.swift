@@ -27,7 +27,7 @@ nonisolated struct APIConfiguration: Sendable {
     }
 }
 
-nonisolated enum APIError: LocalizedError {
+nonisolated enum APIError: AppLocalizedError {
     case missingBaseURL, invalidConfiguration
     case encoding(Error), transport(Error), httpStatus(Int), business(Int, String?), decoding(Error)
     case encryption(Error), decryption(Error)
@@ -35,18 +35,18 @@ nonisolated enum APIError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingBaseURL: "尚未配置 API_BASE_URL。"
-        case .invalidConfiguration: "接口地址或超时配置无效。"
-        case .encoding: "请求参数编码失败。"
-        case .encryption: "请求数据加密失败。"
-        case .decryption: "响应数据解密或完整性校验失败。"
-        case .missingEncryptionKey: "服务端已开启接口加密，但客户端未配置加密密钥。"
-        case .transport: "网络连接失败，请稍后重试。"
-        case .httpStatus(let status): "服务器返回 HTTP \(status)。"
+        case .missingBaseURL: L10n.text("尚未配置 API_BASE_URL。")
+        case .invalidConfiguration: L10n.text("接口地址或超时配置无效。")
+        case .encoding: L10n.text("请求参数编码失败。")
+        case .encryption: L10n.text("请求数据加密失败。")
+        case .decryption: L10n.text("响应数据解密或完整性校验失败。")
+        case .missingEncryptionKey: L10n.text("服务端已开启接口加密，但客户端未配置加密密钥。")
+        case .transport: L10n.text("网络连接失败，请稍后重试。")
+        case .httpStatus(let status): L10n.text("服务器返回 HTTP %d。", status)
         case .business(let code, let message):
-            if let message, !message.isEmpty { "服务器返回业务错误 \(code)：\(message)" }
-            else { "服务器返回业务错误 \(code)。" }
-        case .decoding: "接口返回的数据格式无法解析。"
+            if let message, !message.isEmpty { L10n.text("服务器返回业务错误 %d：%@", code, message) }
+            else { L10n.text("服务器返回业务错误 %d。", code) }
+        case .decoding: L10n.text("接口返回的数据格式无法解析。")
         }
     }
 }
@@ -138,6 +138,7 @@ final class APIClient {
 
     private func headers(for path: String, networkLocation: NetworkLocation?) -> [String: String] {
         var runtimeHeaders = clientMetadata.headers
+        runtimeHeaders["language"] = AppLanguage.current.rawValue
         if let networkLocation { runtimeHeaders.merge(networkLocation.headers) { _, current in current } }
         if let deviceIdentifier { runtimeHeaders["deviceId"] = deviceIdentifier }
         let runtimeKeys = Set(runtimeHeaders.keys.map { $0.lowercased() }).union(["ip", "countrycode", "deviceid"])

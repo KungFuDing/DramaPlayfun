@@ -12,7 +12,7 @@ struct LaunchScreenView: View {
                     .ignoresSafeArea()
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("DramaPlayfun")
-                    .accessibilityValue(errorMessage == nil ? "正在连接…" : "连接失败")
+                    .accessibilityValue(errorMessage == nil ? L10n.tr("正在连接…") : L10n.tr("连接失败"))
 
                 if let errorMessage {
                     ScrollView {
@@ -20,7 +20,7 @@ struct LaunchScreenView: View {
                             Text(errorMessage)
                                 .multilineTextAlignment(.center)
                                 .foregroundStyle(.white.opacity(0.85))
-                            Button("重新连接", action: retry)
+                            Button(L10n.tr("重新连接"), action: retry)
                                 .buttonStyle(.borderedProminent)
                                 .tint(Theme.accent)
                                 .foregroundStyle(.black)
@@ -58,5 +58,5 @@ private struct LaunchArtwork: UIViewControllerRepresentable {
 }
 
 #Preview("连接失败") {
-    LaunchScreenView(errorMessage: "网络连接失败，请检查网络后重试。", retry: {})
+    LaunchScreenView(errorMessage: L10n.tr("网络连接失败，请检查网络后重试。"), retry: {})
 }

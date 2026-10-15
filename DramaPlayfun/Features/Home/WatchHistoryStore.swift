@@ -11,10 +11,10 @@ struct WatchHistoryItem: Identifiable {
 
     var id: String { drama.id }
     var subtitle: String {
-        let episode = episodeNumber.map { "第\($0)集" } ?? episodeText ?? "观看记录"
+        let episode = episodeNumber.map { L10n.tr("第%d集", $0) } ?? episodeText ?? L10n.tr("观看记录")
         guard seconds > 0 else { return episode }
         let time = Int(seconds)
-        return episode + " · 已观看 " + String(format: "%d:%02d", time / 60, time % 60)
+        return L10n.tr("%@ · 已观看 %@", episode, String(format: "%d:%02d", time / 60, time % 60))
     }
 
     func fraction(using library: LibraryStore) -> Double? {
@@ -38,8 +38,16 @@ final class WatchHistoryStore {
     private(set) var hasMore = false
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
-    private(set) var errorMessage: String?
-    private(set) var loadMoreErrorMessage: String?
+    private var loadError: Error?
+    var errorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return loadError?.appLocalizedDescription
+    }
+    private var loadMoreError: Error?
+    var loadMoreErrorMessage: String? {
+        _ = LocalizationStore.shared.language
+        return loadMoreError?.appLocalizedDescription
+    }
     private var page = 0
     private var generation = 0
     private let network: APIClient
@@ -52,8 +60,8 @@ final class WatchHistoryStore {
         items = []
         page = 0
         hasMore = false
-        errorMessage = nil
-        loadMoreErrorMessage = nil
+        loadError = nil
+        loadMoreError = nil
     }
 
     func reload() async {
@@ -62,8 +70,8 @@ final class WatchHistoryStore {
         let current = generation
         isLoading = true
         isLoadingMore = false
-        errorMessage = nil
-        loadMoreErrorMessage = nil
+        loadError = nil
+        loadMoreError = nil
         defer { isLoading = false }
         do {
             let result = try await network.request(AppAPI.v1ClientMeHistoryList,
@@ -76,7 +84,7 @@ final class WatchHistoryStore {
             hasMore = result.hasMore ?? false
         } catch is CancellationError {
         } catch {
-            errorMessage = error.localizedDescription
+            loadError = error
         }
     }
 
@@ -85,7 +93,7 @@ final class WatchHistoryStore {
         let current = generation
         let nextPage = page + 1
         isLoadingMore = true
-        loadMoreErrorMessage = nil
+        loadMoreError = nil
         defer { if current == generation { isLoadingMore = false } }
         do {
             let result = try await network.request(AppAPI.v1ClientMeHistoryList,
@@ -98,7 +106,7 @@ final class WatchHistoryStore {
             hasMore = result.hasMore ?? false
         } catch is CancellationError {
         } catch {
-            if current == generation { loadMoreErrorMessage = error.localizedDescription }
+            if current == generation { loadMoreError = error }
         }
     }
 

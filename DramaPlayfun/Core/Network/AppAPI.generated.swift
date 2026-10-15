@@ -48,8 +48,6 @@ nonisolated enum AppAPI {
     static let v1ClientDramaShare = APIEndpoint<APIModels.V1ReportDramaShareReq, APIModels.V1ReportDramaShareRes>(path: "/mobile/v1/client/drama/share")
     /// 获取剧集分享文案
     static let v1ClientDramaShareText = APIEndpoint<APIModels.V1GetDramaShareTextReq, APIModels.V1GetDramaShareTextRes>(path: "/mobile/v1/client/drama/share/text")
-    /// 查询语言字典列表
-    static let v1ClientLanguageList = APIEndpoint<APIModels.V1GetLanguageListReq, APIModels.V1GetLanguageListRes>(path: "/mobile/v1/client/language/list")
     /// 获取首页列表
     static let v1ClientList = APIEndpoint<APIModels.V1GetHomeListReq, APIModels.V1GetHomeListRes>(path: "/mobile/v1/client/list")
     /// 上传客户端日志

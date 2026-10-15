@@ -8,7 +8,7 @@ struct HomeContinueWatchingSection: View {
         let history = app.watchHistory
         if !history.items.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                HomeSectionTitle(title: "继续观看") { router.selectedTab = .profile }
+                HomeSectionTitle(title: L10n.tr("继续观看")) { router.selectedTab = .profile }
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 14) {
                         ForEach(history.items) { item in
@@ -20,7 +20,7 @@ struct HomeContinueWatchingSection: View {
                                     DramaPoster(drama: item.drama).frame(width: 74)
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text(item.drama.title).font(.subheadline.weight(.medium)).lineLimit(2)
-                                        Text(item.isOnline ? item.subtitle : "已下架")
+                                        Text(item.isOnline ? item.subtitle : L10n.tr("已下架"))
                                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                         if let fraction = item.fraction(using: app.library) {
                                             ProgressView(value: fraction).tint(Theme.accent)
@@ -42,7 +42,7 @@ struct HomeContinueWatchingSection: View {
                         if history.isLoadingMore {
                             ProgressView().frame(width: 60)
                         } else if history.loadMoreErrorMessage != nil {
-                            Button("加载失败，重试") { Task { await history.loadMore() } }
+                            Button(L10n.tr("加载失败，重试")) { Task { await history.loadMore() } }
                                 .frame(width: 140)
                         }
                     }

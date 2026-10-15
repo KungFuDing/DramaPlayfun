@@ -12,9 +12,21 @@ final class SearchStore {
     private(set) var isSearching = false
     private(set) var isLoadingMore = false
     private(set) var hasMore = false
-    private(set) var historyError: String?
-    private(set) var searchError: String?
-    private(set) var loadMoreError: String?
+    private var historyFailure: Error?
+    var historyError: String? {
+        _ = LocalizationStore.shared.language
+        return historyFailure?.appLocalizedDescription
+    }
+    private var searchFailure: Error?
+    var searchError: String? {
+        _ = LocalizationStore.shared.language
+        return searchFailure?.appLocalizedDescription
+    }
+    private var loadMoreFailure: Error?
+    var loadMoreError: String? {
+        _ = LocalizationStore.shared.language
+        return loadMoreFailure?.appLocalizedDescription
+    }
     private var keyword = ""
     private var page = 0
     private var generation = 0
@@ -29,7 +41,7 @@ final class SearchStore {
         historyGeneration += 1
         let current = historyGeneration
         isLoadingHistory = true
-        historyError = nil
+        historyFailure = nil
         defer { if current == historyGeneration { isLoadingHistory = false } }
         do {
             let response = try await network.request(AppAPI.v1TheaterSearchHistory,
@@ -40,7 +52,7 @@ final class SearchStore {
             history = (response.list ?? []).map(Self.trim).filter { !$0.isEmpty && seen.insert($0).inserted }
         } catch is CancellationError {
         } catch {
-            if current == historyGeneration { historyError = error.localizedDescription }
+            if current == historyGeneration { historyFailure = error }
         }
     }
 
@@ -49,14 +61,14 @@ final class SearchStore {
         historyGeneration += 1
         isLoadingHistory = false
         isClearingHistory = true
-        historyError = nil
+        historyFailure = nil
         defer { isClearingHistory = false }
         do {
             _ = try await network.request(AppAPI.v1TheaterSearchHistoryClear, body: .init(), unwrapEnvelope: true)
             try Task.checkCancellation()
             history = []
         } catch is CancellationError {
-        } catch { historyError = error.localizedDescription }
+        } catch { historyFailure = error }
     }
 
     func suggest(_ input: String, debounce: Duration = .milliseconds(250)) async {
@@ -68,8 +80,8 @@ final class SearchStore {
         hasMore = false
         isSearching = false
         isLoadingMore = false
-        searchError = nil
-        loadMoreError = nil
+        searchFailure = nil
+        loadMoreFailure = nil
         let input = Self.trim(input)
         isLoadingSuggestions = !input.isEmpty
         guard !input.isEmpty else { return }
@@ -88,7 +100,7 @@ final class SearchStore {
             })
         } catch is CancellationError {
         } catch {
-            if current == generation { searchError = error.localizedDescription }
+            if current == generation { searchFailure = error }
         }
     }
 
@@ -105,15 +117,15 @@ final class SearchStore {
         isLoadingSuggestions = false
         isLoadingMore = false
         isSearching = true
-        searchError = nil
-        loadMoreError = nil
+        searchFailure = nil
+        loadMoreFailure = nil
         await fetchResults(page: 1, generation: current)
     }
 
     func loadMore() async {
         guard hasMore, !isSearching, !isLoadingMore, !keyword.isEmpty else { return }
         isLoadingMore = true
-        loadMoreError = nil
+        loadMoreFailure = nil
         await fetchResults(page: page + 1, generation: generation)
     }
 
@@ -145,8 +157,8 @@ final class SearchStore {
         } catch is CancellationError {
         } catch {
             guard current == generation else { return }
-            if nextPage == 1 { searchError = error.localizedDescription }
-            else { loadMoreError = error.localizedDescription }
+            if nextPage == 1 { searchFailure = error }
+            else { loadMoreFailure = error }
         }
     }
 

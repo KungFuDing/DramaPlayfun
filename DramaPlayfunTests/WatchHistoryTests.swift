@@ -35,7 +35,7 @@ final class WatchHistoryTests: XCTestCase {
         let first = try XCTUnwrap(history.items.first)
         XCTAssertEqual(first.drama.rootDramaID, 10)
         XCTAssertEqual(first.drama.coverURL?.absoluteString, "https://example.invalid/a.jpg")
-        XCTAssertEqual(first.subtitle, "第3集 · 已观看 1:05")
+        XCTAssertEqual(first.subtitle, L10n.tr("%@ · 已观看 %@", L10n.tr("第%d集", 3), "1:05"))
         XCTAssertFalse(history.items[1].isOnline)
         XCTAssertEqual(history.items[1].seconds, 0)
         let suite = "WatchHistoryTests-" + UUID().uuidString

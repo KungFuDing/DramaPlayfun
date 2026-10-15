@@ -9,7 +9,7 @@ struct WalletView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            CoinPageHeader(title: "我的钱包", identifier: "wallet-back")
+            CoinPageHeader(title: L10n.tr("我的钱包"), identifier: "wallet-back")
             ScrollView {
                 VStack(spacing: 0) {
                     balanceCard.padding(.top, 10)
@@ -32,28 +32,28 @@ struct WalletView: View {
                 MembershipView(initialCategory: .coins, showsNavigationBar: true)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("完成") { showingRecharge = false }
+                            Button(L10n.tr("完成")) { showingRecharge = false }
                         }
                     }
             }
         }
         .task { await app.wallet.reloadBalance() }
         .task(id: kind) { await app.wallet.load(kind, refresh: true) }
-        .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-            Button("确定", role: .cancel) { message = nil }
+        .alert(L10n.tr("提示"), isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button(L10n.tr("确定"), role: .cancel) { message = nil }
         } message: { Text(message ?? "") }
     }
 
     private var balanceCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("金币余额").font(.system(size: 16))
+            Text(L10n.tr("金币余额")).font(.system(size: 16))
             HStack(spacing: 6) {
                 Image("WelfareCoin").resizable().scaledToFit().frame(width: 21, height: 21)
                 Text(app.wallet.balanceText).font(.system(size: 30, weight: .medium))
                     .lineLimit(1).minimumScaleFactor(0.6).accessibilityIdentifier("wallet-balance")
                 Spacer(minLength: 10)
                 Button { showingRecharge = true } label: {
-                    Text("去充值").font(.system(size: 16, weight: .medium)).foregroundStyle(Color(white: 0.18))
+                    Text(L10n.tr("去充值")).font(.system(size: 16, weight: .medium)).foregroundStyle(Color(white: 0.18))
                         .frame(width: 89, height: 33).background(Theme.accent, in: Capsule())
                 }.accessibilityIdentifier("wallet-recharge")
             }
@@ -65,15 +65,15 @@ struct WalletView: View {
 
     private var autoPlayRow: some View {
         HStack {
-            Text("自动播放下一集").font(.system(size: 15))
+            Text(L10n.tr("自动播放下一集")).font(.system(size: 15))
             Spacer()
             if changingAutoPlay { ProgressView().scaleEffect(0.7).frame(width: 20) }
-            Toggle("自动播放下一集", isOn: Binding(get: { app.profile.autoPlaysNext }, set: { enabled in
+            Toggle(L10n.tr("自动播放下一集"), isOn: Binding(get: { app.profile.autoPlaysNext }, set: { enabled in
                 changingAutoPlay = true
                 Task {
                     defer { changingAutoPlay = false }
                     do { try await app.profile.setAutoPlayNext(enabled) }
-                    catch { message = error.localizedDescription }
+                    catch { message = error.appLocalizedDescription }
                 }
             }))
             .labelsHidden().toggleStyle(CoinAutoPlayToggleStyle()).disabled(changingAutoPlay)
@@ -87,7 +87,7 @@ struct WalletView: View {
             ForEach(WalletRecordKind.allCases) { item in
                 Button { kind = item } label: {
                     VStack(spacing: 5) {
-                        Text(item.rawValue).font(.system(size: 15, weight: kind == item ? .semibold : .regular))
+                        Text(L10n.tr(item.rawValue)).font(.system(size: 15, weight: kind == item ? .semibold : .regular))
                             .foregroundStyle(kind == item ? .white : Color(white: 0.58))
                         Capsule().fill(kind == item ? Theme.accent : .clear).frame(width: 18, height: 4)
                     }.frame(height: 28)
@@ -120,20 +120,20 @@ struct WalletView: View {
                 }
                 if let error = store.errors[kind] {
                     Text(error).font(.footnote).foregroundStyle(.secondary)
-                    Button("重新加载") { Task { await store.load(kind, refresh: groups.isEmpty) } }
+                    Button(L10n.tr("重新加载")) { Task { await store.load(kind, refresh: groups.isEmpty) } }
                 } else if groups.isEmpty {
-                    Text("暂无\(kind.rawValue.dropFirst(2))记录").font(.system(size: 14))
+                    Text(kind.emptyTitle).font(.system(size: 14))
                         .foregroundStyle(Color(white: 0.58)).padding(.vertical, 40)
                 }
                 if store.hasMore[kind] == true {
                     Button { Task { await store.load(kind) } } label: {
                         if store.loading.contains(kind) { ProgressView() }
-                        else { Text("加载更多").font(.system(size: 14)).foregroundStyle(Theme.accent) }
+                        else { Text(L10n.tr("加载更多")).font(.system(size: 14)).foregroundStyle(Theme.accent) }
                     }.frame(height: 44).disabled(store.loading.contains(kind))
                 }
                 if let error = store.balanceError {
                     Text(error).font(.footnote).foregroundStyle(.secondary)
-                    Button("重试余额") { Task { await store.reloadBalance() } }
+                    Button(L10n.tr("重试余额")) { Task { await store.reloadBalance() } }
                 }
             }
         }
@@ -170,8 +170,8 @@ private struct CoinAutoPlayToggleStyle: ToggleStyle {
                 .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                     Circle().fill(configuration.isOn ? Theme.background : .white).frame(width: 18, height: 18).padding(2)
                 }.frame(minHeight: 44)
-        }.accessibilityLabel("自动播放下一集")
-            .accessibilityValue(configuration.isOn ? "开启" : "关闭")
+        }.accessibilityLabel(L10n.tr("自动播放下一集"))
+            .accessibilityValue(configuration.isOn ? L10n.tr("开启") : L10n.tr("关闭"))
     }
 }
 
@@ -184,7 +184,7 @@ struct CoinPageHeader: View {
             Button { dismiss() } label: {
                 Image("SettingsBack").renderingMode(.original).resizable().scaledToFit()
                     .frame(width: 22, height: 22).frame(width: 22, height: 44)
-            }.accessibilityLabel("返回").accessibilityIdentifier(identifier)
+            }.accessibilityLabel(L10n.tr("返回")).accessibilityIdentifier(identifier)
             Text(title).font(.system(size: 18, weight: .semibold))
             Spacer()
         }.padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 0)

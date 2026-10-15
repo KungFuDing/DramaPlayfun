@@ -42,7 +42,7 @@ struct PlayerEpisodesSheet: View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
                 Color.clear.contentShape(Rectangle()).onTapGesture(perform: onClose)
-                    .accessibilityLabel("关闭选集弹窗")
+                    .accessibilityLabel(L10n.tr("关闭选集弹窗"))
                 panel
                     .frame(height: geometry.size.height * 0.602)
                     .transition(.move(edge: .bottom))
@@ -73,7 +73,7 @@ struct PlayerEpisodesSheet: View {
                 Button(action: onClose) {
                     Image(systemName: "xmark").font(.system(size: 22, weight: .medium))
                         .foregroundStyle(Color(white: 0.72)).frame(width: 36, height: 36)
-                }.accessibilityLabel("关闭选集")
+                }.accessibilityLabel(L10n.tr("关闭选集"))
             }.padding(.top, 4).padding(.trailing, 6)
         }
         .clipShape(PlayerBottomPanelShape())
@@ -84,7 +84,7 @@ struct PlayerEpisodesSheet: View {
                 .gesture(DragGesture(minimumDistance: 10).onEnded { value in
                     if value.translation.height > 30 { onClose() }
                 })
-                .accessibilityLabel("收起选集")
+                .accessibilityLabel(L10n.tr("收起选集"))
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("player-episodes-panel")
@@ -102,10 +102,10 @@ struct PlayerEpisodesSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.7), lineWidth: 0.5))
             VStack(alignment: .leading, spacing: 10) {
                 Text(drama.title).font(.system(size: 14, weight: .semibold)).lineLimit(2)
-                Text((drama.tagNames.isEmpty ? [drama.category.rawValue] : Array(drama.tagNames.prefix(3)))
+                Text((drama.tagNames.isEmpty ? [drama.category.title] : Array(drama.tagNames.prefix(3)))
                     .joined(separator: "   "))
                     .font(.system(size: 12)).foregroundStyle(Color(white: 0.6)).lineLimit(1)
-                Text("更新至第\(episodes.map(\.number).max() ?? 0)集")
+                Text(L10n.tr("更新至第%d集", episodes.map(\.number).max() ?? 0))
                     .font(.system(size: 12)).foregroundStyle(Color(white: 0.84))
                     .padding(.horizontal, 10).padding(.vertical, 5)
                     .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
@@ -181,8 +181,8 @@ private struct EpisodeSelectionCell: View {
             }.aspectRatio(1, contentMode: .fit)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("第\(episode.number)集")
-        .accessibilityValue(isSelected ? "正在播放" : episode.requiresCoinUnlock ? "需\(episode.unlockCoin)金币解锁" : watched ? "已观看" : episode.unlockCoin > 0 && episode.isUnlocked ? "已解锁" : "可播放")
+        .accessibilityLabel(L10n.tr("第%d集", episode.number))
+        .accessibilityValue(isSelected ? L10n.tr("正在播放") : episode.requiresCoinUnlock ? L10n.tr("需%lld金币解锁", episode.unlockCoin) : watched ? L10n.tr("已观看") : episode.unlockCoin > 0 && episode.isUnlocked ? L10n.tr("已解锁") : L10n.tr("可播放"))
         .accessibilityIdentifier("episode-selection-\(episode.number)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

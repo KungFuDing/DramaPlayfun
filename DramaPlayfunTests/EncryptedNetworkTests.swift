@@ -15,7 +15,7 @@ final class EncryptedNetworkTests: XCTestCase {
             XCTAssertEqual(target.headers?["Content-Type"], "text/plain; charset=utf-8")
             XCTAssertEqual(target.headers?["Accept"], "text/plain")
             XCTAssertFalse(target.headers?.keys.contains { $0.lowercased() == "x-payload-encryption" } ?? false)
-            XCTAssertEqual(target.headers?["language"], "zh-Hans")
+            XCTAssertEqual(target.headers?["language"], AppLanguage.current.rawValue)
             XCTAssertNil(target.headers?["content-type"])
             XCTAssertNil(target.headers?["x-payload-encryption"])
             XCTAssertNil(try? JSONSerialization.jsonObject(with: target.body))

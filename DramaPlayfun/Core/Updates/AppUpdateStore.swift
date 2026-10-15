@@ -4,8 +4,14 @@ import Observation
 nonisolated struct AppUpdateNotice: Identifiable, Equatable, Sendable {
     var id: String { "\(version)|\(isForced)" }
     let version: String
-    let title: String
-    let content: String
+    private let remoteTitle: String?
+    private let remoteContent: String?
+    var title: String { remoteTitle ?? L10n.text(isForced ? "版本升级提醒" : "新版本已就绪") }
+    var content: String {
+        remoteContent ?? L10n.text(isForced
+            ? "为了保障服务稳定，请完成本次版本升级后继续使用"
+            : "本次更新优化了播放体验，并带来更多内容推荐。立即更新，体验更流畅")
+    }
     let isForced: Bool
     let downloadURL: URL?
 
@@ -13,10 +19,8 @@ nonisolated struct AppUpdateNotice: Identifiable, Equatable, Sendable {
         guard response.hasUpdate == true else { return nil }
         isForced = response.forceUpdate == true
         version = Self.nonempty(response.latestVersion) ?? ""
-        title = Self.nonempty(response.title) ?? (isForced ? "版本升级提醒" : "新版本已就绪")
-        content = Self.nonempty(response.content) ?? (isForced
-            ? "为了保障服务稳定，请完成本次版本升级后继续使用"
-            : "本次更新优化了播放体验，并带来更多内容推荐。立即更新，体验更流畅")
+        remoteTitle = Self.nonempty(response.title)
+        remoteContent = Self.nonempty(response.content)
         downloadURL = Self.downloadURL(response.downloadUrl)
     }
 
@@ -74,7 +78,7 @@ final class AppUpdateStore {
             notice = !update.isForced && dismissedOptionalVersions.contains(update.version) ? nil : update
         } catch is CancellationError {
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.appLocalizedDescription
         }
     }
 
@@ -88,7 +92,7 @@ final class AppUpdateStore {
     func openUpdate(using openURL: @MainActor (URL) async -> Bool) async {
         guard let notice, !isOpening else { return }
         guard let url = notice.downloadURL else {
-            errorMessage = "更新地址暂不可用，请稍后重试。"
+            errorMessage = L10n.text("更新地址暂不可用，请稍后重试。")
             return
         }
         isOpening = true
@@ -96,11 +100,11 @@ final class AppUpdateStore {
         defer { isOpening = false }
         let opened = await openURL(url)
         guard self.notice?.id == notice.id else { return }
-        if !opened { errorMessage = "无法打开更新页面，请稍后重试。" }
+        if !opened { errorMessage = L10n.text("无法打开更新页面，请稍后重试。") }
     }
 }
 
-nonisolated private enum AppUpdateError: LocalizedError {
+nonisolated private enum AppUpdateError: AppLocalizedError {
     case invalidResponse
-    var errorDescription: String? { "更新信息暂不可用，请稍后重试。" }
+    var errorDescription: String? { L10n.text("更新信息暂不可用，请稍后重试。") }
 }

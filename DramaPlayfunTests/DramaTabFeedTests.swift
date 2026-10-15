@@ -43,7 +43,7 @@ final class DramaTabFeedTests: XCTestCase {
         await feed.loadSelectedIfNeeded()
         XCTAssertEqual(feed.selectedPage.dramas.map(\.id), ["91", "92"])
         XCTAssertEqual(feed.selectedPage.dramas.first?.rootDramaID, 90)
-        XCTAssertEqual(feed.selectedPage.dramas.first?.displayBadge, "新品")
+        XCTAssertEqual(feed.selectedPage.dramas.first?.displayBadge, L10n.tr("新品"))
         await feed.loadMore()
         XCTAssertEqual(feed.selectedPage.dramas.map(\.id), ["91", "92", "93"])
         XCTAssertFalse(feed.selectedPage.hasMore)

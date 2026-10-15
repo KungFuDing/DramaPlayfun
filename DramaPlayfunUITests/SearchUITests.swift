@@ -7,6 +7,7 @@ final class SearchUITests: XCTestCase {
     func testSearchHistorySuggestionsResultsAndPlayback() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-SearchUITestFixture")
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         XCTAssertTrue(app.buttons["home-search"].waitForExistence(timeout: 10))
         app.buttons["home-search"].tap()
@@ -42,6 +43,7 @@ final class SearchUITests: XCTestCase {
     func testRecentSearchCanSearchAgainAndClear() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-SearchUITestFixture")
+        app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         XCTAssertTrue(app.buttons["home-search"].waitForExistence(timeout: 10))
         app.buttons["home-search"].tap()

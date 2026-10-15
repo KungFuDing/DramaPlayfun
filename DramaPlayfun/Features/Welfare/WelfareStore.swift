@@ -9,7 +9,8 @@ struct WelfareDay: Identifiable {
 
 struct WelfareTask: Identifiable {
     let id: String
-    let title: String
+    let remoteTitle: String?
+    var title: String { remoteTitle ?? L10n.tr("福利任务") }
     let completed: Int
     let limit: Int
     let coins: Int64
@@ -36,7 +37,16 @@ final class WelfareStore {
     private(set) var hasReceivedToday = false
     private(set) var isLoading = false
     private(set) var isSigning = false
-    private(set) var error: String?
+    private enum Issue { case signInFailed, failure(Error) }
+    private var issue: Issue?
+    var error: String? {
+        _ = LocalizationStore.shared.language
+        switch issue {
+        case .signInFailed: return L10n.tr("签到未成功，请稍后重试。")
+        case .failure(let error): return error.appLocalizedDescription
+        case nil: return nil
+        }
+    }
     private(set) var hasLoaded = false
     private(set) var shouldPopup = false
     private(set) var signPopupRewardCoin: Int64?
@@ -70,13 +80,13 @@ final class WelfareStore {
             var codes = Set<String>()
             tasks = items.compactMap { item in
                 guard let code = item.taskCode, code != "daily_sign_in", codes.insert(code).inserted else { return nil }
-                return WelfareTask(id: code, title: item.taskName ?? "福利任务", completed: item.completedCount ?? 0,
+                return WelfareTask(id: code, remoteTitle: item.taskName, completed: item.completedCount ?? 0,
                     limit: item.dailyLimit ?? 0, coins: item.rewardCoin ?? 0)
             }
             hasLoaded = true
-            error = nil
+            issue = nil
         } catch is CancellationError {
-        } catch { self.error = error.localizedDescription }
+        } catch { issue = .failure(error) }
     }
 
     func reloadSignPopupStatus() async {
@@ -107,7 +117,7 @@ final class WelfareStore {
         guard hasLoaded || hasLoadedSignPopupStatus,
               !hasReceivedToday, !isSigning, !isLoading, !isLoadingSignPopupStatus else { return }
         isSigning = true
-        error = nil
+        issue = nil
         defer { isSigning = false }
         do {
             let result = try await network.request(AppAPI.v1WelfareSignReceive,
@@ -116,7 +126,7 @@ final class WelfareStore {
                 let status = try await network.request(AppAPI.v1WelfareSignPopupStatus,
                     body: .init(), unwrapEnvelope: true)
                 applySignPopupStatus(status)
-                if !hasReceivedToday { error = "签到未成功，请稍后重试。" }
+                if !hasReceivedToday { issue = .signInFailed }
                 return
             }
             hasReceivedToday = true
@@ -126,7 +136,7 @@ final class WelfareStore {
             days = days.map { WelfareDay(id: $0.id, coins: $0.coins, received: $0.id == today || $0.received) }
             if let balance = result.walletBalance { wallet.updateBalance(balance) }
             else { await wallet.reloadBalance() }
-            error = nil
-        } catch { self.error = error.localizedDescription }
+            issue = nil
+        } catch { issue = .failure(error) }
     }
 }

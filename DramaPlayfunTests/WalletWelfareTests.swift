@@ -105,7 +105,7 @@ final class WalletWelfareTests: XCTestCase {
         XCTAssertEqual(wallet.groups[.income]?.count, 1)
         XCTAssertEqual(wallet.groups[.income]?.first?.records.count, 2)
         XCTAssertEqual(Set(wallet.groups[.income]!.first!.records.map(\.id)).count, 2)
-        XCTAssertEqual(wallet.groups[.income]?.first?.records.first?.amount, "+100金币")
+        XCTAssertEqual(wallet.groups[.income]?.first?.records.first?.amount, L10n.tr("%@%@金币", "+", "100"))
         XCTAssertEqual(wallet.hasMore[.income], false)
         await wallet.load(.income, refresh: true)
         XCTAssertEqual(wallet.groups[.income]?.first?.records.count, 1)

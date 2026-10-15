@@ -7,7 +7,7 @@ struct SearchEmptyView: View {
                 .resizable().scaledToFit()
                 .frame(width: 88, height: 88)
                 .accessibilityHidden(true)
-            Text("暂无更多内容")
+            Text(L10n.tr("暂无更多内容"))
                 .font(.system(size: 13))
                 .foregroundStyle(Color(white: 0.6))
         }

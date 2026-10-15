@@ -5,9 +5,9 @@ enum PlayerOptionsKind: String, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .quality: "清晰度"
-        case .speed: "倍速"
-        case .subtitles: "字幕"
+        case .quality: L10n.tr("清晰度")
+        case .speed: L10n.tr("倍速")
+        case .subtitles: L10n.tr("字幕")
         }
     }
 }
@@ -23,7 +23,7 @@ struct PlayerOptionsSheet: View {
     let options: [PlayerOption]
     let selectedID: String?
     var isLoading = false
-    var emptyMessage = "本集暂无可切换字幕"
+    var emptyMessage: String? = nil
     let onClose: () -> Void
     let onSelect: (PlayerOption) -> Void
     private let accent = Color(red: 1, green: 199.0 / 255, blue: 48.0 / 255)
@@ -35,15 +35,15 @@ struct PlayerOptionsSheet: View {
             ZStack(alignment: .bottom) {
                 Color.black.opacity(0.25).contentShape(Rectangle())
                     .onTapGesture(perform: onClose)
-                    .accessibilityLabel("关闭\(kind.title)弹窗")
+                    .accessibilityLabel(L10n.tr("关闭%@弹窗", kind.title))
                 VStack(spacing: 22) {
                     Text(kind.title).font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white).frame(height: 22)
                     ScrollView {
                         if isLoading {
-                            ProgressView("正在加载字幕…").tint(.white).padding(.top, 40)
+                            ProgressView(L10n.tr("正在加载字幕…")).tint(.white).padding(.top, 40)
                         } else if options.isEmpty {
-                            Text(emptyMessage).font(.system(size: 14))
+                            Text(emptyMessage ?? L10n.tr("本集暂无可切换字幕")).font(.system(size: 14))
                                 .foregroundStyle(Color(white: 0.7)).padding(.top, 40)
                         } else {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 11), count: columns), spacing: 10) {
@@ -71,7 +71,7 @@ struct PlayerOptionsSheet: View {
                     .gesture(DragGesture(minimumDistance: 10).onEnded { value in
                         if value.translation.height > 30 { onClose() }
                     })
-                    .accessibilityLabel("收起\(kind.title)")
+                    .accessibilityLabel(L10n.tr("收起%@", kind.title))
                     .accessibilityIdentifier("player-options-close")
                 }
                 .accessibilityElement(children: .contain)
@@ -99,6 +99,7 @@ private struct PlayerOptionButton: View {
                         .frame(width: 16, height: 16).accessibilityHidden(true)
                 }
                 Text(option.title).font(.system(size: 14))
+                    .lineLimit(2).multilineTextAlignment(.center).minimumScaleFactor(0.8)
             }
             .foregroundStyle(isSelected ? Color(white: 0.2) : Color(white: 0.88))
             .frame(maxWidth: .infinity).frame(height: 46)
@@ -106,7 +107,7 @@ private struct PlayerOptionButton: View {
         }
         .accessibilityIdentifier("player-\(kind.rawValue)-\(option.id)")
         .accessibilityLabel(option.title)
-        .accessibilityValue(option.isVIP ? "会员专享" : "")
+        .accessibilityValue(option.isVIP ? L10n.tr("会员专享") : "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

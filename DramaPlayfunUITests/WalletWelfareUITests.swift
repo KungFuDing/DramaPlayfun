@@ -6,12 +6,12 @@ final class WalletWelfareUITests: XCTestCase {
     @MainActor
     func testTheaterPopupClaimDisappearsAndUpdatesWelfare() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-WelfareUITestFixture"]
+        app.launchArguments = ["-WelfareUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
-        app.tabBars.buttons["剧场"].tap()
+        app.tabBars.buttons["劇場"].tap()
         let receive = app.buttons["theater-check-in-receive"]
         XCTAssertTrue(receive.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["+30金币"].exists)
+        XCTAssertTrue(app.staticTexts["+30金幣"].exists)
         receive.tap()
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: receive)
         waitForExpectations(timeout: 5)
@@ -20,25 +20,25 @@ final class WalletWelfareUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["20030"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["welfare-sign"].isEnabled)
         app.buttons["welfare-back"].tap()
-        app.tabBars.buttons["剧场"].tap()
-        XCTAssertTrue(app.buttons["更多剧集，剧场测试甲"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["劇場"].tap()
+        XCTAssertTrue(app.buttons["更多劇集，剧场测试甲"].waitForExistence(timeout: 5))
         XCTAssertFalse(receive.exists)
     }
 
     @MainActor
     func testTheaterPopupIsHiddenForAnAlreadySignedAccount() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-WelfareUITestFixture", "-WelfareSignedUITestFixture"]
+        app.launchArguments = ["-WelfareUITestFixture", "-WelfareSignedUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
-        app.tabBars.buttons["剧场"].tap()
-        XCTAssertTrue(app.buttons["更多剧集，剧场测试甲"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["劇場"].tap()
+        XCTAssertTrue(app.buttons["更多劇集，剧场测试甲"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["theater-check-in-receive"].exists)
     }
 
     @MainActor
     func testWalletTabsAutoPlayAndWelfareSignIn() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-WelfareUITestFixture"]
+        app.launchArguments = ["-WelfareUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
         app.tabBars.buttons["我的"].tap()
         app.buttons["profile-wallet"].tap()
@@ -47,10 +47,10 @@ final class WalletWelfareUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["98$"].firstMatch.waitForExistence(timeout: 5))
         capture(app, "钱包-充值")
         app.buttons["wallet-tab-income"].tap()
-        XCTAssertTrue(app.staticTexts["+100金币"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["+100金幣"].firstMatch.waitForExistence(timeout: 5))
         capture(app, "钱包-获取")
         app.buttons["wallet-tab-expense"].tap()
-        XCTAssertTrue(app.staticTexts["−20金币"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["−20金幣"].firstMatch.waitForExistence(timeout: 5))
         let toggle = app.descendants(matching: .any)["wallet-autoplay"].firstMatch
         XCTAssertEqual(toggle.value as? String, "1")
         toggle.tap()
@@ -76,7 +76,7 @@ final class WalletWelfareUITests: XCTestCase {
     @MainActor
     func testCompletedWeekAndTaskNavigation() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-WelfareUITestFixture", "-WelfareSignedUITestFixture"]
+        app.launchArguments = ["-WelfareUITestFixture", "-WelfareSignedUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
         app.tabBars.buttons["我的"].tap()
         app.buttons["profile-welfare"].tap()
@@ -86,7 +86,7 @@ final class WalletWelfareUITests: XCTestCase {
         app.swipeUp()
         app.buttons["welfare-task-watch_drama"].tap()
         app.alerts.buttons["去完成"].tap()
-        XCTAssertTrue(app.tabBars.buttons["剧场"].isSelected)
+        XCTAssertTrue(app.tabBars.buttons["劇場"].isSelected)
     }
 
     @MainActor private func capture(_ app: XCUIApplication, _ name: String) {

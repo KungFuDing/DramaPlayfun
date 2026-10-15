@@ -207,8 +207,6 @@ final class AppContainer {
                     "forceUpdate": arguments.contains("-AppUpdateForced"),
                     "downloadUrl": arguments.contains("-AppUpdateInvalidURL") ? "invalid-url" : "https://apps.apple.com/app/id000000000"
                 ]]), encoding: .utf8)!
-            case "/mobile/v1/client/language/list":
-                response = #"{"code":200,"data":{"list":[{"languageCode":"zh","translatedName":"中文","sortOrder":0},{"languageCode":"en","translatedName":"English","sortOrder":1},{"languageCode":"ja","translatedName":"にほんご","sortOrder":2},{"languageCode":"ko","translatedName":"한국어","sortOrder":3},{"languageCode":"es","translatedName":"Español","sortOrder":4},{"languageCode":"fr","translatedName":"Français","sortOrder":5},{"languageCode":"de","translatedName":"Deutsch","sortOrder":6}]}}"#
             case "/mobile/v1/client/me/favorites", "/mobile/v1/client/me/likes":
                 response = #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":101,"dramaTitle":"重生之我和白月光","episodeText":"剧情  都市  甜宠"},{"dramaId":102,"dramaTitle":"重生之我和白月光的日常生活","episodeText":"剧情  都市  甜宠"},{"dramaId":103,"dramaTitle":"重生之我和白月光的日常生活","episodeText":"剧情  都市  甜宠"},{"dramaId":104,"dramaTitle":"重生之我和白月光","episodeText":"剧情  都市  甜宠"}]}}"#
             case "/mobile/v1/client/drama/share/text":

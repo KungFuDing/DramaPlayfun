@@ -13,6 +13,7 @@ enum TheaterPlaybackState: Equatable {
 final class TheaterPlayerPool {
     private(set) var players: [TheaterFeedItem.ID: AVPlayer] = [:]
     private(set) var states: [TheaterFeedItem.ID: TheaterPlaybackState] = [:]
+    private var playbackErrors: [TheaterFeedItem.ID: Error] = [:]
     private(set) var currentID: TheaterFeedItem.ID?
     private(set) var isPaused = false
     private(set) var hasEnded = false
@@ -81,6 +82,16 @@ final class TheaterPlayerPool {
     var playerCount: Int { players.count + sparePlayers.count }
 
     func player(for id: TheaterFeedItem.ID) -> AVPlayer? { players[id] }
+
+    func errorMessage(for id: TheaterFeedItem.ID) -> String? {
+        _ = LocalizationStore.shared.language
+        return playbackErrors[id].map { L10n.errorMessage($0, fallback: "视频暂时无法播放，请重试。") }
+    }
+
+    private func setUnavailable(_ error: Error, for id: TheaterFeedItem.ID) {
+        playbackErrors[id] = error
+        states[id] = .unavailable(error.appLocalizedDescription)
+    }
 
     var isApproachingEnd: Bool {
         guard visible, !hasEnded, let player = players[currentID ?? ""],
@@ -310,12 +321,13 @@ final class TheaterPlayerPool {
         players[id] = player
         preparedURLs[id] = item.videoURL
         states[id] = .preparing
+        playbackErrors[id] = nil
         guard item.videoURL != nil else {
-            states[id] = .unavailable("本集暂未提供播放资源或尚未解锁。")
+            setUnavailable(TheaterPlayerError.missingResource, for: id)
             return
         }
         guard item.keyIdentity != nil else {
-            states[id] = .unavailable(HLSKeyError.invalidIdentity.localizedDescription)
+            setUnavailable(HLSKeyError.invalidIdentity, for: id)
             return
         }
         prepareTasks[id] = Task {
@@ -438,7 +450,7 @@ final class TheaterPlayerPool {
             player?.currentItem?.errorLog()?.events.contains(where: { [401, 403].contains($0.errorStatusCode) }) == true
         guard (forceRefresh || expired), let refreshURLs, !renewalAttempts.contains(id) else {
             if pendingBufferedStartID == id { pendingBufferedStartID = nil }
-            states[id] = .unavailable(error.localizedDescription)
+            setUnavailable(error, for: id)
             player?.pause()
             if currentID == id { isBuffering = false }
             return
@@ -477,7 +489,7 @@ final class TheaterPlayerPool {
                 renewingIDs.remove(id)
                 prepareTasks[id] = nil
                 prepareVersions[id] = nil
-                states[id] = .unavailable(error.localizedDescription)
+                setUnavailable(error, for: id)
                 if currentID == id { isBuffering = false }
             }
         }
@@ -625,7 +637,7 @@ final class TheaterPlayerPool {
             }
             startSavingProgress()
         } catch {
-            states[currentID] = .unavailable(error.localizedDescription)
+            setUnavailable(error, for: currentID)
         }
     }
 
@@ -665,6 +677,7 @@ final class TheaterPlayerPool {
         if pendingBufferedStartID == id { pendingBufferedStartID = nil }
         itemObservers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
         states[id] = nil
+        playbackErrors[id] = nil
         guard let player = players.removeValue(forKey: id) else { return }
         player.pause()
         player.cancelPendingPrerolls()
@@ -805,13 +818,14 @@ final class TheaterPlayerPool {
     }
 }
 
-private enum TheaterPlayerError: LocalizedError {
-    case unplayable, timeout
+private enum TheaterPlayerError: AppLocalizedError {
+    case unplayable, timeout, missingResource
 
     var errorDescription: String? {
         switch self {
-        case .unplayable: "视频暂时无法播放，请重试。"
-        case .timeout: "视频加载超时，请检查网络。"
+        case .missingResource: L10n.text("本集暂未提供播放资源或尚未解锁。")
+        case .unplayable: L10n.text("视频暂时无法播放，请重试。")
+        case .timeout: L10n.text("视频加载超时，请检查网络。")
         }
     }
 }

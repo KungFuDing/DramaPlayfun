@@ -5,14 +5,14 @@ struct FeedTabsStatus: View {
 
     var body: some View {
         if feed.isLoadingTabs && !feed.hasLoadedTabs {
-            ProgressView("加载分类…").frame(maxWidth: .infinity)
+            ProgressView(L10n.tr("加载分类…")).frame(maxWidth: .infinity)
         } else if let message = feed.tabsErrorMessage {
             VStack(spacing: 8) {
                 Text(message).foregroundStyle(.secondary)
-                Button("重新加载分类") { Task { await feed.reloadTabs() } }
+                Button(L10n.tr("重新加载分类")) { Task { await feed.reloadTabs() } }
             }.frame(maxWidth: .infinity)
         } else if feed.hasLoadedTabs && feed.tabs.isEmpty {
-            ContentUnavailableView("暂无分类", systemImage: "square.grid.2x2")
+            ContentUnavailableView(L10n.tr("暂无分类"), systemImage: "square.grid.2x2")
         }
     }
 }
@@ -33,14 +33,14 @@ struct FeedPageStatus: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 36)
         } else if state.isLoading && state.dramas.isEmpty {
-            ProgressView("加载剧集…").frame(maxWidth: .infinity).padding(.vertical, 36)
+            ProgressView(L10n.tr("加载剧集…")).frame(maxWidth: .infinity).padding(.vertical, 36)
         } else if let message = state.errorMessage {
             VStack(spacing: 8) {
                 Text(message).foregroundStyle(.secondary)
-                Button("重新加载") { Task { await onRetry() } }
+                Button(L10n.tr("重新加载")) { Task { await onRetry() } }
             }.frame(maxWidth: .infinity)
         } else if state.hasLoaded && state.dramas.isEmpty && state.errorMessage == nil {
-            ContentUnavailableView("暂无剧集", systemImage: "film")
+            ContentUnavailableView(L10n.tr("暂无剧集"), systemImage: "film")
         }
     }
 }

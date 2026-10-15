@@ -10,9 +10,10 @@ nonisolated enum DebugHTTPHeaders {
     }
 
     static func addingAuthorization(to values: [String: String]) -> [String: String] {
-        var headers = values
-        if let token = headers["accessToken"]?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
-            headers["accessToken"] = token
+        var headers = values.filter { $0.key.lowercased() != "accesstoken" }
+        let configuredToken = values["accessToken"] ?? values.first { $0.key.lowercased() == "accesstoken" }?.value
+        if let token = configuredToken?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
+            headers = headers.filter { $0.key.lowercased() != "authorization" }
             headers["Authorization"] = "Bearer \(token)"
         }
         return headers

@@ -4,7 +4,7 @@ import Moya
 
 @MainActor
 final class GuestSessionTests: XCTestCase {
-    func testLoginReplacesBothHeadersAndRunsOnce() async throws {
+    func testLoginUsesOnlyBearerAuthorizationAndRunsOnce() async throws {
         let recorder = GuestRequestRecorder()
         let network = try makeNetwork(recorder: recorder, responses: [
             #"{"code":200,"data":{"accessToken":"new-guest-token"}}"#
@@ -31,7 +31,7 @@ final class GuestSessionTests: XCTestCase {
         XCTAssertEqual(requests[0].headers?["appVersion"], appVersion)
         XCTAssertEqual(requests[1].headers?["appVersion"], appVersion)
         XCTAssertEqual(body["deviceIdentifier"], "test-device")
-        XCTAssertEqual(requests[1].headers?["accessToken"], "new-guest-token")
+        XCTAssertFalse(requests[1].requestHeaders.keys.contains { $0.lowercased() == "accesstoken" })
         XCTAssertEqual(requests[1].headers?["Authorization"], "Bearer new-guest-token")
         XCTAssertNil(requests[1].headers?["AUTHORIZATION"])
         XCTAssertEqual(requests[1].headers?["language"], "zh-Hans")

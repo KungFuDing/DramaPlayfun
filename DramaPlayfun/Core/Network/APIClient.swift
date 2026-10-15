@@ -139,17 +139,17 @@ final class APIClient {
         var runtimeHeaders = clientMetadata.headers
         if let deviceIdentifier { runtimeHeaders["deviceId"] = deviceIdentifier }
         let runtimeKeys = Set(runtimeHeaders.keys.map { $0.lowercased() })
-        var values = headerProvider(path).filter { !runtimeKeys.contains($0.key.lowercased()) }
+        var values = headerProvider(path).filter {
+            let key = $0.key.lowercased()
+            return key != "accesstoken" && !runtimeKeys.contains(key)
+        }
         values.merge(runtimeHeaders) { _, runtimeValue in runtimeValue }
         let isBootstrap = path == AppAPI.v1AuthGuestLogin.path
             || path == AppAPI.v1ClientTransportEncryptionConfig.path
         if isBootstrap || accessToken != nil {
-            values = values.filter { key, _ in
-                !["accesstoken", "authorization"].contains(key.lowercased())
-            }
+            values = values.filter { $0.key.lowercased() != "authorization" }
         }
         if !isBootstrap, let accessToken {
-            values["accessToken"] = accessToken
             values["Authorization"] = "Bearer \(accessToken)"
         }
         return values

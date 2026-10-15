@@ -84,6 +84,20 @@ final class NetworkTests: XCTestCase {
         XCTAssertEqual(DeviceModelName.resolve("iPhone99,1"), "iPhone99,1")
     }
 
+    func testCustomHeadersRemoveAccessTokenCaseInsensitivelyAndPreserveAuthorizationWithoutSession() async throws {
+        let client = try client(json: "{}", headers: [
+            "accessToken": "legacy-token", "ACCESSTOKEN": "uppercase-token",
+            "AccessToken": "mixed-case-token", "Authorization": "Bearer configured-token",
+            "language": "zh-Hans"
+        ]) { target in
+            XCTAssertFalse(target.requestHeaders.keys.contains { $0.lowercased() == "accesstoken" })
+            XCTAssertEqual(target.headers?["Authorization"], "Bearer configured-token")
+            XCTAssertEqual(target.headers?["language"], "zh-Hans")
+        }
+        let endpoint = APIEndpoint<APIModels.V1GuestLoginReq, APIModels.V1GuestLoginRes>(path: "/test/business")
+        _ = try await client.request(endpoint, body: login)
+    }
+
     func testHTTPErrorIsNotDecodedAsSuccessfulEmptyResponse() async throws {
         let client = try client(status: 401, json: "{}")
         do {
@@ -154,11 +168,16 @@ final class NetworkTests: XCTestCase {
     }
 
     #if DEBUG
-    func testDebugHeadersSendAccessTokenAndBearerAuthorization() {
-        let headers = DebugHTTPHeaders.addingAuthorization(to: ["accessToken": "sample-token", "countryCode": "TW"])
-        XCTAssertEqual(headers["accessToken"], "sample-token")
-        XCTAssertEqual(headers["Authorization"], "Bearer sample-token")
-        XCTAssertEqual(headers["countryCode"], "TW")
+    func testDebugHeadersConvertAccessTokenToOnlyBearerAuthorization() {
+        for tokenKey in ["accessToken", "ACCESSTOKEN", "AccessToken"] {
+            let headers = DebugHTTPHeaders.addingAuthorization(to: [
+                tokenKey: " sample-token \n", "AUTHORIZATION": "Bearer old-token", "countryCode": "TW"
+            ])
+            XCTAssertFalse(headers.keys.contains { $0.lowercased() == "accesstoken" })
+            XCTAssertEqual(headers["Authorization"], "Bearer sample-token")
+            XCTAssertEqual(headers.keys.filter { $0.lowercased() == "authorization" }.count, 1)
+            XCTAssertEqual(headers["countryCode"], "TW")
+        }
         XCTAssertNil(DebugHTTPHeaders.addingAuthorization(to: [:])["Authorization"])
     }
 

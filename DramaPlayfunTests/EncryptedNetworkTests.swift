@@ -31,10 +31,10 @@ final class EncryptedNetworkTests: XCTestCase {
         XCTAssertEqual(result.user?.nickname, "小明")
     }
 
-    func testDecryptsDirectAndTolerantResponsesWithoutChangingAuthorization() async throws {
+    func testDecryptsDirectAndTolerantResponsesWithOnlyBearerAuthorization() async throws {
         let reply = try cipher.encryptForTransport(Data(#"{"accessToken":123}"#.utf8))
         let client = try makeClient(response: reply) { target in
-            XCTAssertEqual(target.headers?["accessToken"], "guest-token")
+            XCTAssertFalse(target.requestHeaders.keys.contains { $0.lowercased() == "accesstoken" })
             XCTAssertEqual(target.headers?["Authorization"], "Bearer guest-token")
         }
         client.setAccessToken("guest-token")

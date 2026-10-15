@@ -138,17 +138,37 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(store.profile.coinAmount, 360)
     }
 
-    func testNewGuestSessionRotatesAndPersistsIdentity() async throws {
-        let network = try makeNetwork { _ in #"{"code":200,"data":{"accessToken":"fixture-token"}}"# }
+    func testDeactivationStartsNewGuestSessionWithoutRotatingDeviceIdentifier() async throws {
+        let recorder = ProfileGuestRequestRecorder()
+        let network = try makeNetwork { target in
+            recorder.record(target)
+            return #"{"code":200,"data":{"accessToken":"fixture-token"}}"#
+        }
         let name = "ProfileStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
         defer { defaults.removePersistentDomain(forName: name) }
         defaults.set("previous-device", forKey: "guest.deviceIdentifier.v1")
-        let session = GuestSessionStore(network: network, defaults: defaults)
+        let session = GuestSessionStore(network: network, defaults: defaults,
+            deviceIdentifierProvider: ProfileTestDeviceIdentifierProvider())
+        let profile = ProfileStore(network: network)
         await session.signInIfNeeded()
+        try await profile.deactivate()
         await session.startNewSession()
         XCTAssertTrue(session.isReady)
-        XCTAssertNotEqual(defaults.string(forKey: "guest.deviceIdentifier.v1"), "previous-device")
+        XCTAssertNil(session.errorMessage)
+        let requests = recorder.requests
+        XCTAssertEqual(requests.map(\.path), [AppAPI.v1AuthGuestLogin.path,
+            AppAPI.v1AuthDeactivate.path, AppAPI.v1AuthGuestLogin.path])
+        for request in requests {
+            XCTAssertEqual(request.headers?["deviceId"], "previous-device")
+            if request.path == AppAPI.v1AuthGuestLogin.path {
+                let login = try JSONDecoder().decode(APIModels.V1GuestLoginReq.self, from: request.body)
+                XCTAssertEqual(login.deviceIdentifier, "previous-device")
+                XCTAssertNil(request.headers?["Authorization"])
+            } else {
+                XCTAssertEqual(request.headers?["Authorization"], "Bearer fixture-token")
+            }
+        }
     }
 
     private func assertDefaultConfiguration(_ store: ProfileStore, file: StaticString = #filePath, line: UInt = #line) {
@@ -164,6 +184,28 @@ final class ProfileStoreTests: XCTestCase {
                 method: target.method, task: target.task, httpHeaderFields: target.headers)
         }, stubClosure: { _ in .immediate })
         return APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!), provider: provider)
+    }
+}
+
+@MainActor
+private struct ProfileTestDeviceIdentifierProvider: DeviceIdentifierProviding {
+    func identifier() throws -> String { "previous-device" }
+}
+
+nonisolated private final class ProfileGuestRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [APITarget] = []
+
+    var requests: [APITarget] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func record(_ target: APITarget) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.append(target)
     }
 }
 

@@ -105,8 +105,6 @@ final class APIClient {
         })
     }
 
-    func configuredHeaders(for path: String) -> [String: String] { headerProvider(path) }
-
     func setDeviceIdentifier(_ identifier: String) { deviceIdentifier = identifier }
 
     func setAccessToken(_ token: String) { accessToken = token }
@@ -142,7 +140,7 @@ final class APIClient {
         var runtimeHeaders = clientMetadata.headers
         if let networkLocation { runtimeHeaders.merge(networkLocation.headers) { _, current in current } }
         if let deviceIdentifier { runtimeHeaders["deviceId"] = deviceIdentifier }
-        let runtimeKeys = Set(runtimeHeaders.keys.map { $0.lowercased() }).union(["ip", "countrycode"])
+        let runtimeKeys = Set(runtimeHeaders.keys.map { $0.lowercased() }).union(["ip", "countrycode", "deviceid"])
         var values = headerProvider(path).filter {
             let key = $0.key.lowercased()
             return key != "accesstoken" && !runtimeKeys.contains(key)

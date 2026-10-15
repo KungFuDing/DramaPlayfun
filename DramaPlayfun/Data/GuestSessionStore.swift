@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import UIKit
 
 @MainActor @Observable
 final class GuestSessionStore {
@@ -8,23 +7,14 @@ final class GuestSessionStore {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private let network: APIClient
-    private var loginRequest: APIModels.V1GuestLoginReq
-    private let defaults: UserDefaults
+    private let deviceIdentifierProvider: any DeviceIdentifierProviding
 
-    var currentVersion: String { loginRequest.currentVersion }
+    var currentVersion: String { network.appVersion }
 
-    init(network: APIClient, defaults: UserDefaults = .standard) {
+    init(network: APIClient, defaults: UserDefaults = .standard,
+         deviceIdentifierProvider: (any DeviceIdentifierProviding)? = nil) {
         self.network = network
-        self.defaults = defaults
-        let headers = network.configuredHeaders(for: AppAPI.v1AuthGuestLogin.path)
-        let version = network.appVersion
-        let deviceKey = "guest.deviceIdentifier.v1"
-        let identifier = Self.nonempty(defaults.string(forKey: deviceKey))
-            ?? Self.nonempty(headers["deviceId"])
-            ?? UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-        defaults.set(identifier, forKey: deviceKey)
-        loginRequest = .init(currentVersion: version, deviceIdentifier: identifier)
-        network.setDeviceIdentifier(identifier)
+        self.deviceIdentifierProvider = deviceIdentifierProvider ?? DeviceIdentifierStore(defaults: defaults)
     }
 
     func signInIfNeeded() async {
@@ -33,6 +23,11 @@ final class GuestSessionStore {
         errorMessage = nil
         defer { isLoading = false }
         do {
+            try Task.checkCancellation()
+            let identifier = try deviceIdentifierProvider.identifier()
+            network.setDeviceIdentifier(identifier)
+            let loginRequest = APIModels.V1GuestLoginReq(currentVersion: currentVersion,
+                                                         deviceIdentifier: identifier)
             let result = try await network.request(AppAPI.v1AuthGuestLogin,
                 body: loginRequest, unwrapEnvelope: true)
             try Task.checkCancellation()
@@ -51,10 +46,6 @@ final class GuestSessionStore {
     func startNewSession() async {
         network.setAccessToken("")
         isReady = false
-        let identifier = UUID().uuidString
-        defaults.set(identifier, forKey: "guest.deviceIdentifier.v1")
-        loginRequest.deviceIdentifier = identifier
-        network.setDeviceIdentifier(identifier)
         await signInIfNeeded()
     }
 

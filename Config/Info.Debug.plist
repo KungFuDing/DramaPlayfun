@@ -15,7 +15,6 @@
     <key>DebugHTTPHeaders</key>
     <dict>
         <key>accessToken</key><string>$(DEBUG_ACCESS_TOKEN)</string>
-        <key>deviceId</key><string>$(DEBUG_DEVICE_ID)</string>
         <key>language</key><string>$(DEBUG_LANGUAGE)</string>
     </dict>
 </dict>

@@ -34,7 +34,7 @@ DramaPlayfun/
 - 版本更新在游客登录完成和回到前台时调用 `POST /mobile/v1/client/app/update/check`，当前版本与登录请求一致。使用提供的 2x/3x 火箭和面板切图，按服务端 `hasUpdate/forceUpdate` 展示两种底部弹窗，标题、版本、说明和跳转地址取接口。非强制更新可选择“稍后”，本次启动内不再提示同一版本；强制更新不能通过遮罩、下滑或返回操作关闭，覆盖其他弹窗和全屏播放。弹窗出现时暂停视频；跳转失败会显示错误并保留弹窗，返回 App 后重新检查。检查失败不会清除已展示的强制更新。`AppUpdateTests` 和 `AppUpdateUITests` 覆盖接口、稍后抑制、强制拦截、错误处理和弹窗层级。
 - 五 Tab、独立导航、剧集详情、选集、收藏和历史已连通。
 - 福利和我的钱包按 `设计图/福利:我的钱包` 还原，使用本地 2x/3x 金色背景、签到按钮及任务切图。已接入钱包余额、按月分组的充值/获取/消耗流水、分页、签到状态和奖励领取、福利任务列表；签到同步个人中心金币余额。自动播放下一集开关保存到服务端并控制播放器连播。任务按钮进入剧场完成任务；当前接口文档未提供通用任务领取接口。金币充值保留“暂未开放”提示，待接入购买流程。`WalletWelfareTests` 覆盖分页合并、签到余额同步、失败保留状态，`WalletWelfareUITests` 验证页面切换、开关和签到交互。
-- 我的模块按 `设计图/我的` 实现资料区、两种会员卡、福利/历史/钱包入口、收藏/点赞瀑布流、设置与语言/客服/账号注销底部弹窗；使用提供的 2x/3x 切图。资料、昵称更新、收藏/点赞分页、应用配置、语言字典和注销使用现有接口。清理缓存清理 Kingfisher 图片缓存；注销成功后清理本地收藏/历史并创建新的游客身份，失败保留资料。语言弹窗持久化选择，整站文案翻译未接入。
+- 我的模块按 `设计图/我的` 实现资料区、两种会员卡、福利/历史/钱包入口、收藏/点赞瀑布流、设置与语言/客服/账号注销底部弹窗；使用提供的 2x/3x 切图。资料、昵称更新、收藏/点赞分页、应用配置、语言字典和注销使用现有接口。清理缓存清理 Kingfisher 图片缓存；注销成功后清理本地收藏/历史并重新建立游客会话，沿用同一设备 ID，注销后的账号关系由服务端处理；失败保留资料。语言弹窗持久化选择，整站文案翻译未接入。
 - 会员页和设置页的用户协议、隐私政策及客服邮箱统一读取 `AppConfiguration`。内置默认值在接口加载前即可使用；`/mobile/v1/client/app/config` 返回有效值时逐项覆盖，缺失、空白字段或无效协议链接回退默认值，接口无数据或失败时使用默认配置。
 - 首页参照设计图的颜色、卡片和布局结构。设计图是整页截图，未提供独立海报，因此当前使用明确的图形占位。`Drama.coverURL` 可接入实际海报。
 - `DemoDramaRepository` 提供离线示例目录；无真实视频资源，点击免费集会显示可重试的资源未提供状态。AVPlayer 播放、加载超时、后台暂停、进度保存、断点恢复和重播流程已实现，但需真实资源进一步验证。
@@ -74,6 +74,10 @@ Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴�
 `AppContainer` 注入 `APIPayloadCipher`，对约定 password 的 UTF-8 字节计算 SHA-256 得到 32 字节密钥。启用加密时，每次请求生成随机 12 字节 nonce，将 `nonce + 密文 + 16 字节认证标签` 二进制数据编码为 Base64，直接作为 HTTP Body 发送，设置 `Content-Type: text/plain; charset=utf-8`、`Accept: text/plain`，不发送 `X-Payload-Encryption` 请求头；成功 HTTP 响应必须先解码 Base64，再通过 GCM 解密及完整性校验，最后按原来的 JSON、业务码及模型规则解析，校验失败不会降级接收明文。Debug 日志使用加密前、解密后的脱敏 JSON。`APIPayloadCipherTests`、`EncryptedNetworkTests` 和 `TransportEncryptionConfigTests` 覆盖跨实现向量、防篡改、Base64 传输、开关配置、并发合并、刷新、重试与取消；本地 JSON stub 可不注入 cipher，且不启用服务端配置读取。
 
 所有 API 请求的 `appVersion` 读取 App 的 `CFBundleShortVersionString`，游客登录及版本检查使用同一版本；`modelName` 在模拟器上为 `Simulator`，真机按硬件标识映射为设备名称，未收录型号保留硬件标识；`platform` 读取系统名称，`systemVersion` 为系统名称和版本号（如 `iOS 26.5`）。这些字段在 Debug/Release 中统一由运行时提供，不接受调试配置覆盖。
+
+`deviceId` 为首次生成并写入 Keychain 的 UUID，游客登录 Body 的 `deviceIdentifier` 使用同一个值，写入成功后才发起登录及其加密配置请求。已有 `guest.deviceIdentifier.v1` 会优先迁移，以保留后台识别的原身份；Keychain 已有 ID 时以 Keychain 为准。迁移成功后移除旧 UserDefaults 副本，新 ID 不再写入 UserDefaults，也不从 Debug 配置或 IDFV 取值。账号注销重登及缓存清理不会轮换设备 ID；Keychain 读取/写入失败时显示错误并允许重试，不使用临时 ID。Keychain 使用 `AfterFirstUnlockThisDeviceOnly`、不启用 iCloud 同步，避免将新 ID 带到另一台设备。
+
+普通卸载重装通常会保留 Keychain 中的 ID，但这不是 Apple 保证永久不变的系统契约；抹掉设备、改变签名访问组或 Keychain 数据丢失后无法恢复原 ID。[Apple 官方说明](https://developer.apple.com/forums/thread/36442)。若后台要求在这些情形下仍恢复同一用户，需要可恢复的账号绑定。
 
 `ip` 和 `countryCode` 由公网查询取得，使用同一次响应中的公网 IPv4/IPv6 地址及对应的大写双字母国家/地区码，不使用设备地区设置。默认通过独立的 HTTPS GET 请求访问 [Country](https://country.is/)；可修改 `Config/Info.Debug.plist`、`Config/Info.plist` 的 `IPGeolocationURL` 替换为兼容接口（返回 `{"ip":"公网 IP","country":"国家简码"}`）。查询不携带 App 鉴权或设备 Headers。首次请求先查询，成功结果在内存缓存 5 分钟，并发查询合并；网络路径变化时清除缓存和旧网络的在途结果。查询最多等待 3 秒，失败时业务请求继续且省略这两个字段，30 秒后允许重试；国家未知时只发送已查到的 IP。静态 Debug 配置中的旧 IP/国家码不再生效。
 

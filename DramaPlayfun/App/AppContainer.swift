@@ -2,6 +2,12 @@ import Foundation
 import Observation
 #if DEBUG
 import Moya
+
+@MainActor
+private struct EphemeralDeviceIdentifierProvider: DeviceIdentifierProviding {
+    private let value = UUID().uuidString
+    func identifier() throws -> String { value }
+}
 #endif
 
 @MainActor @Observable
@@ -27,7 +33,8 @@ final class AppContainer {
     init(network: APIClient? = nil,
          repository: (any DramaRepository)? = nil,
          subscriptions: (any SubscriptionService)? = nil,
-         defaults: UserDefaults = .standard) {
+         defaults: UserDefaults = .standard,
+         deviceIdentifierProvider: (any DeviceIdentifierProviding)? = nil) {
         #if DEBUG
         let fixture = (ProcessInfo.processInfo.arguments.contains("-ProfileUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-TheaterUITestFixture") ||
@@ -58,7 +65,16 @@ final class AppContainer {
             #endif
             })
         }()
-        guestSession = GuestSessionStore(network: self.network, defaults: defaults)
+        var identityProvider = deviceIdentifierProvider
+        #if DEBUG
+        if identityProvider == nil,
+           fixture != nil || NSClassFromString("XCTestCase") != nil
+                || ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+            identityProvider = EphemeralDeviceIdentifierProvider()
+        }
+        #endif
+        guestSession = GuestSessionStore(network: self.network, defaults: defaults,
+                                        deviceIdentifierProvider: identityProvider)
         appUpdate = AppUpdateStore(network: self.network, currentVersion: guestSession.currentVersion)
         profile = ProfileStore(network: self.network)
         wallet = WalletStore(network: self.network, profile: profile)

@@ -127,14 +127,17 @@ private struct RankingTabPicker: View {
                         } label: {
                             Text(tab.displayTitle)
                                 .font(.system(size: 16 * scale, weight: .bold))
-                                .lineLimit(1).minimumScaleFactor(0.7)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                                 .foregroundStyle(.white.opacity(selected ? 1 : 0.7))
-                                .frame(width: 82 * scale, height: 40 * scale)
+                                .padding(.horizontal, 12 * scale)
+                                .frame(minWidth: 82 * scale)
+                                .frame(height: 40 * scale)
                                 .frame(height: 47 * scale, alignment: .top)
                                 .background(alignment: .top) {
                                     Image(selected ? "RankingTabSelected" : "RankingTabNormal")
-                                        .resizable()
-                                        .frame(width: 82 * scale, height: (selected ? 47 : 40) * scale)
+                                        .resizable(capInsets: EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 8))
+                                        .frame(height: (selected ? 47 : 40) * scale)
                                 }
                         }
                         .buttonStyle(.plain)

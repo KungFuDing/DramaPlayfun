@@ -4,41 +4,56 @@ struct RankingsView: View {
     @Environment(AppContainer.self) private var app
     @State private var viewportHeight: CGFloat = 700
     @State private var viewportWidth: CGFloat = 375
+    @State private var isRetrying = false
 
     private var scale: CGFloat { viewportWidth / 375 }
+
+    private var showsNetworkFailure: Bool {
+        let feed = app.rankings
+        return isRetrying
+            || (feed.tabs.isEmpty && feed.tabsErrorMessage != nil)
+            || (feed.selectedPage.dramas.isEmpty && feed.selectedPage.errorMessage != nil)
+    }
 
     var body: some View {
         @Bindable var feed = app.rankings
         let state = feed.selectedPage
-        RefreshLoadScrollView(
-            hasMore: state.hasMore,
-            isLoadingMore: state.isLoadingMore,
-            loadError: state.loadMoreErrorMessage,
-            onRefresh: {
-                await feed.reloadTabs()
-                await feed.refreshSelected()
-            },
-            onLoadMore: { await feed.loadMore() }
-        ) {
-            VStack(alignment: .leading, spacing: 0) {
-                RankingHeader(scale: scale)
-                VStack(alignment: .leading, spacing: 12 * scale) {
-                    RankingTabPicker(tabs: feed.tabs, selection: $feed.selectedID, scale: scale)
-                    FeedTabsStatus(feed: feed)
-                    RankingCategoryPager(feed: feed, selection: $feed.selectedID,
-                                         minimumHeight: max(1, viewportHeight - 203 * scale))
+        let selectedID = feed.selectedID
+        ZStack {
+            if showsNetworkFailure {
+                NetworkFailureView { await retryFailedRequest() }
+            } else {
+                RefreshLoadScrollView(
+                    hasMore: state.hasMore,
+                    isLoadingMore: state.isLoadingMore,
+                    loadError: state.loadMoreErrorMessage,
+                    onRefresh: {
+                        await feed.reloadTabs()
+                        await feed.refreshSelected()
+                    },
+                    onLoadMore: { await feed.loadMore() }
+                ) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        RankingHeader(scale: scale)
+                        VStack(alignment: .leading, spacing: 12 * scale) {
+                            RankingTabPicker(tabs: feed.tabs, selection: $feed.selectedID, scale: scale)
+                            FeedTabsStatus(feed: feed)
+                            RankingCategoryPager(feed: feed, selection: $feed.selectedID,
+                                                 minimumHeight: max(1, viewportHeight - 203 * scale))
+                        }
+                        .padding(.horizontal, 12 * scale)
+                        .padding(.bottom, 24)
+                    }
                 }
-                .padding(.horizontal, 12 * scale)
-                .padding(.bottom, 24)
+                .background(alignment: .top) {
+                    ZStack {
+                        Theme.background
+                        Image("RankingBackground")
+                            .resizable().scaledToFit()
+                            .frame(maxHeight: .infinity, alignment: .top)
+                    }.ignoresSafeArea()
+                }
             }
-        }
-        .background(alignment: .top) {
-            ZStack {
-                Theme.background
-                Image("RankingBackground")
-                    .resizable().scaledToFit()
-                    .frame(maxHeight: .infinity, alignment: .top)
-            }.ignoresSafeArea()
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
@@ -48,7 +63,24 @@ struct RankingsView: View {
             RankingBottomNavigation()
         }
         .task { await feed.loadTabsIfNeeded() }
-        .task(id: feed.selectedID) { await feed.loadSelectedIfNeeded() }
+        .task(id: selectedID) {
+            guard !isRetrying, feed.selectedID == selectedID else { return }
+            await feed.loadSelectedIfNeeded()
+        }
+    }
+
+    private func retryFailedRequest() async {
+        guard !isRetrying else { return }
+        let feed = app.rankings
+        let needsTabs = feed.tabs.isEmpty && feed.tabsErrorMessage != nil
+        isRetrying = true
+        defer { isRetrying = false }
+        if needsTabs {
+            await feed.reloadTabs()
+            await feed.loadSelectedIfNeeded()
+        } else {
+            await feed.refreshSelected()
+        }
     }
 }
 

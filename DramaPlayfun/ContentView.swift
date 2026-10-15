@@ -16,6 +16,24 @@ struct ContentView: View {
             }
         }
         .task { await app.guestSession.signInIfNeeded() }
+        .onChange(of: app.guestSession.isReady && scenePhase == .active, initial: true) { _, shouldCheck in
+            guard shouldCheck else { return }
+            // Let an in-flight check finish across brief inactive/active transitions.
+            Task { await app.appUpdate.checkForUpdates() }
+        }
+        .background {
+            AppUpdatePresentation(notice: app.appUpdate.notice,
+                                  isOpening: app.appUpdate.isOpening,
+                                  errorMessage: app.appUpdate.errorMessage,
+                                  onLater: { app.appUpdate.dismiss() },
+                                  onUpdate: {
+                Task {
+                    await app.appUpdate.openUpdate { url in
+                        await UIApplication.shared.open(url, options: [:])
+                    }
+                }
+            })
+        }
     }
 
     @ViewBuilder

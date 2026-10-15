@@ -76,18 +76,16 @@ struct SearchView: View {
     @ViewBuilder private var matches: some View {
         if store.isSearching || store.isLoadingSuggestions {
             ProgressView("搜索中…").frame(maxWidth: .infinity).padding(.vertical, 24)
-        } else if let message = store.searchError {
-            VStack(spacing: 8) {
-                Text(message).font(.subheadline).foregroundStyle(.secondary)
-                Button("重新搜索") { retry += 1 }
-            }.frame(maxWidth: .infinity).padding(.vertical, 20)
+        } else if store.searchError != nil {
+            NetworkFailureContent {
+                if let submittedKeyword { await store.search(submittedKeyword) }
+                else { await store.suggest(input, debounce: .zero) }
+            }
+            .padding(.vertical, 10)
         } else {
             let dramas = isShowingResults ? store.results : store.suggestions
             if dramas.isEmpty {
-                Text("未找到相关剧集，试试其他剧名或类型")
-                    .font(.system(size: 13)).foregroundStyle(Color(white: 0.6))
-                    .frame(maxWidth: .infinity).padding(.vertical, 28)
-                    .accessibilityIdentifier("search-empty")
+                SearchEmptyView()
             } else {
                 LazyVStack(spacing: 20) {
                     ForEach(dramas) { drama in

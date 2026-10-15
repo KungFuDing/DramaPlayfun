@@ -15,13 +15,15 @@ struct TheaterView: View {
         GeometryReader { geometry in
             ZStack {
                 Color.black
-                if app.theaterFeed.items.isEmpty {
+                if app.theaterFeed.items.isEmpty, app.theaterFeed.errorMessage != nil {
+                    NetworkFailureView { await app.theaterFeed.reload() }
+                } else if app.theaterFeed.items.isEmpty {
                     VStack(spacing: 20) {
                         if app.theaterFeed.isLoading || !app.theaterFeed.hasLoaded {
                             ProgressView("正在加载剧场…")
                         } else {
                             ContentUnavailableView("暂无剧集", systemImage: "play.rectangle",
-                                description: Text(app.theaterFeed.errorMessage ?? "精彩故事即将上线"))
+                                description: Text("精彩故事即将上线"))
                             Button("重新加载") { Task { await app.theaterFeed.reload() } }
                         }
                     }
@@ -184,6 +186,7 @@ struct TheaterView: View {
 
     private var isTheaterVisible: Bool {
         router.selectedTab == .theater && scenePhase == .active && shareItem == nil
+            && app.appUpdate.notice == nil
             && router.playback == nil && !router.membershipPresented && (router.paths[.theater] ?? []).isEmpty
     }
 

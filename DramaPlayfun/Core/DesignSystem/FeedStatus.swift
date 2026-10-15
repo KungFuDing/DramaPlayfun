@@ -20,9 +20,19 @@ struct FeedTabsStatus: View {
 struct FeedPageStatus: View {
     let state: DramaTabPage
     let onRetry: () async -> Void
+    @State private var isRetrying = false
 
     var body: some View {
-        if state.isLoading && state.dramas.isEmpty {
+        if state.dramas.isEmpty && (state.errorMessage != nil || isRetrying) {
+            NetworkFailureContent {
+                guard !isRetrying else { return }
+                isRetrying = true
+                defer { isRetrying = false }
+                await onRetry()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 36)
+        } else if state.isLoading && state.dramas.isEmpty {
             ProgressView("加载剧集…").frame(maxWidth: .infinity).padding(.vertical, 36)
         } else if let message = state.errorMessage {
             VStack(spacing: 8) {

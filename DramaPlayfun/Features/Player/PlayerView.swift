@@ -277,10 +277,10 @@ struct PlayerView: View {
         .clipped()
     }
 
-    private var isVisible: Bool { isMounted && detailPath.isEmpty && scenePhase == .active && !showEpisodes && optionsKind == nil && shareItem == nil && currentItem?.firstEpisode?.requiresCoinUnlock != true && pendingUnlock == nil && membershipDestination == nil && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
+    private var isVisible: Bool { isMounted && detailPath.isEmpty && scenePhase == .active && app.appUpdate.notice == nil && !showEpisodes && optionsKind == nil && shareItem == nil && currentItem?.firstEpisode?.requiresCoinUnlock != true && pendingUnlock == nil && membershipDestination == nil && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
     private var isPreparationActive: Bool {
         isMounted && isReady && detailPath.isEmpty && scenePhase == .active &&
-            membershipDestination == nil && shareItem == nil
+            app.appUpdate.notice == nil && membershipDestination == nil && shareItem == nil
     }
     private var currentItem: TheaterFeedItem? { store.items.first(where: { $0.id == selectedID }) }
     private var mediaItem: AVPlayerItem? { playback.player(for: selectedID ?? "")?.currentItem }
@@ -354,7 +354,7 @@ struct PlayerView: View {
     }
 
     private var canResolveAccess: Bool {
-        isMounted && isReady && detailPath.isEmpty && scenePhase == .active && membershipDestination == nil
+        isMounted && isReady && detailPath.isEmpty && scenePhase == .active && app.appUpdate.notice == nil && membershipDestination == nil
     }
 
     private func refreshAfterMembership() async {

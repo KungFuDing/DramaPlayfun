@@ -8,6 +8,7 @@ import Moya
 final class AppContainer {
     let network: APIClient
     let guestSession: GuestSessionStore
+    let appUpdate: AppUpdateStore
     let repository: any DramaRepository
     let catalog: CatalogStore
     let homeCategories: DramaTabFeedStore
@@ -35,6 +36,7 @@ final class AppContainer {
                        ProcessInfo.processInfo.arguments.contains("-WelfareUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-SearchUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-PlayerUnlockUITestFixture") ||
+                       ProcessInfo.processInfo.arguments.contains("-AppUpdateUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-MembershipUITestFixture"))
             ? Self.theaterUITestClient() : nil
         #endif
@@ -52,6 +54,7 @@ final class AppContainer {
             })
         }()
         guestSession = GuestSessionStore(network: self.network, defaults: defaults)
+        appUpdate = AppUpdateStore(network: self.network, currentVersion: guestSession.currentVersion)
         profile = ProfileStore(network: self.network)
         wallet = WalletStore(network: self.network, profile: profile)
         welfare = WelfareStore(network: self.network, wallet: wallet)
@@ -87,6 +90,13 @@ final class AppContainer {
     #if DEBUG
     private static func theaterUITestClient() -> APIClient {
         let welfareAccount = WelfareUITestAccount()
+        var updateCheckCount = 0
+        let failureArgumentsByPath = [
+            "/mobile/v1/theater/search": "-SearchFailureUITestFixture",
+            "/mobile/v1/drama/category/list": "-RankingFailureUITestFixture",
+            "/mobile/v2/theater/rank/list": "-RankingPageFailureUITestFixture"
+        ]
+        var failedRequestPaths = Set<String>()
         let unlockAccount = ProcessInfo.processInfo.arguments.contains("-PlayerUnlockUITestFixture")
             ? PlayerUnlockUITestAccount() : nil
         var searchHistory = ["重生之我和白月光", "不是哥们,你开局玩这么大", "炎帝", "我是祖国人", "都市甜宠", "白月光的日常生活", "重生", "我以异能斩规则"]
@@ -94,6 +104,16 @@ final class AppContainer {
             if let response = unlockAccount?.response(for: target) {
                 return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
                                 sampleResponseClosure: { .networkResponse(200, Data(response.utf8)) },
+                                method: target.method, task: target.task, httpHeaderFields: target.headers)
+            }
+            if let argument = failureArgumentsByPath[target.path],
+               ProcessInfo.processInfo.arguments.contains(argument),
+               failedRequestPaths.insert(target.path).inserted {
+                return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
+                                sampleResponseClosure: {
+                                    .networkError(NSError(domain: NSURLErrorDomain,
+                                                          code: NSURLErrorNotConnectedToInternet))
+                                },
                                 method: target.method, task: target.task, httpHeaderFields: target.headers)
             }
             let response: String
@@ -156,6 +176,16 @@ final class AppContainer {
                     ["code": 200, "data": ["total": 8, "list": groups]]), encoding: .utf8)!
             case "/mobile/v1/client/app/config":
                 response = #"{"code":200,"data":{}}"#
+            case "/mobile/v1/client/app/update/check":
+                updateCheckCount += 1
+                let arguments = ProcessInfo.processInfo.arguments
+                let hasUpdate = arguments.contains("-AppUpdateUITestFixture") &&
+                    (!arguments.contains("-AppUpdateAfterForeground") || updateCheckCount > 1)
+                response = String(data: try! JSONSerialization.data(withJSONObject: ["code": 200, "data": [
+                    "hasUpdate": hasUpdate, "latestVersion": "1.1.6",
+                    "forceUpdate": arguments.contains("-AppUpdateForced"),
+                    "downloadUrl": arguments.contains("-AppUpdateInvalidURL") ? "invalid-url" : "https://apps.apple.com/app/id000000000"
+                ]]), encoding: .utf8)!
             case "/mobile/v1/client/language/list":
                 response = #"{"code":200,"data":{"list":[{"languageCode":"zh","translatedName":"中文","sortOrder":0},{"languageCode":"en","translatedName":"English","sortOrder":1},{"languageCode":"ja","translatedName":"にほんご","sortOrder":2},{"languageCode":"ko","translatedName":"한국어","sortOrder":3},{"languageCode":"es","translatedName":"Español","sortOrder":4},{"languageCode":"fr","translatedName":"Français","sortOrder":5},{"languageCode":"de","translatedName":"Deutsch","sortOrder":6}]}}"#
             case "/mobile/v1/client/me/favorites", "/mobile/v1/client/me/likes":

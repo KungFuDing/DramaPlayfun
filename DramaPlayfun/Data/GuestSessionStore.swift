@@ -11,6 +11,8 @@ final class GuestSessionStore {
     private var loginRequest: APIModels.V1GuestLoginReq
     private let defaults: UserDefaults
 
+    var currentVersion: String { loginRequest.currentVersion }
+
     init(network: APIClient, defaults: UserDefaults = .standard) {
         self.network = network
         self.defaults = defaults

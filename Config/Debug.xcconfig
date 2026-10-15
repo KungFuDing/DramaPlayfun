@@ -1,13 +1,9 @@
 // Optional local values used only by Debug builds.
 DEBUG_ACCESS_TOKEN =
-DEBUG_APP_VERSION =
 DEBUG_COUNTRY_CODE =
 DEBUG_DEVICE_ID =
 DEBUG_IP =
 DEBUG_LANGUAGE =
-DEBUG_MODEL_NAME =
-DEBUG_PLATFORM =
-DEBUG_SYSTEM_VERSION =
 HLS_SHARED_SECRET =
 #include? "Debug.local.xcconfig"
 

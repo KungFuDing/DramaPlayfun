@@ -1,6 +1,7 @@
 import XCTest
 import Moya
 import Alamofire
+import UIKit
 @testable import DramaPlayfun
 
 @MainActor
@@ -10,6 +11,7 @@ final class NetworkTests: XCTestCase {
     }
 
     private func client(status: Int = 200, json: String, delay: TimeInterval = 0,
+                        headers: [String: String] = ["X-Test-Token": "stub-only"],
                         inspect: @escaping (APITarget) -> Void = { _ in }) throws -> APIClient {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             inspect(target)
@@ -18,7 +20,7 @@ final class NetworkTests: XCTestCase {
                             method: target.method, task: target.task, httpHeaderFields: target.headers)
         }, stubClosure: { _ in delay > 0 ? .delayed(seconds: delay) : .immediate })
         return APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!),
-                         provider: provider, headerProvider: { _ in ["X-Test-Token": "stub-only"] })
+                         provider: provider, headerProvider: { _ in headers })
     }
 
     func testTypedRequestEncodesDocumentedBodyAndHeaders() async throws {
@@ -35,6 +37,51 @@ final class NetworkTests: XCTestCase {
         XCTAssertEqual(result.accessToken, "token")
         XCTAssertEqual(result.user?.userNo, "123")
         XCTAssertNil(result.user?.nickname)
+    }
+
+    func testRuntimeHeadersOverrideConfigurationOnEveryEndpoint() async throws {
+        let version = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+        let systemName = UIDevice.current.systemName
+        let systemVersion = UIDevice.current.systemVersion
+        var paths: [String] = []
+        let client = try client(json: "{}", headers: [
+            "appVersion": "stale-version", "APPVERSION": "another-stale-version",
+            "modelName": "manual-device", "MODELNAME": "another-manual-device",
+            "platform": "manual-platform", "PLATFORM": "another-manual-platform",
+            "systemVersion": "manual-system", "SYSTEMVERSION": "another-manual-system",
+            "language": "zh-Hans"
+        ]) { target in
+            paths.append(target.path)
+            let headers = target.requestHeaders
+            XCTAssertEqual(headers["appVersion"], version)
+            XCTAssertEqual(headers["platform"], systemName)
+            XCTAssertEqual(headers["systemVersion"], "\(systemName) \(systemVersion)")
+            #if targetEnvironment(simulator)
+            XCTAssertEqual(headers["modelName"], "Simulator")
+            #else
+            XCTAssertFalse(headers["modelName"]?.isEmpty ?? true)
+            XCTAssertNotEqual(headers["modelName"], "manual-device")
+            #endif
+            for key in ["appVersion", "modelName", "platform", "systemVersion"] {
+                XCTAssertEqual(headers.keys.filter { $0.lowercased() == key.lowercased() }.count, 1)
+            }
+            XCTAssertEqual(headers["language"], "zh-Hans")
+        }
+        let expectedPaths = [AppAPI.v1ClientTransportEncryptionConfig.path,
+                             AppAPI.v1AuthGuestLogin.path, "/test/business"]
+        for path in expectedPaths {
+            let endpoint = APIEndpoint<APIModels.V1GuestLoginReq, APIModels.V1GuestLoginRes>(path: path)
+            _ = try await client.request(endpoint, body: login)
+        }
+        XCTAssertEqual(paths, expectedPaths)
+    }
+
+    func testDeviceModelNamesResolveHardwareIdentifiersWithoutGuessingUnknownModels() {
+        XCTAssertEqual(DeviceModelName.resolve("iPhone18,3"), "iPhone 17")
+        XCTAssertEqual(DeviceModelName.resolve("iPad16,5"), "iPad Pro 13-inch (M4)")
+        XCTAssertEqual(DeviceModelName.resolve("iPad16,6"), "iPad Pro 13-inch (M4)")
+        XCTAssertEqual(DeviceModelName.resolve("iPad17,4"), "iPad Pro 13-inch (M5)")
+        XCTAssertEqual(DeviceModelName.resolve("iPhone99,1"), "iPhone99,1")
     }
 
     func testHTTPErrorIsNotDecodedAsSuccessfulEmptyResponse() async throws {

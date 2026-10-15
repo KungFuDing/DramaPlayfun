@@ -72,12 +72,15 @@ final class APIClient {
     private let configuration: APIConfiguration?
     private let provider: MoyaProvider<APITarget>
     private let headerProvider: (String) -> [String: String]
+    private let clientMetadata = ClientMetadata.current
     private let payloadCipher: APIPayloadCipher?
     private let usesServerEncryptionConfiguration: Bool
     private var serverEncryptionEnabled: Bool?
     private var encryptionConfigurationTask: _Concurrency.Task<Bool, Error>?
     private var accessToken: String?
-    private var identityHeaders: [String: String] = [:]
+    private var deviceIdentifier: String?
+
+    var appVersion: String { clientMetadata.appVersion }
 
     init(configuration: APIConfiguration? = nil,
          provider: MoyaProvider<APITarget>? = nil,
@@ -101,9 +104,7 @@ final class APIClient {
 
     func configuredHeaders(for path: String) -> [String: String] { headerProvider(path) }
 
-    func setClientIdentity(version: String, deviceIdentifier: String) {
-        identityHeaders = ["appVersion": version, "deviceId": deviceIdentifier]
-    }
+    func setDeviceIdentifier(_ identifier: String) { deviceIdentifier = identifier }
 
     func setAccessToken(_ token: String) { accessToken = token }
 
@@ -135,8 +136,11 @@ final class APIClient {
     }
 
     private func headers(for path: String) -> [String: String] {
-        var values = headerProvider(path)
-        for (key, value) in identityHeaders { values[key] = value }
+        var runtimeHeaders = clientMetadata.headers
+        if let deviceIdentifier { runtimeHeaders["deviceId"] = deviceIdentifier }
+        let runtimeKeys = Set(runtimeHeaders.keys.map { $0.lowercased() })
+        var values = headerProvider(path).filter { !runtimeKeys.contains($0.key.lowercased()) }
+        values.merge(runtimeHeaders) { _, runtimeValue in runtimeValue }
         let isBootstrap = path == AppAPI.v1AuthGuestLogin.path
             || path == AppAPI.v1ClientTransportEncryptionConfig.path
         if isBootstrap || accessToken != nil {

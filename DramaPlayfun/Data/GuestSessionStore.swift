@@ -17,15 +17,14 @@ final class GuestSessionStore {
         self.network = network
         self.defaults = defaults
         let headers = network.configuredHeaders(for: AppAPI.v1AuthGuestLogin.path)
-        let version = Self.nonempty(headers["appVersion"])
-            ?? Self.nonempty(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0"
+        let version = network.appVersion
         let deviceKey = "guest.deviceIdentifier.v1"
         let identifier = Self.nonempty(defaults.string(forKey: deviceKey))
             ?? Self.nonempty(headers["deviceId"])
             ?? UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
         defaults.set(identifier, forKey: deviceKey)
         loginRequest = .init(currentVersion: version, deviceIdentifier: identifier)
-        network.setClientIdentity(version: version, deviceIdentifier: identifier)
+        network.setDeviceIdentifier(identifier)
     }
 
     func signInIfNeeded() async {
@@ -55,7 +54,7 @@ final class GuestSessionStore {
         let identifier = UUID().uuidString
         defaults.set(identifier, forKey: "guest.deviceIdentifier.v1")
         loginRequest.deviceIdentifier = identifier
-        network.setClientIdentity(version: loginRequest.currentVersion, deviceIdentifier: identifier)
+        network.setDeviceIdentifier(identifier)
         await signInIfNeeded()
     }
 

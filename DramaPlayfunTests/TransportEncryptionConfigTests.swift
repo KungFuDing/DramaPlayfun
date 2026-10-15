@@ -8,6 +8,52 @@ final class TransportEncryptionConfigTests: XCTestCase {
     private var configPath: String { AppAPI.v1ClientTransportEncryptionConfig.path }
     private let business = APIEndpoint<APIModels.V1GetTransportEncryptionConfigReq, APIModels.V1GuestLoginRes>(path: "/test/business")
     private var login: APIModels.V1GuestLoginReq { .init(currentVersion: "1", deviceIdentifier: "test-device") }
+    private var plaintextPaths: [String] {
+        [AppAPI.v1ClientServiceNotice.path, AppAPI.v1ClientAppConfig.path,
+         AppAPI.v1ClientAppUpdateCheck.path, configPath]
+    }
+
+    func testPlaintextEndpointsSkipConfigurationLoadingWithOrWithoutCipher() async throws {
+        for includeCipher in [true, false] {
+            var paths: [String] = []
+            let client = try makeClient(response: { target in
+                paths.append(target.path)
+                return self.plaintextResponse(for: target)
+            }, includeCipher: includeCipher)
+
+            try await requestPlaintextEndpoints(using: client)
+
+            XCTAssertEqual(paths, plaintextPaths, "Plaintext endpoints must not trigger a configuration fetch")
+        }
+    }
+
+    func testPlaintextEndpointsPreserveEncryptionForOtherRequestsInBothModes() async throws {
+        let reply = try cipher.encryptForTransport(Data(#"{"accessToken":"encrypted-token"}"#.utf8))
+        for usesServerConfiguration in [true, false] {
+            var paths: [String] = []
+            let client = try makeClient(response: { target in
+                paths.append(target.path)
+                if target.path != self.business.path { return self.plaintextResponse(for: target) }
+                XCTAssertEqual(target.headers?["Content-Type"], "text/plain; charset=utf-8")
+                XCTAssertEqual(target.headers?["Accept"], "text/plain")
+                do {
+                    let body = try self.cipher.decryptFromTransport(target.body)
+                    XCTAssertEqual(try JSONSerialization.jsonObject(with: body) as? [String: String], [:])
+                } catch { XCTFail("Business request must remain encrypted: \(error)") }
+                return reply
+            }, usesServerEncryptionConfiguration: usesServerConfiguration)
+
+            let before = try await client.request(business, body: .init())
+            XCTAssertEqual(before.accessToken, "encrypted-token")
+            try await requestPlaintextEndpoints(using: client)
+            let after = try await client.request(business, body: .init())
+            XCTAssertEqual(after.accessToken, "encrypted-token")
+
+            let expected = (usesServerConfiguration ? [configPath] : [])
+                + [business.path] + plaintextPaths + [business.path]
+            XCTAssertEqual(paths, expected)
+        }
+    }
 
     func testEnabledConfigurationIsPlaintextAndPrecedesEncryptedLogin() async throws {
         let reply = try cipher.encryptForTransport(Data(#"{"code":200,"data":{"accessToken":"token"}}"#.utf8))
@@ -175,6 +221,40 @@ final class TransportEncryptionConfigTests: XCTestCase {
         Data("{\"code\":200,\"data\":{\"enabled\":\(enabled)}}".utf8)
     }
 
+    private func requestPlaintextEndpoints(using client: APIClient) async throws {
+        let notice = try await client.request(AppAPI.v1ClientServiceNotice, body: .init(), unwrapEnvelope: true)
+        XCTAssertEqual(notice.status, "off")
+        let appConfig = try await client.request(AppAPI.v1ClientAppConfig, body: .init(), unwrapEnvelope: true)
+        XCTAssertEqual(appConfig.customerServiceEmail, "support@example.invalid")
+        let update = try await client.request(AppAPI.v1ClientAppUpdateCheck,
+            body: .init(currentVersion: "1"), unwrapEnvelope: true)
+        XCTAssertEqual(update.latestVersion, "2")
+        let encryptionConfig = try await client.request(AppAPI.v1ClientTransportEncryptionConfig,
+            body: .init(), unwrapEnvelope: true)
+        XCTAssertTrue(encryptionConfig.enabled)
+    }
+
+    private func plaintextResponse(for target: APITarget) -> Data {
+        XCTAssertEqual(target.headers?["Content-Type"], "application/json")
+        XCTAssertEqual(target.headers?["Accept"], "application/json")
+        XCTAssertFalse(target.headers?.keys.contains { $0.lowercased() == "x-payload-encryption" } ?? false)
+        let expectedBody = target.path == AppAPI.v1ClientAppUpdateCheck.path ? ["currentVersion": "1"] : [:]
+        XCTAssertEqual(try? JSONSerialization.jsonObject(with: target.body) as? [String: String], expectedBody)
+        switch target.path {
+        case AppAPI.v1ClientServiceNotice.path:
+            return Data(#"{"code":200,"data":{"status":"off"}}"#.utf8)
+        case AppAPI.v1ClientAppConfig.path:
+            return Data(#"{"code":200,"data":{"customerServiceEmail":"support@example.invalid"}}"#.utf8)
+        case AppAPI.v1ClientAppUpdateCheck.path:
+            return Data(#"{"code":200,"data":{"latestVersion":"2"}}"#.utf8)
+        case configPath:
+            return configResponse(enabled: true)
+        default:
+            XCTFail("Unexpected plaintext endpoint: \(target.path)")
+            return Data()
+        }
+    }
+
     private func assertPlaintextConfig(_ target: APITarget) {
         XCTAssertEqual(target.headers?["Content-Type"], "application/json")
         XCTAssertNil(target.headers?["X-Payload-Encryption"])
@@ -186,7 +266,8 @@ final class TransportEncryptionConfigTests: XCTestCase {
 
     private func makeClient(response: @escaping (APITarget) -> Data,
                             delay: @escaping (APITarget) -> TimeInterval = { _ in 0 },
-                            includeCipher: Bool = true) throws -> APIClient {
+                            includeCipher: Bool = true,
+                            usesServerEncryptionConfiguration: Bool = true) throws -> APIClient {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             let responseData = response(target)
             return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
@@ -197,7 +278,8 @@ final class TransportEncryptionConfigTests: XCTestCase {
             return seconds > 0 ? .delayed(seconds: seconds) : .immediate
         })
         return APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!),
-            provider: provider, payloadCipher: includeCipher ? cipher : nil, usesServerEncryptionConfiguration: true,
+            provider: provider, payloadCipher: includeCipher ? cipher : nil,
+            usesServerEncryptionConfiguration: usesServerEncryptionConfiguration,
             headerProvider: { _ in ["accessToken": "old-token", "AUTHORIZATION": "Bearer old-token",
                                      "x-payload-encryption": "1"] })
     }

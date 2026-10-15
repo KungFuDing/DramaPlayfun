@@ -170,7 +170,7 @@ final class APIClient {
             let configuration = try configuration ?? APIConfiguration.fromBundle()
             // Capture the negotiated mode so a refresh cannot change how this response is decoded.
             let requestCipher: APIPayloadCipher?
-            if endpoint.path == AppAPI.v1ClientTransportEncryptionConfig.path {
+            if endpoint.requiresPlaintextTransport {
                 requestCipher = nil
             } else if usesServerEncryptionConfiguration {
                 let enabled = try await loadTransportEncryptionConfigurationIfNeeded()

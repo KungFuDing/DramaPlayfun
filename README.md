@@ -69,7 +69,9 @@ xcodebuild -project DramaPlayfun.xcodeproj -scheme DramaPlayfun \
 
 Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴权及个人敏感字段会脱敏；Release 构建不输出。
 
-应用共享网络客户端在首个业务请求（包括游客登录）前，先以明文 `POST /mobile/v1/client/transport/encryption/config` 获取 `data.enabled`。开启时使用 AES-256-GCM，关闭时使用 JSON 明文；配置接口始终使用明文且不携带鉴权令牌。配置在客户端实例生命周期内缓存，并发调用合并为一次请求；获取失败或开关字段缺失时阻止业务请求，下次调用可重试。需要重新读取时调用 `reloadTransportEncryptionConfiguration()`，在途请求保留发送时的传输方式，避免切换开关导致响应解密错误。该接口尚未包含在当前 OpenAPI 文件中，端点及必填 Bool 模型独立定义在 `APITransportEncryption.swift`。
+`POST /mobile/v1/client/transport/encryption/config`、`POST /mobile/v1/client/service/notice`、`POST /mobile/v1/client/app/config`、`POST /mobile/v1/client/app/update/check` 四个接口始终使用 JSON 明文请求和响应，不依赖加密开关查询。免加密路径统一定义在 `APITransportEncryption.swift`，其中加密配置接口不携带鉴权令牌。
+
+应用共享网络客户端在首个需要检查加密开关的请求（包括游客登录）前，先以明文 `POST /mobile/v1/client/transport/encryption/config` 获取 `data.enabled`。开启时使用 AES-256-GCM，关闭时使用 JSON 明文。配置在客户端实例生命周期内缓存，并发调用合并为一次请求；获取失败或开关字段缺失时阻止需检查开关的请求，下次调用可重试，四个免加密接口仍可直接请求。需要重新读取时调用 `reloadTransportEncryptionConfiguration()`，在途请求保留发送时的传输方式，避免切换开关导致响应解密错误。加密配置接口尚未包含在当前 OpenAPI 文件中，端点及必填 Bool 模型独立定义在 `APITransportEncryption.swift`。
 
 `AppContainer` 注入 `APIPayloadCipher`，对约定 password 的 UTF-8 字节计算 SHA-256 得到 32 字节密钥。启用加密时，每次请求生成随机 12 字节 nonce，将 `nonce + 密文 + 16 字节认证标签` 二进制数据编码为 Base64，直接作为 HTTP Body 发送，设置 `Content-Type: text/plain; charset=utf-8`、`Accept: text/plain`，不发送 `X-Payload-Encryption` 请求头；成功 HTTP 响应必须先解码 Base64，再通过 GCM 解密及完整性校验，最后按原来的 JSON、业务码及模型规则解析，校验失败不会降级接收明文。Debug 日志使用加密前、解密后的脱敏 JSON。`APIPayloadCipherTests`、`EncryptedNetworkTests` 和 `TransportEncryptionConfigTests` 覆盖跨实现向量、防篡改、Base64 传输、开关配置、并发合并、刷新、重试与取消；本地 JSON stub 可不注入 cipher，且不启用服务端配置读取。
 

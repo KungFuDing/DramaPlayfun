@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Kingfisher
 import SafariServices
 
@@ -131,6 +132,7 @@ private struct SettingsBottomPanel: View {
     @AppStorage("profile.language.v1") private var selectedLanguage = "zh"
     @State private var isDeactivating = false
     @State private var error: String?
+    @State private var copiedEmail: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -203,11 +205,31 @@ private struct SettingsBottomPanel: View {
     }
 
     private var contact: some View {
-        Text("邮箱:\(app.profile.config.customerServiceEmail)")
-            .font(.system(size: 14)).foregroundStyle(Color(white: 0.7))
-            .textSelection(.enabled).frame(maxWidth: .infinity).frame(height: 46)
+        HStack(spacing: 8) {
+            Text("邮箱:\(app.profile.config.customerServiceEmail)")
+                .font(.system(size: 14)).foregroundStyle(Color(white: 0.7))
+                .lineLimit(1).minimumScaleFactor(0.75).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: copyContactEmail) {
+                Text(copiedEmail == app.profile.config.customerServiceEmail ? "已复制" : "复制")
+                    .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.accent)
+                    .frame(width: 52, height: 44).contentShape(Rectangle())
+            }.accessibilityIdentifier("settings-copy-email")
+        }
+            .padding(.horizontal, 12).frame(height: 46)
             .background(Color(white: 0.23), in: RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal, 30)
+            .task(id: copiedEmail) {
+                guard copiedEmail != nil else { return }
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                copiedEmail = nil
+            }
+    }
+
+    private func copyContactEmail() {
+        let email = app.profile.config.customerServiceEmail
+        UIPasteboard.general.string = email
+        copiedEmail = email
     }
 
     private var deactivation: some View {

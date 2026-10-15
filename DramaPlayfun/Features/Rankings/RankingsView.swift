@@ -58,10 +58,6 @@ struct RankingsView: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
         .toolbar(.hidden, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            RankingBottomNavigation()
-        }
         .task { await feed.loadTabsIfNeeded() }
         .task(id: selectedID) {
             guard !isRetrying, feed.selectedID == selectedID else { return }
@@ -80,35 +76,6 @@ struct RankingsView: View {
             await feed.loadSelectedIfNeeded()
         } else {
             await feed.refreshSelected()
-        }
-    }
-}
-
-private struct RankingBottomNavigation: View {
-    @Environment(AppRouter.self) private var router
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(AppTab.allCases) { tab in
-                let selected = router.selectedTab == tab
-                Button { router.selectedTab = tab } label: {
-                    VStack(spacing: 4) {
-                        Image(tab.iconAsset(isSelected: selected))
-                            .resizable().scaledToFit().frame(width: 22, height: 22)
-                        Text(tab.title).font(.system(size: 10))
-                    }
-                    .foregroundStyle(selected ? Theme.accent : .white.opacity(0.5))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selected ? .isSelected : [])
-            }
-        }
-        .background {
-            Rectangle().fill(.ultraThinMaterial)
-                .overlay(Theme.surface.opacity(0.7))
-                .ignoresSafeArea(edges: .bottom)
         }
     }
 }

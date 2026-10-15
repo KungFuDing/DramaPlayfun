@@ -4,21 +4,24 @@ final class WalletWelfareUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     @MainActor
-    func testTheaterPopupClaimDisappearsAndUpdatesWelfare() throws {
+    func testTheaterHidesCheckInWhileWelfareSignInRemainsAvailable() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-WelfareUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
         app.tabBars.buttons["劇場"].tap()
+        XCTAssertTrue(app.buttons["更多劇集，剧场测试甲"].waitForExistence(timeout: 10))
         let receive = app.buttons["theater-check-in-receive"]
-        XCTAssertTrue(receive.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["+30金幣"].exists)
-        receive.tap()
-        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: receive)
-        waitForExpectations(timeout: 5)
+        XCTAssertFalse(receive.exists)
+        XCTAssertFalse(app.staticTexts["今日簽到"].exists)
+        capture(app, "剧场-隐藏签到模块")
         app.tabBars.buttons["我的"].tap()
         app.buttons["profile-welfare"].tap()
+        let sign = app.buttons["welfare-sign"]
+        XCTAssertTrue(sign.waitForExistence(timeout: 5))
+        XCTAssertTrue(sign.isEnabled)
+        sign.tap()
         XCTAssertTrue(app.staticTexts["20030"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["welfare-sign"].isEnabled)
+        XCTAssertFalse(sign.isEnabled)
         app.buttons["welfare-back"].tap()
         app.tabBars.buttons["劇場"].tap()
         XCTAssertTrue(app.buttons["更多劇集，剧场测试甲"].waitForExistence(timeout: 5))

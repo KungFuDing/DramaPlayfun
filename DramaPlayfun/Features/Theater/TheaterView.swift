@@ -10,6 +10,7 @@ struct TheaterView: View {
     @State private var replayAfterPlaybackID: Drama.ID?
     @State private var continuation: PlaybackPreparation?
     @State private var checkInError: String?
+    private let showsCheckInBanner = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -69,7 +70,7 @@ struct TheaterView: View {
                 }
             }
             .overlay(alignment: .top) {
-                if !app.theaterFeed.items.isEmpty && app.welfare.shouldShowSignPopup {
+                if showsCheckInBanner && !app.theaterFeed.items.isEmpty && app.welfare.shouldShowSignPopup {
                     checkInBanner
                         .padding(.horizontal, 14)
                         .padding(.top, max(geometry.safeAreaInsets.top + 16, 76))

@@ -18,7 +18,7 @@ enum ProfileCollection: String, CaseIterable, Identifiable {
 final class ProfileStore {
     private(set) var profile = APIModels.V1GetMyProfileRes()
     private(set) var hasLoadedProfile = false
-    private(set) var config = APIModels.V1GetAppConfigRes()
+    private(set) var config = AppConfiguration()
     private(set) var languages = ProfileLanguage.defaults
     private(set) var collections: [ProfileCollection: [Drama]] = [:]
     private(set) var loading: Set<ProfileCollection> = []
@@ -60,8 +60,12 @@ final class ProfileStore {
         do {
             let result = try await network.request(AppAPI.v1ClientAppConfig, body: .init(), unwrapEnvelope: true)
             try Task.checkCancellation()
-            config = result
-        } catch { }
+            config = AppConfiguration(remote: result)
+        } catch is CancellationError {
+            return
+        } catch {
+            config = AppConfiguration()
+        }
         do {
             let result = try await network.request(AppAPI.v1ClientLanguageList, body: .init(), unwrapEnvelope: true)
             try Task.checkCancellation()

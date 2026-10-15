@@ -4,6 +4,109 @@ import Moya
 
 @MainActor
 final class ProfileStoreTests: XCTestCase {
+    func testConfigurationHasFixedDefaultsBeforeLoading() throws {
+        let network = try makeNetwork { _ in #"{"code":200,"data":{}}"# }
+        let store = ProfileStore(network: network)
+
+        assertDefaultConfiguration(store)
+    }
+
+    func testConfigurationUsesTrimmedRemoteValues() async throws {
+        let network = try makeNetwork { target in
+            guard target.path == AppAPI.v1ClientAppConfig.path else {
+                return #"{"code":200,"data":{}}"#
+            }
+            return #"{"code":200,"data":{"userAgreementUrl":"  https://example.com/terms  ","privacyPolicyUrl":"\nhttps://example.com/privacy\t","customerServiceEmail":"  support@example.com\n"}}"#
+        }
+        let store = ProfileStore(network: network)
+
+        await store.loadSettings()
+
+        XCTAssertEqual(store.config.userAgreementUrl, "https://example.com/terms")
+        XCTAssertEqual(store.config.privacyPolicyUrl, "https://example.com/privacy")
+        XCTAssertEqual(store.config.customerServiceEmail, "support@example.com")
+    }
+
+    func testPartialConfigurationFallsBackForEachMissingField() async throws {
+        let network = try makeNetwork { target in
+            guard target.path == AppAPI.v1ClientAppConfig.path else {
+                return #"{"code":200,"data":{}}"#
+            }
+            return #"{"code":200,"data":{"userAgreementUrl":"https://example.com/terms","privacyPolicyUrl":" \n\t ","customerServiceEmail":null}}"#
+        }
+        let store = ProfileStore(network: network)
+
+        await store.loadSettings()
+
+        XCTAssertEqual(store.config.userAgreementUrl, "https://example.com/terms")
+        XCTAssertEqual(store.config.privacyPolicyUrl, "https://dramaplayfun.com/privacy-policy.html")
+        XCTAssertEqual(store.config.customerServiceEmail, "contact@idoltimeltd.co.uk")
+    }
+
+    func testConfigurationRejectsURLsWithoutHTTPHost() async throws {
+        let responses = [
+            #"{"code":200,"data":{"userAgreementUrl":"/terms","privacyPolicyUrl":"javascript:alert(1)","customerServiceEmail":"support@example.com"}}"#,
+            #"{"code":200,"data":{"userAgreementUrl":"https:///","privacyPolicyUrl":"file:///privacy","customerServiceEmail":"support@example.com"}}"#,
+        ]
+        for response in responses {
+            let network = try makeNetwork { target in
+                target.path == AppAPI.v1ClientAppConfig.path ? response : #"{"code":200,"data":{}}"#
+            }
+            let store = ProfileStore(network: network)
+
+            await store.loadSettings()
+
+            XCTAssertEqual(store.config.userAgreementUrl, "https://dramaplayfun.com/en/terms-of-use.html")
+            XCTAssertEqual(store.config.privacyPolicyUrl, "https://dramaplayfun.com/privacy-policy.html")
+            XCTAssertEqual(store.config.customerServiceEmail, "support@example.com")
+        }
+    }
+
+    func testAbsentOrFailedConfigurationKeepsDefaults() async throws {
+        let responses = [
+            #"{"code":200,"data":{}}"#,
+            #"{"code":200,"data":null}"#,
+            #"{"code":200}"#,
+            #"{"code":200,"data":{"userAgreementUrl":"","privacyPolicyUrl":null,"customerServiceEmail":" \n\t "}}"#,
+            #"{"code":500,"message":"配置获取失败","data":null}"#,
+        ]
+        for response in responses {
+            let network = try makeNetwork { target in
+                target.path == AppAPI.v1ClientAppConfig.path ? response : #"{"code":200,"data":{}}"#
+            }
+            let store = ProfileStore(network: network)
+
+            await store.loadSettings()
+
+            assertDefaultConfiguration(store)
+        }
+    }
+
+    func testConfigurationRefreshResetsMissingFieldsToDefaults() async throws {
+        let responses = ConfigurationResponses([
+            #"{"code":200,"data":{"userAgreementUrl":"https://example.com/terms","privacyPolicyUrl":"https://example.com/privacy","customerServiceEmail":"support@example.com"}}"#,
+            #"{"code":200,"data":{"customerServiceEmail":"updated@example.com"}}"#,
+            #"{"code":200,"data":{}}"#,
+        ])
+        let network = try makeNetwork { target in
+            target.path == AppAPI.v1ClientAppConfig.path ? responses.next() : #"{"code":200,"data":{}}"#
+        }
+        let store = ProfileStore(network: network)
+
+        await store.loadSettings()
+        XCTAssertEqual(store.config.userAgreementUrl, "https://example.com/terms")
+        XCTAssertEqual(store.config.privacyPolicyUrl, "https://example.com/privacy")
+        XCTAssertEqual(store.config.customerServiceEmail, "support@example.com")
+
+        await store.loadSettings()
+        XCTAssertEqual(store.config.userAgreementUrl, "https://dramaplayfun.com/en/terms-of-use.html")
+        XCTAssertEqual(store.config.privacyPolicyUrl, "https://dramaplayfun.com/privacy-policy.html")
+        XCTAssertEqual(store.config.customerServiceEmail, "updated@example.com")
+
+        await store.loadSettings()
+        assertDefaultConfiguration(store)
+    }
+
     func testFavoritesPaginationDeduplicatesAndRefreshReplaces() async throws {
         let network = try makeNetwork { target in
             let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
@@ -48,6 +151,12 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertNotEqual(defaults.string(forKey: "guest.deviceIdentifier.v1"), "previous-device")
     }
 
+    private func assertDefaultConfiguration(_ store: ProfileStore, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(store.config.userAgreementUrl, "https://dramaplayfun.com/en/terms-of-use.html", file: file, line: line)
+        XCTAssertEqual(store.config.privacyPolicyUrl, "https://dramaplayfun.com/privacy-policy.html", file: file, line: line)
+        XCTAssertEqual(store.config.customerServiceEmail, "contact@idoltimeltd.co.uk", file: file, line: line)
+    }
+
     private func makeNetwork(response: @escaping @Sendable (APITarget) -> String) throws -> APIClient {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
@@ -55,5 +164,18 @@ final class ProfileStoreTests: XCTestCase {
                 method: target.method, task: target.task, httpHeaderFields: target.headers)
         }, stubClosure: { _ in .immediate })
         return APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!), provider: provider)
+    }
+}
+
+nonisolated private final class ConfigurationResponses: @unchecked Sendable {
+    private let lock = NSLock()
+    private var responses: [String]
+
+    init(_ responses: [String]) { self.responses = responses }
+
+    func next() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return responses.isEmpty ? #"{"code":200,"data":{}}"# : responses.removeFirst()
     }
 }

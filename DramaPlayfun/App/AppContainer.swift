@@ -155,7 +155,7 @@ final class AppContainer {
                 response = String(data: try! JSONSerialization.data(withJSONObject:
                     ["code": 200, "data": ["total": 8, "list": groups]]), encoding: .utf8)!
             case "/mobile/v1/client/app/config":
-                response = #"{"code":200,"data":{"customerServiceEmail":"contact@idoltimeltd.co.uk","privacyPolicyUrl":"https://example.invalid/privacy","userAgreementUrl":"https://example.invalid/terms"}}"#
+                response = #"{"code":200,"data":{}}"#
             case "/mobile/v1/client/language/list":
                 response = #"{"code":200,"data":{"list":[{"languageCode":"zh","translatedName":"中文","sortOrder":0},{"languageCode":"en","translatedName":"English","sortOrder":1},{"languageCode":"ja","translatedName":"にほんご","sortOrder":2},{"languageCode":"ko","translatedName":"한국어","sortOrder":3},{"languageCode":"es","translatedName":"Español","sortOrder":4},{"languageCode":"fr","translatedName":"Français","sortOrder":5},{"languageCode":"de","translatedName":"Deutsch","sortOrder":6}]}}"#
             case "/mobile/v1/client/me/favorites", "/mobile/v1/client/me/likes":

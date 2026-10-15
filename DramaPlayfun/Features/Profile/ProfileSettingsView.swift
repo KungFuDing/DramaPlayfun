@@ -203,7 +203,7 @@ private struct SettingsBottomPanel: View {
     }
 
     private var contact: some View {
-        Text("邮箱:\(app.profile.config.customerServiceEmail ?? "contact@idoltimeltd.co.uk")")
+        Text("邮箱:\(app.profile.config.customerServiceEmail)")
             .font(.system(size: 14)).foregroundStyle(Color(white: 0.7))
             .textSelection(.enabled).frame(maxWidth: .infinity).frame(height: 46)
             .background(Color(white: 0.23), in: RoundedRectangle(cornerRadius: 8))

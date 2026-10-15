@@ -296,11 +296,19 @@ private struct MembershipTerms: View {
     let isRecharge: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(isRecharge ? "充值说明:" : "订阅说明:").font(.system(size: 14))
-            Text(isRecharge ?
-                 "1.金币可用于解锁付费剧集，充值成功后将自动发放至当前账户。\n2.充值为一次性购买，不会自动续费。实际价格以 Apple 购买确认页为准。\n3.如付款后尚未到账，请稍后点击“恢复购买”同步未完成的交易。已消耗的金币无法通过恢复购买再次获得。" :
-                 "1.订阅生效后，可在有效期内畅享会员剧集，不限观看次数。\n2.本订阅采用自动续费方式，续费价格与当前订阅方案一致。若未取消，系统将在本期订阅到期前的24小时内扣取下一期费用。\n3.你可随时管理自动续订。如不再续订，请至少提前24小时，通过“设置 > Apple账户 > 订阅”关闭自动续订。")
-                .font(.system(size: 13)).lineSpacing(7).fixedSize(horizontal: false, vertical: true)
+            Text(isRecharge ? "充值说明" : "订阅说明").font(.system(size: 14, weight: .bold))
+            VStack(alignment: .leading, spacing: 7) {
+                if isRecharge {
+                    Text("**1、金币用途**：充值获得的虚拟“金币”仅限在本 App 内解锁付费短剧剧集使用，无现金价值，**不支持提现、转让、转赠或在非本 App 渠道交易**。")
+                    Text("**2、到账时效**：金币充值成功后通常立即到账。如遇网络延迟，请尝试重新启动 App 或在个人中心联系客服。")
+                    Text("**3、退款政策**：鉴于虚拟数字化商品的特殊属性，**金币充值一旦成功即代表服务已完成，除法律明确规定外，不予退款**。")
+                    Text("4、**有效期限制**：直接充值购买的金币**永久有效**；通过每日签到、任务活动等方式获赠的“赠送金币/体验金币”可能存在有效期，过期将自动失效，请优先使用。")
+                } else {
+                    Text("**1、畅享剧集**：订阅生效后，所有 **[DramaPlayfun]** 系列节目均可畅享观看，有效期内不限观看次数。")
+                    Text("**2、自动续费**：本订阅采用自动续费方式。若未取消，系统将在当前订阅到期前 **24 小时内**，自动从您的绑定账户扣取下一期费用，续费价格与当期价格一致。")
+                    Text("**3、随时管理**：您可随时管理或取消自动续订。如不再续订，请**至少提前 24 小时**操作：**iOS 路径**：通过“设置 > [您的 Apple ID] > 订阅 > [DramaPlayfun]”关闭。")
+                }
+            }.font(.system(size: 13)).lineSpacing(7).fixedSize(horizontal: false, vertical: true)
         }.foregroundStyle(Color(white: 0.46)).frame(maxWidth: .infinity, alignment: .leading)
     }
 }

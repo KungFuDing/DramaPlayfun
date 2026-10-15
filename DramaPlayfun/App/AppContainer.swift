@@ -16,19 +16,21 @@ final class AppContainer {
     let guestSession: GuestSessionStore
     let appUpdate: AppUpdateStore
     let repository: any DramaRepository
-    let catalog: CatalogStore
-    let homeCategories: DramaTabFeedStore
-    let rankings: DramaTabFeedStore
-    let watchHistory: WatchHistoryStore
-    let homeFeed: HomeFeedStore
-    let theaterFeed: TheaterFeedStore
+    private(set) var catalog: CatalogStore
+    private(set) var homeCategories: DramaTabFeedStore
+    private(set) var rankings: DramaTabFeedStore
+    private(set) var watchHistory: WatchHistoryStore
+    private(set) var homeFeed: HomeFeedStore
+    private(set) var theaterFeed: TheaterFeedStore
     let library: LibraryStore
     let hlsCache: HLSOfflineCache
-    let theaterPlayback: TheaterPlayerPool
+    private(set) var theaterPlayback: TheaterPlayerPool
     let membership: MembershipStore
-    let profile: ProfileStore
-    let wallet: WalletStore
-    let welfare: WelfareStore
+    private(set) var profile: ProfileStore
+    private(set) var wallet: WalletStore
+    private(set) var welfare: WelfareStore
+    private(set) var contentRevision = UUID()
+    private var contentLanguage = LocalizationStore.shared.language
 
     init(network: APIClient? = nil,
          repository: (any DramaRepository)? = nil,
@@ -76,8 +78,10 @@ final class AppContainer {
         guestSession = GuestSessionStore(network: self.network, defaults: defaults,
                                         deviceIdentifierProvider: identityProvider)
         appUpdate = AppUpdateStore(network: self.network, currentVersion: guestSession.currentVersion)
-        profile = ProfileStore(network: self.network)
-        wallet = WalletStore(network: self.network, profile: profile)
+        let profile = ProfileStore(network: self.network)
+        self.profile = profile
+        let wallet = WalletStore(network: self.network, profile: profile)
+        self.wallet = wallet
         welfare = WelfareStore(network: self.network, wallet: wallet)
         let repository = repository ?? APIDramaRepository(network: self.network,
                                                           fallback: DemoDramaRepository())
@@ -87,17 +91,14 @@ final class AppContainer {
         rankings = DramaTabFeedStore(network: self.network, source: .rankings)
         watchHistory = WatchHistoryStore(network: self.network)
         homeFeed = HomeFeedStore(network: self.network)
-        theaterFeed = TheaterFeedStore(network: self.network)
+        let theaterFeed = TheaterFeedStore(network: self.network)
+        self.theaterFeed = theaterFeed
         library = LibraryStore(defaults: defaults)
         hlsCache = .shared
         theaterPlayback = TheaterPlayerPool(library: library, cache: hlsCache,
             progressReporter: TheaterProgressReporter(network: self.network),
             refreshURLs: { [theaterFeed] item in try await theaterFeed.refreshPlaybackURLs(for: item) })
-        let purchaseBackend = StorePurchaseBackend(network: self.network) { [wallet, profile] balance in
-            if let balance { wallet.updateBalance(balance) }
-            await profile.reloadProfile()
-            await wallet.reloadBalance()
-        }
+        let purchaseBackend = StorePurchaseBackend(network: self.network)
         var subscriptionService: any SubscriptionService = subscriptions ?? StoreKitSubscriptionService(backend: purchaseBackend)
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-MembershipUITestFixture") ||
@@ -106,6 +107,35 @@ final class AppContainer {
         }
         #endif
         membership = MembershipStore(service: subscriptionService)
+        purchaseBackend.didUpdateAssets = { [weak self] balance in
+            guard let self else { return }
+            if let balance { self.wallet.updateBalance(balance) }
+            await self.profile.reloadProfile()
+            await self.wallet.reloadBalance()
+        }
+    }
+
+    /// Replace language-dependent caches together. In-flight reads may finish on the
+    /// retired stores, but cannot populate the new UI with the previous language.
+    func reloadLocalizedContent(for language: AppLanguage) {
+        guard contentLanguage != language else { return }
+        contentLanguage = language
+        theaterPlayback.reset()
+        catalog = CatalogStore(repository: repository)
+        homeCategories = DramaTabFeedStore(network: network, source: .homeTags)
+        rankings = DramaTabFeedStore(network: network, source: .rankings)
+        watchHistory = WatchHistoryStore(network: network)
+        homeFeed = HomeFeedStore(network: network)
+        theaterFeed = TheaterFeedStore(network: network)
+        profile = ProfileStore(network: network)
+        wallet = WalletStore(network: network, profile: profile)
+        welfare = WelfareStore(network: network, wallet: wallet)
+        theaterPlayback = TheaterPlayerPool(library: library, cache: hlsCache,
+            progressReporter: TheaterProgressReporter(network: network),
+            refreshURLs: { [theaterFeed] item in try await theaterFeed.refreshPlaybackURLs(for: item) })
+        membership.invalidateLocalizedContent()
+        appUpdate.invalidateLocalizedContent()
+        contentRevision = UUID()
     }
 
     #if DEBUG
@@ -122,6 +152,8 @@ final class AppContainer {
             ? PlayerUnlockUITestAccount() : nil
         var searchHistory = ["重生之我和白月光", "不是哥们,你开局玩这么大", "炎帝", "我是祖国人", "都市甜宠", "白月光的日常生活", "重生", "我以异能斩规则"]
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
+            let localizationLanguage = ProcessInfo.processInfo.arguments.contains("-LocalizationUITestFixture")
+                ? target.headers?["language"] : nil
             if let response = unlockAccount?.response(for: target) {
                 return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
                                 sampleResponseClosure: { .networkResponse(200, Data(response.utf8)) },
@@ -252,11 +284,18 @@ final class AppContainer {
                         : #"{"code":200,"data":{"page":1,"hasMore":false,"list":[]}}"#
                 }
             case "/mobile/v1/drama/tag/list":
-                response = #"{"code":200,"data":{"list":[{"tagId":11,"tagName":"真人剧"},{"tagId":12,"tagName":"剧情"},{"tagId":13,"tagName":"古装"}]}}"#
+                if let localizationLanguage {
+                    let title = localizationLanguage == "en" ? "English Category" : "繁體分類"
+                    response = "{\"code\":200,\"data\":{\"list\":[{\"tagId\":11,\"tagName\":\"\(title)\"}]}}"
+                } else {
+                    response = #"{"code":200,"data":{"list":[{"tagId":11,"tagName":"真人剧"},{"tagId":12,"tagName":"剧情"},{"tagId":13,"tagName":"古装"}]}}"#
+                }
             case "/mobile/v1/drama/tag/series/list":
                 let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
                 let id = body?["tagId"] ?? 0
-                response = "{\"code\":200,\"data\":{\"hasMore\":false,\"list\":[{\"dramaId\":\(id),\"dramaTitle\":\"标签测试\(id)\"}]}}"
+                let title = localizationLanguage.map { $0 == "en" ? "English Category Story" : "繁體分類故事" }
+                    ?? "标签测试\(id)"
+                response = "{\"code\":200,\"data\":{\"hasMore\":false,\"list\":[{\"dramaId\":\(id),\"dramaTitle\":\"\(title)\"}]}}"
             case "/mobile/v1/drama/category/list":
                 response = #"{"code":200,"data":{"list":[{"categoryId":21,"categoryName":"日榜"},{"categoryId":22,"categoryName":"周榜"},{"categoryId":23,"categoryName":"月榜"}]}}"#
             case "/mobile/v2/theater/rank/list":
@@ -272,7 +311,12 @@ final class AppContainer {
             case "/mobile/v1/client/drama/random/list":
                 response = #"{"code":200,"data":{"list":[{"dramaId":51,"dramaTitle":"随机片刻甲"},{"dramaId":52,"dramaTitle":"随机片刻乙"},{"dramaId":53,"dramaTitle":"随机片刻丙"}]}}"#
             case "/mobile/v1/theater/home":
-                response = #"{"code":200,"data":{"banners":[{"id":31,"dramaTitle":"推荐测试"}],"rank":[{"dramaId":41,"dramaTitle":"今日片刻甲","lastEpisodeNo":3},{"dramaId":42,"dramaTitle":"今日片刻乙"},{"dramaId":43,"dramaTitle":"今日片刻丙"},{"dramaId":44,"dramaTitle":"第四项不展示"}],"list":[{"categoryName":"最新发布","list":[{"dramaId":31,"dramaTitle":"推荐测试"}]}]}}"#
+                if let localizationLanguage {
+                    let title = localizationLanguage == "en" ? "English Home Story" : "繁體首頁故事"
+                    response = "{\"code\":200,\"data\":{\"banners\":[{\"id\":31,\"dramaTitle\":\"\(title)\"}],\"rank\":[],\"list\":[]}}"
+                } else {
+                    response = #"{"code":200,"data":{"banners":[{"id":31,"dramaTitle":"推荐测试"}],"rank":[{"dramaId":41,"dramaTitle":"今日片刻甲","lastEpisodeNo":3},{"dramaId":42,"dramaTitle":"今日片刻乙"},{"dramaId":43,"dramaTitle":"今日片刻丙"},{"dramaId":44,"dramaTitle":"第四项不展示"}],"list":[{"categoryName":"最新发布","list":[{"dramaId":31,"dramaTitle":"推荐测试"}]}]}}"#
+                }
             case "/mobile/v1/theater/home/hot/page":
                 if ProcessInfo.processInfo.arguments.contains("-SearchUITestFixture") {
                     response = #"{"code":200,"data":{"hasMore":false,"list":[{"dramaId":31,"dramaTitle":"重生之我和白月光","tagNames":["剧情","都市","甜宠"],"badge":"new"},{"dramaId":32,"dramaTitle":"重生之我和白月光的日常生活","tagNames":["剧情","都市","甜宠"],"badge":"new"},{"dramaId":33,"dramaTitle":"重生之我和白月光的日常生活","tagNames":["剧情","都市","甜宠"],"badge":"hot"},{"dramaId":34,"dramaTitle":"重生之我和白月光","tagNames":["剧情","都市","甜宠"]}]}}"#
@@ -299,7 +343,12 @@ final class AppContainer {
                 response = String(data: try! JSONSerialization.data(withJSONObject:
                     ["code": 200, "data": ["list": items, "page": 1, "hasMore": false]]), encoding: .utf8)!
             case "/mobile/v2/client/list":
-                response = #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":101,"rootDramaId":101,"dramaTitle":"剧场测试甲","tagNames":["剧情","古装","甜宠"],"dramaDesc":"这是剧场测试简介，展开后应按文字高度向上显示，不在底部预留空白。","episodePassed":12,"episodes":[{"episodeId":1001,"episodeNo":1,"videoUrl":"https://example.invalid/first.m3u8"}]},{"dramaId":102,"rootDramaId":102,"dramaTitle":"剧场测试乙","episodePassed":24,"episodes":[{"episodeId":1002,"episodeNo":1,"videoUrl":"https://example.invalid/second.m3u8"}]},{"dramaId":103,"rootDramaId":103,"dramaTitle":"剧场测试丙","episodePassed":36,"episodes":[{"episodeId":1003,"episodeNo":1,"videoUrl":"https://example.invalid/third.m3u8"}]}]}}"#
+                if let localizationLanguage {
+                    let title = localizationLanguage == "en" ? "English Theater Story" : "繁體劇場故事"
+                    response = "{\"code\":200,\"data\":{\"page\":1,\"hasMore\":false,\"list\":[{\"dramaId\":101,\"rootDramaId\":101,\"dramaTitle\":\"\(title)\",\"episodePassed\":12,\"episodes\":[{\"episodeId\":1001,\"episodeNo\":1,\"videoUrl\":\"https://example.invalid/first.m3u8\"}]}]}}"
+                } else {
+                    response = #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":101,"rootDramaId":101,"dramaTitle":"剧场测试甲","tagNames":["剧情","古装","甜宠"],"dramaDesc":"这是剧场测试简介，展开后应按文字高度向上显示，不在底部预留空白。","episodePassed":12,"episodes":[{"episodeId":1001,"episodeNo":1,"videoUrl":"https://example.invalid/first.m3u8"}]},{"dramaId":102,"rootDramaId":102,"dramaTitle":"剧场测试乙","episodePassed":24,"episodes":[{"episodeId":1002,"episodeNo":1,"videoUrl":"https://example.invalid/second.m3u8"}]},{"dramaId":103,"rootDramaId":103,"dramaTitle":"剧场测试丙","episodePassed":36,"episodes":[{"episodeId":1003,"episodeNo":1,"videoUrl":"https://example.invalid/third.m3u8"}]}]}}"#
+                }
             case "/mobile/v1/client/drama/episode/list":
                 let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
                 let dramaID = body?["dramaId"] ?? 101

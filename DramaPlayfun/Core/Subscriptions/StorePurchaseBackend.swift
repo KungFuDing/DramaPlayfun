@@ -36,7 +36,9 @@ struct StoreProductConfiguration {
 final class StorePurchaseBackend {
     private let network: APIClient
     private var catalog: [String: StoreProductConfiguration] = [:]
-    private let didUpdateAssets: @MainActor (Int64?) async -> Void
+    private var catalogRequest = 0
+    private var appliedCatalogRequest = 0
+    var didUpdateAssets: @MainActor (Int64?) async -> Void
 
     init(network: APIClient, didUpdateAssets: @escaping @MainActor (Int64?) async -> Void = { _ in }) {
         self.network = network
@@ -44,6 +46,8 @@ final class StorePurchaseBackend {
     }
 
     func products() async throws -> [StoreProductConfiguration] {
+        catalogRequest += 1
+        let request = catalogRequest
         let result = try await network.request(AppAPI.v1StoreProductList,
             body: .init(payChannel: "apple"), unwrapEnvelope: true)
         var items: [StoreProductConfiguration] = []
@@ -73,7 +77,10 @@ final class StorePurchaseBackend {
         }
         var seen = Set<String>()
         items = items.filter { seen.insert($0.id).inserted }
-        catalog = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        if request > appliedCatalogRequest {
+            appliedCatalogRequest = request
+            catalog = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        }
         return items
     }
 

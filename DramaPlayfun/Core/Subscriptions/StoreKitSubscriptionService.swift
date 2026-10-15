@@ -5,6 +5,7 @@ final class StoreKitSubscriptionService: SubscriptionService {
     private let backend: StorePurchaseBackend
     private let loadProducts: @MainActor ([String]) async throws -> [Product]
     private var products: [Product] = []
+    private var catalogGeneration = 0
     private var deliveries: [UInt64: Task<Void, Error>] = [:]
     private var transactionError: Error?
     var transactionMessage: String? { transactionError.map { L10n.errorMessage($0, fallback: "购买服务暂不可用，请稍后重试。") } }
@@ -20,14 +21,18 @@ final class StoreKitSubscriptionService: SubscriptionService {
     }
 
     func plans(onUpdate: @MainActor ([MembershipPlan]) -> Void) async throws -> [MembershipPlan] {
+        catalogGeneration += 1
+        let generation = catalogGeneration
         let configurations = try await backend.products()
         try Task.checkCancellation()
+        guard generation == catalogGeneration else { throw CancellationError() }
         products = []
         let serverPlans = configurations.map(\.plan)
         onUpdate(serverPlans)
         guard !configurations.isEmpty else { return serverPlans }
         let loadedProducts = try await loadProducts(configurations.map(\.id))
         try Task.checkCancellation()
+        guard generation == catalogGeneration else { throw CancellationError() }
         products = loadedProducts
         return configurations.map { item in
             guard let product = products.first(where: { $0.id == item.id }),

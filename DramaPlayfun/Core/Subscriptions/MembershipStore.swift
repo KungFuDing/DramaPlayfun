@@ -25,33 +25,55 @@ final class MembershipStore {
         }
     }
     private let service: any SubscriptionService
+    private var localizedContentGeneration = 0
 
     init(service: any SubscriptionService) { self.service = service }
 
     func clearMessage() { messageState = nil }
 
+    func invalidateLocalizedContent() {
+        localizedContentGeneration += 1
+        plans = []
+        messageState = nil
+        isLoading = false
+    }
+
     func refresh() async {
+        let generation = localizedContentGeneration
         do {
-            entitlement = try await service.entitlement()
+            let refreshed = try await service.entitlement()
+            guard generation == localizedContentGeneration else { return }
+            entitlement = refreshed
             if service.transactionMessage != nil { messageState = .transaction }
         }
         catch is CancellationError {}
-        catch { messageState = .failure(error) }
+        catch {
+            if generation == localizedContentGeneration { messageState = .failure(error) }
+        }
     }
 
     func loadPlans() async {
         guard !isLoading else { return }
+        let generation = localizedContentGeneration
         isLoading = true
         messageState = nil
-        defer { isLoading = false }
+        defer {
+            if generation == localizedContentGeneration { isLoading = false }
+        }
         do {
-            let loadedPlans = try await service.plans { plans = $0 }
+            let loadedPlans = try await service.plans {
+                guard generation == localizedContentGeneration else { return }
+                plans = $0
+            }
             try Task.checkCancellation()
+            guard generation == localizedContentGeneration else { return }
             plans = loadedPlans
         }
         catch is CancellationError { return }
-        catch { if !Task.isCancelled { messageState = .failure(error) } }
-        guard !Task.isCancelled else { return }
+        catch {
+            if generation == localizedContentGeneration, !Task.isCancelled { messageState = .failure(error) }
+        }
+        guard generation == localizedContentGeneration, !Task.isCancelled else { return }
         await refresh()
     }
 

@@ -16,6 +16,11 @@ struct ContentView: View {
             }
         }
         .task { await app.guestSession.signInIfNeeded() }
+        .onChange(of: LocalizationStore.shared.language) { _, language in
+            router.resetForLanguageChange()
+            app.reloadLocalizedContent(for: language)
+            Task { await app.appUpdate.checkForUpdates() }
+        }
         .onChange(of: app.guestSession.isReady && scenePhase == .active, initial: true) { _, shouldCheck in
             guard shouldCheck else { return }
             // Let an in-flight check finish across brief inactive/active transitions.
@@ -51,6 +56,8 @@ struct ContentView: View {
                                     app.theaterFeed.applyFavorite(id, isFavorite: favorite, count: count)
                                 }
                             case .search: SearchView(network: app.network)
+                            case .welfare: WelfareView()
+                            case .settings: ProfileSettingsView()
                             }
                         }
                 }
@@ -67,6 +74,7 @@ struct ContentView: View {
                 .toolbarBackground(.visible, for: .tabBar)
             }
         }
+        .id(app.contentRevision)
         .environment(router)
         .tint(Theme.accent)
         .preferredColorScheme(.dark)
@@ -80,8 +88,8 @@ struct ContentView: View {
                 }
             } }
         }
-        .task { await app.catalog.loadIfNeeded() }
-        .task { await app.profile.reloadProfile() }
+        .task(id: app.contentRevision) { await app.catalog.loadIfNeeded() }
+        .task(id: app.contentRevision) { await app.profile.reloadProfile() }
         .task { await app.membership.observeTransactions() }
         .task(id: scenePhase) {
             if scenePhase == .active { await app.membership.refresh() }

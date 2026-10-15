@@ -46,6 +46,7 @@ final class AppUpdateStore {
     private let network: APIClient
     private let currentVersion: String
     private var dismissedOptionalVersions: Set<String> = []
+    private var contentRevision = UUID()
     private(set) var notice: AppUpdateNotice?
     private(set) var isChecking = false
     private(set) var isOpening = false
@@ -56,15 +57,24 @@ final class AppUpdateStore {
         self.currentVersion = currentVersion
     }
 
+    func invalidateLocalizedContent() {
+        contentRevision = UUID()
+        isChecking = false
+        errorMessage = nil
+        if notice?.isForced != true { notice = nil }
+    }
+
     func checkForUpdates() async {
         guard !isChecking else { return }
+        let revision = contentRevision
         isChecking = true
         errorMessage = nil
-        defer { isChecking = false }
+        defer { if revision == contentRevision { isChecking = false } }
         do {
             let response = try await network.request(AppAPI.v1ClientAppUpdateCheck,
                 body: .init(currentVersion: currentVersion), unwrapEnvelope: true)
             try Task.checkCancellation()
+            guard revision == contentRevision else { return }
             guard let hasUpdate = response.hasUpdate else { throw AppUpdateError.invalidResponse }
             guard hasUpdate else {
                 notice = nil
@@ -78,7 +88,7 @@ final class AppUpdateStore {
             notice = !update.isForced && dismissedOptionalVersions.contains(update.version) ? nil : update
         } catch is CancellationError {
         } catch {
-            errorMessage = error.appLocalizedDescription
+            if revision == contentRevision { errorMessage = error.appLocalizedDescription }
         }
     }
 

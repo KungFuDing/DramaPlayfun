@@ -197,7 +197,10 @@ private struct SettingsBottomPanel: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 11), GridItem(.flexible(), spacing: 11)], spacing: 10) {
                 ForEach(AppLanguage.allCases) { language in
-                    Button { localization.select(language) } label: {
+                    Button {
+                        onClose()
+                        localization.select(language)
+                    } label: {
                         Text(language.title).font(.system(size: 14)).frame(maxWidth: .infinity).frame(height: 46)
                             .foregroundStyle(language == localization.language ? Color(white: 0.18) : Color(white: 0.87))
                             .background(language == localization.language ? Theme.accent : Color(white: 0.23), in: RoundedRectangle(cornerRadius: 8))

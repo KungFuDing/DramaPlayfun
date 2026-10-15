@@ -164,6 +164,28 @@ final class AppUpdateTests: XCTestCase {
         XCTAssertNotNil(store.notice)
     }
 
+    func testLanguageInvalidationRejectsPreviousNoticeAndPreservesDismissedVersions() async throws {
+        let started = expectation(description: "Previous language check started")
+        var requests = 0
+        let store = try makeStore(response: { _ in
+            requests += 1
+            if requests == 1 { started.fulfill() }
+            return #"{"code":200,"data":{"hasUpdate":true,"latestVersion":"1.1.6","forceUpdate":false,"title":"Old title"}}"#
+        }, delay: 0.1)
+        let pending = _Concurrency.Task { await store.checkForUpdates() }
+        await fulfillment(of: [started], timeout: 2)
+        store.invalidateLocalizedContent()
+        await pending.value
+        XCTAssertNil(store.notice)
+        XCTAssertFalse(store.isChecking)
+        await store.checkForUpdates()
+        XCTAssertNotNil(store.notice)
+        store.dismiss()
+        store.invalidateLocalizedContent()
+        await store.checkForUpdates()
+        XCTAssertNil(store.notice)
+    }
+
     private func makeStore(response: @escaping (APITarget) -> String,
                            delay: TimeInterval = 0) throws -> AppUpdateStore {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in

@@ -224,6 +224,157 @@ final class MembershipTests: XCTestCase {
         XCTAssertEqual(store.message, L10n.tr("充值成功，金币已到账"))
     }
 
+    func testLanguageInvalidationDiscardsOldPlanUpdatesAndAllowsImmediateReload() async {
+        for oldRequestFails in [false, true] {
+            let oldStarted = expectation(description: "Old-language catalog started")
+            let newStarted = expectation(description: "New-language catalog started")
+            let service = DelayedMembershipCatalogService { request in
+                (request == 0 ? oldStarted : newStarted).fulfill()
+            }
+            let store = MembershipStore(service: service)
+            let oldLoad = _Concurrency.Task { await store.loadPlans() }
+            await fulfillment(of: [oldStarted], timeout: 2)
+            XCTAssertEqual(store.plans.first?.title, "Old provisional title")
+
+            store.invalidateLocalizedContent()
+            XCTAssertTrue(store.plans.isEmpty)
+            XCTAssertFalse(store.isLoading)
+            let newLoad = _Concurrency.Task { await store.loadPlans() }
+            await fulfillment(of: [newStarted], timeout: 2)
+            XCTAssertEqual(store.plans.first?.title, "New provisional title")
+
+            service.complete(0, fails: oldRequestFails)
+            await oldLoad.value
+            XCTAssertEqual(store.plans.first?.title, "New provisional title")
+            XCTAssertTrue(store.isLoading, "The old request must not end the new loading state")
+            XCTAssertNil(store.message)
+
+            service.complete(1, fails: false)
+            await newLoad.value
+            XCTAssertEqual(store.plans.first?.title, "New final title")
+            XCTAssertFalse(store.isLoading)
+            XCTAssertNil(store.message)
+        }
+    }
+
+    func testLanguageInvalidationPreservesEntitlementAndAnOngoingPurchase() async {
+        let started = expectation(description: "Purchase started")
+        var completion: CheckedContinuation<PurchaseOutcome, Never>?
+        let service = MembershipTestService()
+        service.asset = .init(isActive: true, category: .yearly)
+        service.purchaseAction = {
+            await withCheckedContinuation {
+                completion = $0
+                started.fulfill()
+            }
+        }
+        let store = MembershipStore(service: service)
+        await store.refresh()
+        let purchase = _Concurrency.Task {
+            await store.purchase(.init(id: "coin", title: "Coins", price: "$4.99", period: "", category: .coins))
+        }
+        await fulfillment(of: [started], timeout: 2)
+
+        store.invalidateLocalizedContent()
+        XCTAssertTrue(store.isPurchasing)
+        XCTAssertTrue(store.entitlement.isActive(for: .yearly))
+        completion?.resume(returning: .purchased)
+        await purchase.value
+        XCTAssertFalse(store.isPurchasing)
+        XCTAssertEqual(store.message, L10n.tr("充值成功，金币已到账"))
+
+        store.invalidateLocalizedContent()
+        XCTAssertNil(store.message)
+        XCTAssertTrue(store.entitlement.isActive(for: .yearly))
+    }
+
+    func testLanguageInvalidationIgnoresAnOldEntitlementError() async {
+        let started = expectation(description: "Entitlement refresh started")
+        var completion: CheckedContinuation<MembershipEntitlement, Error>?
+        let service = MembershipTestService()
+        service.asset = .init(isActive: true, category: .yearly)
+        let store = MembershipStore(service: service)
+        await store.refresh()
+        service.refreshAction = {
+            try await withCheckedThrowingContinuation {
+                completion = $0
+                started.fulfill()
+            }
+        }
+        let refresh = _Concurrency.Task { await store.refresh() }
+        await fulfillment(of: [started], timeout: 2)
+
+        store.invalidateLocalizedContent()
+        completion?.resume(throwing: APIError.business(500, "Old-language error"))
+        await refresh.value
+        XCTAssertNil(store.message)
+        XCTAssertTrue(store.entitlement.isActive(for: .yearly))
+    }
+
+    func testOlderAppleCatalogLoadCannotCompleteAfterTheNewCatalog() async throws {
+        let oldStarted = expectation(description: "Old Apple catalog load started")
+        var releaseOldLoad: CheckedContinuation<Void, Never>?
+        var request = 0
+        let backend = StorePurchaseBackend(network: try client { _ in
+            request += 1
+            return "{\"code\":200,\"data\":{\"vipProducts\":[{\"channelProductId\":\"week\",\"vipDays\":7,\"productName\":\"Catalog \(request)\"}]}}"
+        })
+        var appleRequest = 0
+        let service = StoreKitSubscriptionService(backend: backend, loadProducts: { _ in
+            appleRequest += 1
+            if appleRequest == 1 {
+                await withCheckedContinuation {
+                    releaseOldLoad = $0
+                    oldStarted.fulfill()
+                }
+            }
+            return []
+        })
+        let oldLoad = _Concurrency.Task { try await service.plans() }
+        await fulfillment(of: [oldStarted], timeout: 2)
+        let newPlans = try await service.plans()
+        XCTAssertEqual(newPlans.first?.title, "Catalog 2")
+
+        releaseOldLoad?.resume()
+        do {
+            _ = try await oldLoad.value
+            XCTFail("An older catalog load must not overwrite the newer Apple product cache")
+        } catch is CancellationError { }
+    }
+
+    func testOlderBackendCatalogResponseDoesNotOverwriteNewPurchaseConfiguration() async throws {
+        let oldStarted = expectation(description: "Old backend catalog request started")
+        var releaseOldRequest: (() -> Void)?
+        var version = "old"
+        let provider = MoyaProvider<APITarget>(endpointClosure: { target in
+            let requestedVersion = target.headers?["X-Catalog-Version"] ?? ""
+            let response = "{\"code\":200,\"data\":{\"vipProducts\":[{\"channelProductId\":\"week\",\"vipDays\":7,\"channelPlanId\":\"\(requestedVersion)\"}]}}"
+            return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
+                sampleResponseClosure: { .networkResponse(200, Data(response.utf8)) },
+                method: target.method, task: target.task, httpHeaderFields: target.headers)
+        }, requestClosure: { endpoint, completion in
+            do {
+                let request = try endpoint.urlRequest()
+                if endpoint.httpHeaderFields?["X-Catalog-Version"] == "old" {
+                    releaseOldRequest = { completion(.success(request)) }
+                    oldStarted.fulfill()
+                } else { completion(.success(request)) }
+            } catch { completion(.failure(.underlying(error, nil))) }
+        }, stubClosure: { _ in .immediate })
+        let network = APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!),
+            provider: provider, headerProvider: { _ in ["X-Catalog-Version": version] })
+        let backend = StorePurchaseBackend(network: network)
+        let oldLoad = _Concurrency.Task { try await backend.products() }
+        await fulfillment(of: [oldStarted], timeout: 2)
+        version = "new"
+        _ = try await backend.products()
+
+        releaseOldRequest?()
+        _ = try await oldLoad.value
+        let configuration = try await backend.configuration(for: "week")
+        XCTAssertEqual(configuration.channelPlanID, "new")
+    }
+
     private var catalog: String { #"{"code":200,"data":{"coinProducts":[{"channelProductId":"coin","coinAmount":500}]}}"# }
     private var pricedCatalog: String {
         #"{"code":200,"data":{"vipProducts":[{"channelProductId":"week","vipDays":7,"priceAmount":19.99,"priceCurrency":"CNY"}],"coinProducts":[{"channelProductId":"coin","coinAmount":500,"priceAmount":8.99,"priceCurrency":"USD"}]}}"#
@@ -245,13 +396,60 @@ final class MembershipTests: XCTestCase {
 private final class MembershipTestService: SubscriptionService {
     var asset = MembershipEntitlement()
     var failRefresh = false
+    var purchaseAction: (() async throws -> PurchaseOutcome)?
+    var refreshAction: (() async throws -> MembershipEntitlement)?
     func plans() async throws -> [MembershipPlan] { [] }
     func hasActiveSubscription() async throws -> Bool { asset.isActive }
     func entitlement() async throws -> MembershipEntitlement {
+        if let refreshAction { return try await refreshAction() }
         if failRefresh { throw URLError(.notConnectedToInternet) }
         return asset
     }
-    func purchase(planID: String) async throws -> PurchaseOutcome { .purchased }
+    func purchase(planID: String) async throws -> PurchaseOutcome {
+        if let purchaseAction { return try await purchaseAction() }
+        return .purchased
+    }
+    func restore() async throws { }
+    func observeTransactions(onChange: @escaping @MainActor () async -> Void) async { }
+}
+
+@MainActor
+private final class DelayedMembershipCatalogService: SubscriptionService {
+    private var requestCount = 0
+    private var continuations: [Int: CheckedContinuation<[MembershipPlan], Error>] = [:]
+    private let didStart: (Int) -> Void
+
+    init(didStart: @escaping (Int) -> Void) { self.didStart = didStart }
+
+    func plans() async throws -> [MembershipPlan] { try await plans(onUpdate: { _ in }) }
+
+    func plans(onUpdate: @MainActor ([MembershipPlan]) -> Void) async throws -> [MembershipPlan] {
+        let request = requestCount
+        requestCount += 1
+        onUpdate([plan(request: request, final: false)])
+        let result: [MembershipPlan] = try await withCheckedThrowingContinuation {
+            continuations[request] = $0
+            didStart(request)
+        }
+        onUpdate(result)
+        return result
+    }
+
+    func complete(_ request: Int, fails: Bool) {
+        guard let continuation = continuations.removeValue(forKey: request) else {
+            return XCTFail("No pending catalog request \(request)")
+        }
+        if fails { continuation.resume(throwing: APIError.business(500, "Old-language error")) }
+        else { continuation.resume(returning: [plan(request: request, final: true)]) }
+    }
+
+    private func plan(request: Int, final: Bool) -> MembershipPlan {
+        .init(id: "week", title: "\(request == 0 ? "Old" : "New") \(final ? "final" : "provisional") title",
+              price: "$4.99", period: "weekly")
+    }
+
+    func hasActiveSubscription() async throws -> Bool { false }
+    func purchase(planID: String) async throws -> PurchaseOutcome { .cancelled }
     func restore() async throws { }
     func observeTransactions(onChange: @escaping @MainActor () async -> Void) async { }
 }

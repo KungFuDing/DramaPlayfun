@@ -75,7 +75,7 @@ struct HomeView: View {
                 isCategoryPinned: isCategoryPinned,
                 navbarOpacity: navbarOpacity
             ) {
-                router.membershipPresented = true
+                router.paths[.home, default: []].append(.welfare)
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
@@ -352,7 +352,8 @@ private struct HomeSearchBar: View {
                     .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 11))
                     .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.32)))
             }
-            .accessibilityLabel(L10n.tr("会员礼遇"))
+            .accessibilityLabel(L10n.tr("福利"))
+            .accessibilityIdentifier("home-welfare")
         }
     }
 }

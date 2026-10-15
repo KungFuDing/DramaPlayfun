@@ -20,7 +20,7 @@ enum AppTab: String, CaseIterable, Identifiable {
     }
 }
 
-enum AppRoute: Hashable { case drama(Drama), shortDrama(Drama), search }
+enum AppRoute: Hashable { case drama(Drama), shortDrama(Drama), search, welfare, settings }
 
 struct PlaybackRequest: Identifiable {
     let drama: Drama
@@ -36,6 +36,15 @@ final class AppRouter {
     var paths: [AppTab: [AppRoute]] = [:]
     var playback: PlaybackRequest?
     var membershipPresented = false
+
+    func resetForLanguageChange() {
+        // Route payloads can contain server-localized titles and descriptions.
+        // Keep the settings destination where the user made the selection.
+        let keepsSettings = selectedTab == .profile && paths[.profile]?.last == .settings
+        paths = keepsSettings ? [.profile: [.settings]] : [:]
+        playback = nil
+        membershipPresented = false
+    }
 
     func openPlayback(_ drama: Drama, episode: Episode? = nil) {
         playback = PlaybackRequest(drama: drama, episode: episode ??

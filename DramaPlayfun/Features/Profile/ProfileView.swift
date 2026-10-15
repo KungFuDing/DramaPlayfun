@@ -15,7 +15,7 @@ struct ProfileView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Spacer()
-                    NavigationLink { ProfileSettingsView() } label: {
+                    NavigationLink(value: AppRoute.settings) {
                         Image(systemName: "gearshape").font(.system(size: 24, weight: .regular))
                             .frame(width: 44, height: 44).foregroundStyle(.white)
                     }.accessibilityLabel(L10n.tr("设置")).accessibilityIdentifier("profile-settings")

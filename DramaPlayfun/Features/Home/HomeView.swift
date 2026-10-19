@@ -4,28 +4,39 @@ struct HomeView: View {
     @Environment(AppContainer.self) private var app
     @Environment(AppRouter.self) private var router
     @State private var scrollOffset: CGFloat = 0
-    @State private var viewportHeight: CGFloat = 700
     @State private var categoryContentY: CGFloat = .greatestFiniteMagnitude
-
-    private var navbarOpacity: Double {
-        let fadeDistance = HomeBannerCarousel.height - HomeTopControls.navbarHeight
-        return Double(min(max(scrollOffset / fadeDistance, 0), 1))
-    }
-
-    private var isCategoryPinned: Bool {
-        scrollOffset >= categoryContentY - HomeTopControls.pinnedCategoryTop
-    }
 
     var body: some View {
         @Bindable var categories = app.homeCategories
+        GeometryReader { geometry in
+            let layout = HomeLayout(width: geometry.size.width, height: geometry.size.height)
+            homeContent(layout: layout)
+        }
+        .screenBackground()
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar(.hidden, for: .navigationBar)
+        .task { await app.homeFeed.loadIfNeeded() }
+        .task { await app.watchHistory.reload() }
+        .onChange(of: router.playback?.id) { old, new in
+            if old != nil && new == nil { Task { await app.watchHistory.reload() } }
+        }
+        .task { await categories.loadTabsIfNeeded() }
+        .task(id: categories.selectedID) { await categories.loadSelectedIfNeeded() }
+    }
+
+    private func homeContent(layout: HomeLayout) -> some View {
+        @Bindable var categories = app.homeCategories
         let featured = categories.selectedID == DramaFeedTab.featured.id
-        ZStack(alignment: .top) {
+        let isCategoryPinned = scrollOffset >= categoryContentY - layout.pinnedCategoryTop
+        let fadeDistance = max(1, layout.bannerHeight - layout.navbarHeight)
+        let navbarOpacity = Double(min(max(scrollOffset / fadeDistance, 0), 1))
+        return ZStack(alignment: .top) {
             RefreshLoadScrollView(
                 hasMore: featured ? app.homeFeed.hasMoreHot : categories.selectedPage.hasMore,
                 isLoadingMore: featured ? app.homeFeed.isLoadingMore : categories.selectedPage.isLoadingMore,
                 loadError: featured ? app.homeFeed.hotErrorMessage : categories.selectedPage.loadMoreErrorMessage,
                 coordinateSpaceName: "homeScroll",
-                refreshIndicatorTop: HomeTopControls.pinnedCategoryTop + 8,
+                refreshIndicatorTop: layout.pinnedCategoryTop + 8,
                 scrollOffset: $scrollOffset,
                 onRefresh: {
                     await app.homeFeed.reload()
@@ -39,7 +50,8 @@ struct HomeView: View {
                 }
             ) {
                 VStack(alignment: .leading, spacing: 0) {
-                    HomeBannerCarousel(banners: app.homeFeed.banners)
+                    HomeBannerCarousel(banners: app.homeFeed.banners, layout: layout)
+                        .frame(maxWidth: .infinity)
 
                     VStack(alignment: .leading, spacing: 28) {
                         if let message = app.homeFeed.homeErrorMessage {
@@ -49,7 +61,7 @@ struct HomeView: View {
                             }
                             .frame(maxWidth: .infinity)
                         }
-                        HomeContinueWatchingSection()
+                        HomeContinueWatchingSection(layout: layout.browse)
                         CategoryPicker(tabs: categories.tabs, selection: $categories.selectedID)
                             .onGeometryChange(for: CGFloat.self) { geometry in
                                 geometry.frame(in: .named("homeContent")).minY
@@ -59,16 +71,20 @@ struct HomeView: View {
                             .opacity(isCategoryPinned ? 0 : 1)
                         FeedTabsStatus(feed: categories)
                         HomeCategoryPager(tabs: categories.tabs, selection: $categories.selectedID,
-                                          minimumHeight: max(1, viewportHeight - HomeTopControls.pinnedCategoryTop))
+                                          minimumHeight: max(1, layout.height - layout.pinnedCategoryTop),
+                                          layout: layout.browse)
                     }
                     .padding(.top, 22)
-                    .padding(.horizontal, Theme.spacing)
+                    .frame(width: layout.browse.contentWidth)
+                    .frame(maxWidth: .infinity)
                     .padding(.bottom, 28)
                 }
                 .coordinateSpace(name: "homeContent")
             }
+            .accessibilityIdentifier("home-feed")
 
             HomeTopControls(
+                layout: layout,
                 onSearchTap: { router.paths[.home, default: []].append(.search) },
                 tabs: categories.tabs,
                 category: $categories.selectedID,
@@ -78,20 +94,28 @@ struct HomeView: View {
                 router.paths[.home, default: []].append(.welfare)
             }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
-        .screenBackground()
-        .scrollDismissesKeyboard(.interactively)
-        .toolbar(.hidden, for: .navigationBar)
-        .ignoresSafeArea(edges: .top)
-        .task { await app.homeFeed.loadIfNeeded() }
-        .task { await app.watchHistory.reload() }
-        .onChange(of: router.playback?.id) { old, new in
-            if old != nil && new == nil { Task { await app.watchHistory.reload() } }
-        }
-        .task { await categories.loadTabsIfNeeded() }
-        .task(id: categories.selectedID) { await categories.loadSelectedIfNeeded() }
+    }
+}
+
+/// Derived from the current window so rotation and multitasking update every related offset together.
+private struct HomeLayout {
+    let browse: BrowseLayout
+    let height: CGFloat
+
+    init(width: CGFloat, height: CGFloat) {
+        browse = BrowseLayout(width: width)
+        self.height = height
     }
 
+    // The root stays inside the system safe area, including top/side tab bars.
+    var searchTop: CGFloat { 8 }
+    var navbarHeight: CGFloat { searchTop + 44 }
+    var pinnedCategoryTop: CGFloat { navbarHeight + 10 }
+    var bannerWidth: CGFloat { browse.contentWidth + browse.horizontalInset * 2 }
+    var bannerHeight: CGFloat {
+        let imageHeight = bannerWidth * (browse.isWide ? 0.46 : 0.94)
+        return min(browse.isWide ? 520 : 420, max(navbarHeight + 120, min(imageHeight, height * 0.72)))
+    }
 }
 
 /// Each category owns its content height; short pages still fill the space below the pinned tabs.
@@ -99,6 +123,7 @@ private struct HomeCategoryPager: View {
     let tabs: [DramaFeedTab]
     @Binding var selection: String
     let minimumHeight: CGFloat
+    let layout: BrowseLayout
     @State private var pageHeights: [String: CGFloat] = [:]
 
     private var pageHeight: CGFloat {
@@ -114,7 +139,7 @@ private struct HomeCategoryPager: View {
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 0) {
                     ForEach(tabs) { category in
-                        HomeCategoryContent(category: category)
+                        HomeCategoryContent(category: category, layout: layout)
                             .frame(width: geometry.size.width, alignment: .topLeading)
                             .fixedSize(horizontal: false, vertical: true)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
@@ -140,6 +165,7 @@ private struct HomeCategoryPager: View {
 
 private struct HomeCategoryContent: View {
     let category: DramaFeedTab
+    let layout: BrowseLayout
     @Environment(AppContainer.self) private var app
     @Environment(AppRouter.self) private var router
 
@@ -147,13 +173,13 @@ private struct HomeCategoryContent: View {
         VStack(alignment: .leading, spacing: 28) {
             if category.id == DramaFeedTab.featured.id {
                 if app.homeFeed.hasLoaded {
-                    HomeMomentsSection(feed: app.homeFeed)
+                    HomeMomentsSection(feed: app.homeFeed, layout: layout)
                     ForEach(app.homeFeed.shelves) { shelf in
-                        HomeDramaShelf(title: shelf.displayTitle, dramas: shelf.dramas)
+                        HomeDramaShelf(title: shelf.displayTitle, dramas: shelf.dramas, cardWidth: layout.shelfCardWidth)
                     }
                     HomeSectionTitle(title: L10n.tr("热播剧集")) { router.selectedTab = .rankings }
                     if !app.homeFeed.hotDramas.isEmpty {
-                        HomeWaterfallGrid(dramas: app.homeFeed.hotDramas)
+                        HomeWaterfallGrid(dramas: app.homeFeed.hotDramas, layout: layout)
                     }
                     if app.homeFeed.hotDramas.isEmpty && !app.homeFeed.isLoadingMore && app.homeFeed.hotErrorMessage == nil {
                         ContentUnavailableView(L10n.tr("暂无剧集"), systemImage: "film")
@@ -165,18 +191,14 @@ private struct HomeCategoryContent: View {
                 let state = app.homeCategories.page(for: category.id)
                 FeedPageStatus(state: state) { await app.homeCategories.refreshSelected() }
                 let dramas = state.dramas
-                if !dramas.isEmpty { HomeWaterfallGrid(dramas: dramas) }
+                if !dramas.isEmpty { HomeWaterfallGrid(dramas: dramas, layout: layout) }
             }
         }
     }
 }
 
 private struct HomeTopControls: View {
-    static let searchTop: CGFloat = 54
-    static let searchHeight: CGFloat = 44
-    static let navbarHeight = searchTop + searchHeight
-    static let pinnedCategoryTop = searchTop + searchHeight + 10
-
+    let layout: HomeLayout
     let onSearchTap: () -> Void
     let tabs: [DramaFeedTab]
     @Binding var category: String
@@ -193,9 +215,10 @@ private struct HomeTopControls: View {
                     .transition(.opacity)
             }
         }
-        .padding(.top, Self.searchTop)
-        .padding(.horizontal, Theme.spacing)
+        .frame(width: layout.browse.contentWidth)
+        .padding(.top, layout.searchTop)
         .padding(.bottom, isCategoryPinned ? 8 : 0)
+        .frame(maxWidth: .infinity)
         .background {
             Color.black.opacity(navbarOpacity)
                 .ignoresSafeArea(edges: .top)
@@ -221,8 +244,8 @@ private struct HomeHeaderTestAccessibility: ViewModifier {
 }
 
 private struct HomeBannerCarousel: View {
-    static let height: CGFloat = 370
     let banners: [HomeBanner]
+    let layout: HomeLayout
     @State private var selectedIndex = 0
 
     var body: some View {
@@ -232,7 +255,7 @@ private struct HomeBannerCarousel: View {
             } else {
                 TabView(selection: $selectedIndex) {
                     ForEach(Array(banners.enumerated()), id: \.element.id) { index, banner in
-                        HomeBannerPage(banner: banner)
+                        HomeBannerPage(banner: banner, height: layout.bannerHeight)
                             .tag(index)
                     }
                 }
@@ -252,18 +275,20 @@ private struct HomeBannerCarousel: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Theme.spacing)
+                .padding(.horizontal, layout.browse.horizontalInset)
                 .padding(.bottom, 20)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .allowsHitTesting(false)
             }
         }
-        .frame(height: Self.height)
+        .frame(width: layout.bannerWidth, height: layout.bannerHeight)
+        .clipped()
         .onChange(of: banners.map(\.id), initial: true) { _, _ in
             selectedIndex = 0
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("推荐剧集轮播"))
+        .accessibilityIdentifier("home-banner")
     }
 
     private var currentBanner: HomeBanner? {
@@ -274,6 +299,7 @@ private struct HomeBannerCarousel: View {
 private struct HomeBannerPage: View {
     @Environment(AppRouter.self) private var router
     let banner: HomeBanner
+    let height: CGFloat
 
     var body: some View {
         Button { router.openPlayback(banner.drama) } label: {
@@ -285,7 +311,7 @@ private struct HomeBannerPage: View {
                 }
                 LinearGradient(colors: [.clear, .black.opacity(0.12), Theme.background], startPoint: .top, endPoint: .bottom)
             }
-            .frame(height: 370)
+            .frame(height: height)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(L10n.tr("推荐剧集，%@", banner.drama.title))
@@ -338,6 +364,7 @@ private struct HomeSearchBar: View {
                 .padding(.horizontal, 13).frame(height: 44)
                 .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 11))
                 .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.26)))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(L10n.tr("搜索剧集"))
@@ -351,6 +378,7 @@ private struct HomeSearchBar: View {
                     .frame(width: 44, height: 44)
                     .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 11))
                     .overlay(RoundedRectangle(cornerRadius: 11).stroke(.white.opacity(0.32)))
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(L10n.tr("福利"))
             .accessibilityIdentifier("home-welfare")
@@ -392,6 +420,7 @@ struct HomeSectionTitle: View {
 private struct HomeDramaShelf: View {
     let title: String
     let dramas: [Drama]
+    let cardWidth: CGFloat
     @Environment(AppRouter.self) private var router
 
     var body: some View {
@@ -400,7 +429,7 @@ private struct HomeDramaShelf: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(dramas) { drama in
-                        DramaCard(drama: drama, onSelect: { router.openPlayback(drama) }).frame(width: 142)
+                        DramaCard(drama: drama, onSelect: { router.openPlayback(drama) }).frame(width: cardWidth)
                             .accessibilityIdentifier("home-shelf-item-\(drama.id)")
                     }
                 }
@@ -411,17 +440,26 @@ private struct HomeDramaShelf: View {
 
 private struct HomeWaterfallGrid: View {
     let dramas: [Drama]
-    private var leftColumn: [Drama] { dramas.enumerated().compactMap { $0.offset.isMultiple(of: 2) ? $0.element : nil } }
-    private var rightColumn: [Drama] { dramas.enumerated().compactMap { $0.offset.isMultiple(of: 2) ? nil : $0.element } }
+    let layout: BrowseLayout
+
+    private var columns: [[Drama]] {
+        var columns = Array(repeating: [Drama](), count: layout.columnCount)
+        for (index, drama) in dramas.enumerated() {
+            columns[index % layout.columnCount].append(drama)
+        }
+        return columns
+    }
 
     var body: some View {
+        let columns = self.columns
         if dramas.isEmpty {
             ContentUnavailableView(L10n.tr("暂无剧集"), systemImage: "film", description: Text(L10n.tr("试试其他分类或关键词")))
                 .frame(maxWidth: .infinity).padding(.vertical, 36)
         } else {
-            HStack(alignment: .top, spacing: 14) {
-                HomeWaterfallColumn(dramas: leftColumn)
-                HomeWaterfallColumn(dramas: rightColumn)
+            HStack(alignment: .top, spacing: layout.columnSpacing) {
+                ForEach(columns.indices, id: \.self) { index in
+                    HomeWaterfallColumn(dramas: columns[index])
+                }
             }
         }
     }

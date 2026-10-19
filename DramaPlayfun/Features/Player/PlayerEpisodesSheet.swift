@@ -40,19 +40,27 @@ struct PlayerEpisodesSheet: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let insets = geometry.safeAreaInsets
+            let fullSize = CGSize(width: geometry.size.width + insets.leading + insets.trailing,
+                                  height: geometry.size.height + insets.top + insets.bottom)
+            let layout = EpisodeSheetLayout(size: fullSize, safeAreaInsets: insets,
+                                            episodeCount: min(episodes.count, 30))
             ZStack(alignment: .bottom) {
                 Color.clear.contentShape(Rectangle()).onTapGesture(perform: onClose)
                     .accessibilityLabel(L10n.tr("关闭选集弹窗"))
-                panel
-                    .frame(height: geometry.size.height * 0.602)
+                panel(layout: layout)
+                    .frame(width: layout.width, height: layout.height)
+                    .padding(.leading, insets.leading)
+                    .padding(.trailing, insets.trailing)
                     .transition(.move(edge: .bottom))
             }
+            .frame(width: fullSize.width, height: fullSize.height)
+            .offset(x: -insets.leading, y: -insets.top)
         }
-        .ignoresSafeArea()
         .foregroundStyle(.white)
     }
 
-    private var panel: some View {
+    private func panel(layout: EpisodeSheetLayout) -> some View {
         ZStack(alignment: .top) {
             Color(red: 34.0 / 255, green: 35.0 / 255, blue: 35.0 / 255)
             LinearGradient(colors: [Color(red: 0.67, green: 0.58, blue: 0.2),
@@ -64,16 +72,17 @@ struct PlayerEpisodesSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 dramaHeader
                 rangeTabs
-                episodeGrid
+                episodeGrid(layout: layout)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, layout.horizontalPadding)
             .padding(.top, 30)
             HStack {
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark").font(.system(size: 22, weight: .medium))
-                        .foregroundStyle(Color(white: 0.72)).frame(width: 36, height: 36)
+                        .foregroundStyle(Color(white: 0.72)).frame(width: 44, height: 44)
                 }.accessibilityLabel(L10n.tr("关闭选集"))
+                    .accessibilityIdentifier("player-episodes-close")
             }.padding(.top, 4).padding(.trailing, 6)
         }
         .clipShape(PlayerBottomPanelShape())
@@ -109,7 +118,7 @@ struct PlayerEpisodesSheet: View {
                     .font(.system(size: 12)).foregroundStyle(Color(white: 0.84))
                     .padding(.horizontal, 10).padding(.vertical, 5)
                     .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-            }.padding(.top, 2).padding(.trailing, 20)
+            }.padding(.top, 2).padding(.trailing, 32)
             Spacer(minLength: 0)
         }.frame(height: 92, alignment: .top)
     }
@@ -132,18 +141,48 @@ struct PlayerEpisodesSheet: View {
         }.frame(height: 33)
     }
 
-    private var episodeGrid: some View {
+    private func episodeGrid(layout: EpisodeSheetLayout) -> some View {
         ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 6), spacing: 10) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12),
+                                    count: layout.columnCount), spacing: 10) {
                 ForEach(visibleEpisodes) { episode in
                     EpisodeSelectionCell(episode: episode, isSelected: selectedID == episode.id,
                         accent: accent) { onSelect(episode) }
                 }
-            }.padding(.top, 1).padding(.bottom, 40)
+            }.padding(.top, 1).padding(.bottom, layout.bottomPadding)
         }
         .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
         .id(rangeStart)
         .accessibilityIdentifier("episode-selection-grid")
+    }
+}
+
+private struct EpisodeSheetLayout {
+    let width: CGFloat
+    let height: CGFloat
+    let horizontalPadding: CGFloat
+    let bottomPadding: CGFloat
+    let columnCount: Int
+
+    init(size: CGSize, safeAreaInsets: EdgeInsets, episodeCount: Int) {
+        let safeWidth = max(0, size.width - safeAreaInsets.leading - safeAreaInsets.trailing)
+        let isWide = safeWidth >= 600
+        width = min(640, max(0, safeWidth - (isWide ? 48 : 0)))
+        horizontalPadding = isWide ? 20 : 12
+        bottomPadding = max(20, safeAreaInsets.bottom + 12)
+
+        let contentWidth = max(0, width - horizontalPadding * 2)
+        // Keep six columns on phones, reduce them in narrow windows, and add
+        // columns on wider panels so square cells never grow beyond 72 points.
+        let compactColumns = min(6, max(1, Int((contentWidth + 12) / 56)))
+        columnCount = max(compactColumns, Int(ceil((contentWidth + 12) / 84)))
+        let cellSize = max(0, (contentWidth - CGFloat(columnCount - 1) * 12) / CGFloat(columnCount))
+        let rows = CGFloat((episodeCount + columnCount - 1) / columnCount)
+        let gridHeight = rows * cellSize + max(0, rows - 1) * 10
+        let contentHeight = 30 + 92 + 32 + 33 + 1 + gridHeight + bottomPadding
+        let availableHeight = max(0, size.height - max(safeAreaInsets.top, 12) - 12)
+        height = min(availableHeight, 600, max(size.height * 0.602, contentHeight))
     }
 }
 

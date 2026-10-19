@@ -25,42 +25,50 @@ struct SearchView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            SearchInputBar(input: inputBinding, isFocused: $isInputFocused,
-                onBack: { dismiss() }, onSearch: submit)
-                .padding(.horizontal, 12).padding(.top, 5)
+        GeometryReader { geometry in
+            let layout = BrowseLayout(width: geometry.size.width)
+            VStack(spacing: 0) {
+                SearchInputBar(input: inputBinding, isFocused: $isInputFocused,
+                    onBack: { dismiss() }, onSearch: submit)
+                    .frame(width: layout.contentWidth)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 5)
 
-            RefreshLoadScrollView(
-                hasMore: isShowingResults ? store.hasMore : app.homeFeed.hasMoreHot,
-                isLoadingMore: isShowingResults ? store.isLoadingMore : app.homeFeed.isLoadingMore,
-                loadError: isShowingResults ? store.loadMoreError : app.homeFeed.hotErrorMessage,
-                coordinateSpaceName: "searchScroll",
-                onRefresh: {
-                    await store.loadHistory()
-                    if let submittedKeyword { await store.search(submittedKeyword) }
-                    else { await app.homeFeed.reload() }
-                },
-                onLoadMore: {
-                    if isShowingResults { await store.loadMore() }
-                    else { await app.homeFeed.loadMore() }
-                }
-            ) {
-                VStack(alignment: .leading, spacing: 24) {
-                    if isInputEmpty && !isShowingResults {
-                        SearchHistorySection(store: store) { keyword in
-                            input = keyword
-                            submit()
-                        }
-                    } else {
-                        matches
+                RefreshLoadScrollView(
+                    hasMore: isShowingResults ? store.hasMore : app.homeFeed.hasMoreHot,
+                    isLoadingMore: isShowingResults ? store.isLoadingMore : app.homeFeed.isLoadingMore,
+                    loadError: isShowingResults ? store.loadMoreError : app.homeFeed.hotErrorMessage,
+                    coordinateSpaceName: "searchScroll",
+                    onRefresh: {
+                        await store.loadHistory()
+                        if let submittedKeyword { await store.search(submittedKeyword) }
+                        else { await app.homeFeed.reload() }
+                    },
+                    onLoadMore: {
+                        if isShowingResults { await store.loadMore() }
+                        else { await app.homeFeed.loadMore() }
                     }
-                    hotDramas
+                ) {
+                    VStack(alignment: .leading, spacing: 24) {
+                        if isInputEmpty && !isShowingResults {
+                            SearchHistorySection(store: store) { keyword in
+                                input = keyword
+                                submit()
+                            }
+                        } else {
+                            matches(layout: layout)
+                        }
+                        hotDramas(layout: layout)
+                    }
+                    .frame(width: layout.contentWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, isInputEmpty ? 24 : 21)
+                    .padding(.bottom, 20)
                 }
-                .padding(.horizontal, 12).padding(.top, isInputEmpty ? 24 : 21)
-                .padding(.bottom, 20)
+                .scrollIndicators(.hidden)
+                .scrollDismissesKeyboard(.interactively)
+                .accessibilityIdentifier("search-feed")
             }
-            .scrollIndicators(.hidden)
-            .scrollDismissesKeyboard(.interactively)
         }
         .background { SearchBackground().ignoresSafeArea() }
         .toolbar(.hidden, for: .navigationBar, .tabBar)
@@ -73,7 +81,7 @@ struct SearchView: View {
         }
     }
 
-    @ViewBuilder private var matches: some View {
+    @ViewBuilder private func matches(layout: BrowseLayout) -> some View {
         if store.isSearching || store.isLoadingSuggestions {
             ProgressView(L10n.tr("搜索中…")).frame(maxWidth: .infinity).padding(.vertical, 24)
         } else if store.searchError != nil {
@@ -87,7 +95,12 @@ struct SearchView: View {
             if dramas.isEmpty {
                 SearchEmptyView()
             } else {
-                LazyVStack(spacing: 20) {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 24, alignment: .top),
+                        count: layout.resultColumnCount),
+                    alignment: .leading,
+                    spacing: 20
+                ) {
                     ForEach(dramas) { drama in
                         SearchResultRow(drama: drama) { router.openPlayback(drama) }
                     }
@@ -97,7 +110,7 @@ struct SearchView: View {
         }
     }
 
-    private var hotDramas: some View {
+    private func hotDramas(layout: BrowseLayout) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             ZStack(alignment: .trailing) {
                 Image("HomeHeadingGlow").resizable().scaledToFit()
@@ -105,7 +118,7 @@ struct SearchView: View {
                 Text(L10n.tr("热播剧集")).font(.system(size: 16, weight: .semibold))
             }.frame(height: 20)
             if !app.homeFeed.hotDramas.isEmpty {
-                SearchHotGrid(dramas: app.homeFeed.hotDramas)
+                SearchHotGrid(dramas: app.homeFeed.hotDramas, layout: layout)
             } else if app.homeFeed.isLoading || app.homeFeed.isLoadingMore {
                 ProgressView(L10n.tr("加载剧集…")).frame(maxWidth: .infinity).padding(24)
             } else if app.homeFeed.hotErrorMessage == nil {
@@ -140,13 +153,15 @@ private struct SearchInputBar: View {
         HStack(spacing: 8) {
             Button(action: onBack) {
                 Image("SearchBack").resizable().scaledToFit().frame(width: 22, height: 22)
-                    .frame(width: 20, height: 34)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }.accessibilityLabel(L10n.tr("返回")).accessibilityIdentifier("search-back")
             HStack(spacing: 8) {
                 Image("SearchIcon").renderingMode(.template).resizable().scaledToFit()
                     .foregroundStyle(.white.opacity(0.65)).frame(width: 16, height: 16)
                 TextField("", text: $input, prompt: Text(L10n.tr("请输入剧名、类型")).foregroundStyle(.white.opacity(0.55)))
                     .font(.system(size: 14)).foregroundStyle(.white)
+                    .frame(minHeight: 44)
                     .focused(isFocused).submitLabel(.search)
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
                     .onSubmit(onSearch).accessibilityLabel(L10n.tr("请输入剧名、类型"))
@@ -155,9 +170,11 @@ private struct SearchInputBar: View {
                     Text(L10n.tr("搜索")).font(.system(size: 14)).foregroundStyle(Color(white: 0.12))
                         .frame(width: 56, height: 26)
                         .background(Theme.accent, in: RoundedRectangle(cornerRadius: 6))
+                        .frame(height: 44)
+                        .contentShape(Rectangle())
                 }.accessibilityIdentifier("search-submit")
             }
-            .padding(.leading, 10).padding(.trailing, 4).frame(height: 34)
+            .padding(.leading, 10).padding(.trailing, 4).frame(height: 44)
             .background(.white.opacity(0.13), in: RoundedRectangle(cornerRadius: 8))
         }
     }
@@ -173,12 +190,16 @@ private struct SearchHistorySection: View {
                 Text(L10n.tr("最近搜索")).font(.system(size: 16, weight: .semibold))
                 Spacer()
                 Button { Task { await store.clearHistory() } } label: {
-                    if store.isClearingHistory { ProgressView().frame(width: 16, height: 16) }
-                    else { Image("SearchHistoryDelete").resizable().scaledToFit().frame(width: 16, height: 16) }
+                    Group {
+                        if store.isClearingHistory { ProgressView().frame(width: 16, height: 16) }
+                        else { Image("SearchHistoryDelete").resizable().scaledToFit().frame(width: 16, height: 16) }
+                    }
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
                 }
-                .frame(width: 22, height: 22).disabled(store.isClearingHistory || store.history.isEmpty)
+                .disabled(store.isClearingHistory || store.history.isEmpty)
                 .accessibilityLabel(L10n.tr("清空最近搜索")).accessibilityIdentifier("search-clear-history")
-            }.frame(height: 20)
+            }
             if let message = store.historyError {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(message).font(.caption).foregroundStyle(.secondary)
@@ -186,13 +207,15 @@ private struct SearchHistorySection: View {
                 }
             }
             if !store.history.isEmpty {
-                SearchHistoryFlow(horizontalSpacing: 10, verticalSpacing: 16) {
+                SearchHistoryFlow(horizontalSpacing: 10, verticalSpacing: 4) {
                     ForEach(Array(store.history.enumerated()), id: \.offset) { _, keyword in
                         Button { onSelect(keyword) } label: {
                             Text(keyword).font(.system(size: 12)).foregroundStyle(Color(white: 0.8))
                                 .lineLimit(1).padding(.horizontal, 10).frame(height: 25)
                                 .frame(maxWidth: 156)
                                 .background(.white.opacity(0.12), in: Capsule())
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
                         }.accessibilityLabel(keyword)
                     }
                 }.accessibilityIdentifier("search-history")
@@ -234,17 +257,19 @@ private struct SearchResultRow: View {
 
 private struct SearchHotGrid: View {
     let dramas: [Drama]
+    let layout: BrowseLayout
 
     var body: some View {
-        HStack(alignment: .top, spacing: 15) {
-            column(parity: 0)
-            column(parity: 1)
+        HStack(alignment: .top, spacing: layout.columnSpacing) {
+            ForEach(0..<layout.columnCount, id: \.self) { index in
+                column(index: index)
+            }
         }
     }
 
-    private func column(parity: Int) -> some View {
+    private func column(index: Int) -> some View {
         LazyVStack(spacing: 16) {
-            ForEach(dramas.enumerated().compactMap { $0.offset % 2 == parity ? $0.element : nil }) { drama in
+            ForEach(dramas.enumerated().compactMap { $0.offset % layout.columnCount == index ? $0.element : nil }) { drama in
                 SearchHotCard(drama: drama)
             }
         }.frame(maxWidth: .infinity, alignment: .top)
@@ -277,19 +302,20 @@ private struct SearchBackground: View {
         GeometryReader { geometry in
             Theme.background
             Canvas { context, size in
+                let glowWidth = min(size.width, 600)
                 let bounds = Path(CGRect(origin: .zero, size: size))
                 context.fill(bounds, with: .radialGradient(
                     Gradient(colors: [Color(red: 0.61, green: 0.46, blue: 0.25), .clear]),
-                    center: .zero, startRadius: 0, endRadius: size.width * 0.95))
+                    center: .zero, startRadius: 0, endRadius: glowWidth * 0.95))
                 context.fill(bounds, with: .radialGradient(
                     Gradient(colors: [Color(red: 0.35, green: 0.11, blue: 0.12), .clear]),
-                    center: CGPoint(x: size.width, y: 0), startRadius: 0, endRadius: size.width * 0.9))
-                let scale = size.width / 375
+                    center: CGPoint(x: size.width, y: 0), startRadius: 0, endRadius: glowWidth * 0.9))
+                let scale = glowWidth / 375
                 context.fill(Path(ellipseIn: CGRect(x: -57 * scale, y: -95 * scale, width: 212 * scale, height: 205 * scale)),
                     with: .color(.white.opacity(0.04)))
                 context.fill(Path(ellipseIn: CGRect(x: 112 * scale, y: -53 * scale, width: 86 * scale, height: 96 * scale)),
                     with: .color(.white.opacity(0.04)))
-            }.frame(height: geometry.size.width * 1.5)
+            }.frame(height: min(geometry.size.width * 1.5, 650))
         }.allowsHitTesting(false).accessibilityHidden(true)
     }
 }

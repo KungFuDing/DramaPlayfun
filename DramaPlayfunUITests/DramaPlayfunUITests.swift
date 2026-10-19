@@ -40,15 +40,16 @@ final class DramaPlayfunUITests: XCTestCase {
         let opaque = NSPredicate(format: "value BEGINSWITH %@", "100%")
         expectation(for: opaque, evaluatedWith: header)
         waitForExpectations(timeout: 5)
-        for _ in 0..<4 where header.frame.height <= 120 {
+        let pinnedCategory = header.buttons["真人剧"].firstMatch
+        for _ in 0..<4 where !pinnedCategory.isHittable {
             start.press(forDuration: 0.05, thenDragTo: end)
         }
         let scrolledScreen = XCTAttachment(screenshot: app.screenshot())
         scrolledScreen.name = "首页上滑后"
         scrolledScreen.lifetime = .keepAlways
         add(scrolledScreen)
-        XCTAssertGreaterThan(header.frame.height, 120, "分类栏应出现在固定顶部：\(header.value ?? "无状态")")
-        XCTAssertTrue(app.buttons["真人剧"].exists)
+        XCTAssertTrue(pinnedCategory.isHittable, "分类栏应出现在固定顶部：\(header.value ?? "无状态")")
+        XCTAssertTrue(header.frame.contains(pinnedCategory.frame))
 
         for _ in 0..<4 where (header.value as? String)?.hasPrefix("0%") != true {
             end.press(forDuration: 0.05, thenDragTo: start)
@@ -56,7 +57,7 @@ final class DramaPlayfunUITests: XCTestCase {
         let clear = NSPredicate(format: "value BEGINSWITH %@", "0%")
         expectation(for: clear, evaluatedWith: header)
         waitForExpectations(timeout: 5)
-        XCTAssertLessThan(header.frame.height, 110, "下滑回顶部后分类栏应回到内容流")
+        XCTAssertFalse(pinnedCategory.exists, "下滑回顶部后分类栏应回到内容流")
         // https://developer.apple.com/documentation/xcuiautomation
     }
 
@@ -106,15 +107,24 @@ final class DramaPlayfunUITests: XCTestCase {
             if heading.isHittable && heading.frame.maxY < 250 { break }
             bottom.press(forDuration: 0.05, thenDragTo: top)
         }
-        let cards = (31...34).map { app.buttons["home-drama-item-\($0)"] }
-        for card in cards { XCTAssertTrue(card.waitForExistence(timeout: 5)) }
+        for id in 31...34 {
+            XCTAssertTrue(app.buttons["home-drama-item-\(id)"].waitForExistence(timeout: 5))
+        }
+        let cards = (31...36).map { app.buttons["home-drama-item-\($0)"] }.filter(\.exists)
         let frames = cards.map(\.frame)
         for frame in frames { XCTAssertEqual(frame.width, frames[0].width, accuracy: 1) }
-        XCTAssertEqual(frames[1].minX - frames[0].maxX, 14, accuracy: 1)
-        XCTAssertEqual(frames[2].minX, frames[0].minX, accuracy: 1)
-        XCTAssertEqual(frames[3].minX, frames[1].minX, accuracy: 1)
-        XCTAssertEqual(frames[2].minY - frames[0].maxY, 16, accuracy: 1)
-        XCTAssertEqual(frames[3].minY - frames[1].maxY, 16, accuracy: 1)
+        let columns = Dictionary(grouping: frames) { Int($0.minX.rounded()) }
+            .values.sorted { $0[0].minX < $1[0].minX }
+        XCTAssertGreaterThanOrEqual(columns.count, 2)
+        for pair in zip(columns, columns.dropFirst()) {
+            XCTAssertEqual(pair.1[0].minX - pair.0[0].maxX, 14, accuracy: 1)
+        }
+        for column in columns {
+            let ordered = column.sorted { $0.minY < $1.minY }
+            for pair in zip(ordered, ordered.dropFirst()) {
+                XCTAssertEqual(pair.1.minY - pair.0.maxY, 16, accuracy: 1)
+            }
+        }
         XCTAssertGreaterThan(frames[1].height, frames[0].height,
             "A wrapped title should change card height without changing its column width or gap")
         let screenshot = XCTAttachment(screenshot: app.screenshot())
@@ -437,9 +447,19 @@ final class DramaPlayfunUITests: XCTestCase {
         let third = app.buttons["home-moment-43"]
         XCTAssertTrue(first.exists && second.exists && third.exists)
         XCTAssertFalse(app.buttons["home-moment-44"].exists)
-        XCTAssertGreaterThan(first.frame.height, second.frame.height * 1.8)
-        XCTAssertGreaterThan(second.frame.minX, first.frame.minX)
-        XCTAssertGreaterThan(third.frame.minY, second.frame.minY)
+        if app.scrollViews["home-feed"].frame.width >= 600 {
+            for card in [second, third] {
+                XCTAssertEqual(card.frame.width, first.frame.width, accuracy: 1)
+                XCTAssertEqual(card.frame.height, first.frame.height, accuracy: 1)
+                XCTAssertEqual(card.frame.minY, first.frame.minY, accuracy: 1)
+            }
+            XCTAssertGreaterThan(second.frame.minX, first.frame.maxX)
+            XCTAssertGreaterThan(third.frame.minX, second.frame.maxX)
+        } else {
+            XCTAssertGreaterThan(first.frame.height, second.frame.height * 1.8)
+            XCTAssertGreaterThan(second.frame.minX, first.frame.minX)
+            XCTAssertGreaterThan(third.frame.minY, second.frame.minY)
+        }
         app.buttons["home-moments-refresh"].tap()
         XCTAssertTrue(app.buttons["home-moment-51"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["home-moment-52"].exists)
@@ -447,7 +467,8 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertFalse(app.buttons["home-moment-41"].exists)
         XCTAssertFalse(app.navigationBars["劇集詳情"].exists, "换一换只能刷新数据，不能跳转页面")
         XCTAssertTrue(app.buttons["home-moments-refresh"].isHittable)
-        XCTAssertTrue(app.tabBars.buttons["首頁"].isSelected)
+        let homeTabs = app.buttons.matching(NSPredicate(format: "label == %@", "首頁"))
+        XCTAssertTrue(homeTabs.allElementsBoundByIndex.contains { $0.isHittable && $0.isSelected })
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "首页今日片刻"
         screenshot.lifetime = .keepAlways

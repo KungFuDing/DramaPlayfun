@@ -18,8 +18,11 @@ final class SearchUITests: XCTestCase {
         let first = app.buttons["search-hot-31"]
         let second = app.buttons["search-hot-32"]
         XCTAssertTrue(first.waitForExistence(timeout: 5))
+        XCTAssertTrue(second.waitForExistence(timeout: 5))
+        XCTAssertEqual(first.frame.width, second.frame.width, accuracy: 1)
         XCTAssertEqual(second.frame.minX - first.frame.maxX, 15, accuracy: 1)
-        XCTAssertGreaterThan(second.frame.height, first.frame.height)
+        XCTAssertGreaterThanOrEqual(second.frame.height, first.frame.height,
+            "长标题可按当前列宽换行，不能改变卡片宽度")
         capture(app, name: "搜索页")
 
         field.tap()

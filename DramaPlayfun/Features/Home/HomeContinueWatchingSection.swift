@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct HomeContinueWatchingSection: View {
+    let layout: BrowseLayout
     @Environment(AppContainer.self) private var app
     @Environment(AppRouter.self) private var router
 
@@ -17,7 +18,7 @@ struct HomeContinueWatchingSection: View {
                                 router.openPlayback(item.drama)
                             } label: {
                                 HStack(spacing: 12) {
-                                    DramaPoster(drama: item.drama).frame(width: 74)
+                                    DramaPoster(drama: item.drama).frame(width: layout.isWide ? 74 : 64)
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text(item.drama.title).font(.subheadline.weight(.medium)).lineLimit(2)
                                         Text(item.isOnline ? item.subtitle : L10n.tr("已下架"))
@@ -27,7 +28,9 @@ struct HomeContinueWatchingSection: View {
                                         }
                                     }.frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .padding(10).frame(width: 300, height: 110)
+                                .padding(10)
+                                .frame(width: min(layout.contentWidth, layout.isWide ? 340 : 300),
+                                       height: layout.isWide ? 124 : 110)
                                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cornerRadius))
                             }
                             .buttonStyle(.plain)

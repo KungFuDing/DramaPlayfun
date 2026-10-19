@@ -6,7 +6,8 @@ struct RankingsView: View {
     @State private var viewportWidth: CGFloat = 375
     @State private var isRetrying = false
 
-    private var scale: CGFloat { viewportWidth / 375 }
+    // Keep the phone proportions without magnifying every element on wide windows.
+    private var scale: CGFloat { min(viewportWidth / 375, 1.25) }
 
     private var showsNetworkFailure: Bool {
         let feed = app.rankings
@@ -39,20 +40,14 @@ struct RankingsView: View {
                             RankingTabPicker(tabs: feed.tabs, selection: $feed.selectedID, scale: scale)
                             FeedTabsStatus(feed: feed)
                             RankingCategoryPager(feed: feed, selection: $feed.selectedID,
-                                                 minimumHeight: max(1, viewportHeight - 203 * scale))
+                                                 minimumHeight: max(1, viewportHeight - 203 * scale),
+                                                 scale: scale)
                         }
                         .padding(.horizontal, 12 * scale)
                         .padding(.bottom, 24)
                     }
                 }
-                .background(alignment: .top) {
-                    ZStack {
-                        Theme.background
-                        Image("RankingBackground")
-                            .resizable().scaledToFit()
-                            .frame(maxHeight: .infinity, alignment: .top)
-                    }.ignoresSafeArea()
-                }
+                .background { RankingBackground().ignoresSafeArea() }
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
@@ -77,6 +72,20 @@ struct RankingsView: View {
         } else {
             await feed.refreshSelected()
         }
+    }
+}
+
+private struct RankingBackground: View {
+    var body: some View {
+        GeometryReader { geometry in
+            Image("RankingBackground")
+                .resizable().scaledToFill()
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                .clipped()
+        }
+        .background(Theme.background)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -157,6 +166,7 @@ private struct RankingCategoryPager: View {
     let feed: DramaTabFeedStore
     @Binding var selection: String
     let minimumHeight: CGFloat
+    let scale: CGFloat
     @State private var heights: [String: CGFloat] = [:]
 
     private var height: CGFloat { max(minimumHeight, heights[selection] ?? minimumHeight) }
@@ -169,7 +179,7 @@ private struct RankingCategoryPager: View {
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 0) {
                     ForEach(feed.tabs) { tab in
-                        RankingCategoryContent(state: feed.page(for: tab.id), width: geometry.size.width) {
+                        RankingCategoryContent(state: feed.page(for: tab.id), scale: scale) {
                             await feed.refreshSelected()
                         }
                         .frame(width: geometry.size.width, alignment: .topLeading)
@@ -194,18 +204,20 @@ private struct RankingCategoryPager: View {
 
 private struct RankingCategoryContent: View {
     let state: DramaTabPage
-    let width: CGFloat
+    let scale: CGFloat
     let onRetry: () async -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             FeedPageStatus(state: state, onRetry: onRetry)
-            LazyVStack(spacing: 12 * width / 351) {
+            // The horizontal pager measures each category's full height. Eager
+            // layout avoids lazy placement feedback as the viewport resizes.
+            VStack(spacing: 12 * scale) {
                 ForEach(Array(state.dramas.enumerated()), id: \.element.id) { index, drama in
-                    RankingDramaRow(drama: drama, rank: index + 1, posterWidth: 95 * width / 351)
+                    RankingDramaRow(drama: drama, rank: index + 1, posterWidth: 95 * scale)
                 }
             }
-            .padding(.top, 4 * width / 351)
+            .padding(.top, 4 * scale)
         }
     }
 }

@@ -189,19 +189,26 @@ private struct MembershipHero: View {
         Image(category.assetPrefix + (active ? "Active" : "Inactive"))
             .resizable().aspectRatio(351.0 / 148, contentMode: .fit)
             .overlay(alignment: .topLeading) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(category.title).font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(LinearGradient(colors: category == .weekly ?
-                            [Color(red: 0.87, green: 0.92, blue: 1), Color(red: 0.52, green: 0.63, blue: 0.83)] :
-                            [Color(red: 1, green: 0.96, blue: 0.72), Color(red: 1, green: 0.67, blue: 0)], startPoint: .top, endPoint: .bottom))
-                    Text(active ? L10n.tr("已开通,可享所有权益") : L10n.tr("开通会员立享所有权益"))
-                        .font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
-                    if active, let expiry = entitlement.expirationDate {
-                        Text(L10n.tr("会员有效期至 %@", expiry.formatted(.iso8601.year().month().day().dateSeparator(.dash))))
-                            .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).padding(.top, 16)
-                            .accessibilityIdentifier("membership-expiry")
+                GeometryReader { geometry in
+                    // Insets use the same 351-point canvas as the background asset;
+                    // typography stays readable without growing with tablet widths.
+                    let artworkScale = geometry.size.width / 351
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(category.title).font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(LinearGradient(colors: category == .weekly ?
+                                [Color(red: 0.87, green: 0.92, blue: 1), Color(red: 0.52, green: 0.63, blue: 0.83)] :
+                                [Color(red: 1, green: 0.96, blue: 0.72), Color(red: 1, green: 0.67, blue: 0)], startPoint: .top, endPoint: .bottom))
+                        Text(active ? L10n.tr("已开通,可享所有权益") : L10n.tr("开通会员立享所有权益"))
+                            .font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
+                        if active, let expiry = entitlement.expirationDate {
+                            Text(L10n.tr("会员有效期至 %@", expiry.formatted(.iso8601.year().month().day().dateSeparator(.dash))))
+                                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).padding(.top, 16)
+                                .accessibilityIdentifier("membership-expiry")
+                        }
                     }
-                }.padding(.leading, 12).padding(.top, 45)
+                    .padding(.leading, 12 * artworkScale)
+                    .padding(.top, 45 * artworkScale)
+                }
             }.accessibilityElement(children: .combine)
             .accessibilityIdentifier("membership-hero-\(category.rawValue)-\(active ? "active" : "inactive")")
     }

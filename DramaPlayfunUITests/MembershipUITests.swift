@@ -8,24 +8,23 @@ final class MembershipUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-MembershipUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["會員"].waitForExistence(timeout: 10))
-        app.tabBars.buttons["會員"].tap()
+        openTab("會員", in: app)
         let weekly = app.buttons["membership-buy-weekly"]
         XCTAssertTrue(weekly.waitForExistence(timeout: 10))
         XCTAssertTrue(weekly.isEnabled)
-        capture(app, "周会员-未开通")
+        capture(app, "周会员-未开通", membershipCategory: "weekly")
         weekly.tap()
         XCTAssertTrue(app.staticTexts["membership-message"].waitForExistence(timeout: 5))
         XCTAssertFalse(weekly.isEnabled)
-        capture(app, "周会员-已开通")
+        capture(app, "周会员-已开通", membershipCategory: "weekly")
         app.buttons["membership-tab-yearly"].tap()
         let yearly = app.buttons["membership-buy-yearly"]
         XCTAssertTrue(yearly.waitForExistence(timeout: 5))
         XCTAssertTrue(yearly.isEnabled)
-        capture(app, "年会员-未开通")
+        capture(app, "年会员-未开通", membershipCategory: "yearly")
         yearly.tap()
         XCTAssertFalse(yearly.isEnabled)
-        capture(app, "年会员-已开通")
+        capture(app, "年会员-已开通", membershipCategory: "yearly")
         app.buttons["membership-tab-coins"].tap()
         let coin = app.buttons["membership-coin-fixture.coins.1"]
         XCTAssertTrue(coin.waitForExistence(timeout: 5))
@@ -42,8 +41,7 @@ final class MembershipUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-MembershipUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["我的"].waitForExistence(timeout: 10))
-        app.tabBars.buttons["我的"].tap()
+        openTab("我的", in: app)
         app.buttons["profile-wallet"].tap()
         let recharge = app.buttons["wallet-recharge"]
         XCTAssertTrue(recharge.waitForExistence(timeout: 5))
@@ -59,8 +57,7 @@ final class MembershipUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-MembershipUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["會員"].waitForExistence(timeout: 10))
-        app.tabBars.buttons["會員"].tap()
+        openTab("會員", in: app)
         let weekly = app.scrollViews["membership-page-weekly"]
         let yearly = app.scrollViews["membership-page-yearly"]
         let coins = app.scrollViews["membership-page-coins"]
@@ -90,10 +87,41 @@ final class MembershipUITests: XCTestCase {
         XCTAssertTrue(app.buttons["membership-tab-yearly"].isSelected)
     }
 
-    @MainActor private func capture(_ app: XCUIApplication, _ name: String) {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = name
-        attachment.lifetime = .keepAlways
-        add(attachment)
+    @MainActor private func openTab(_ label: String, in app: XCUIApplication) {
+        let tabs = app.buttons.matching(NSPredicate(format: "label == %@", label))
+        expectation(for: NSPredicate { _, _ in
+            tabs.allElementsBoundByIndex.contains(where: \.isHittable)
+        }, evaluatedWith: app)
+        waitForExpectations(timeout: 10)
+        guard let tab = tabs.allElementsBoundByIndex.first(where: \.isHittable) else {
+            XCTFail("应能找到当前位置可点击的\(label)入口")
+            return
+        }
+        tab.tap()
+    }
+
+    @MainActor private func capture(_ app: XCUIApplication, _ name: String, membershipCategory: String? = nil) {
+        if let membershipCategory {
+            let page = app.scrollViews["membership-page-\(membershipCategory)"]
+            let hero = page.descendants(matching: .any).matching(NSPredicate(
+                format: "identifier BEGINSWITH %@", "membership-hero-\(membershipCategory)-"
+            )).firstMatch
+            XCTAssertTrue(hero.waitForExistence(timeout: 5))
+            // Buying a plan can scroll its button into view. Restore the card
+            // before capturing, allowing its intentional 10-point top overlap.
+            for _ in 0..<6 {
+                if hero.frame.minY >= page.frame.minY - 12 { break }
+                page.swipeDown()
+            }
+            XCTAssertGreaterThanOrEqual(hero.frame.minY, page.frame.minY - 12)
+        }
+        // Capture screens directly: an app-window screenshot can be cropped
+        // after rotation or target the inactive display on a foldable device.
+        for (index, screen) in XCUIScreen.screens.enumerated() {
+            let attachment = XCTAttachment(screenshot: screen.screenshot())
+            attachment.name = "\(name)-screen-\(index)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
     }
 }

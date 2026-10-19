@@ -17,7 +17,7 @@ final class ProfileUITests: XCTestCase {
         XCTAssertTrue(app.buttons["profile-likes"].isSelected)
         settings.tap()
         XCTAssertTrue(app.buttons["settings-语言切换"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.tabBars.firstMatch.isHittable)
+        XCTAssertFalse(profileTabs(in: app).allElementsBoundByIndex.contains(where: \.isHittable))
         capture(app, "设置")
         app.buttons["settings-语言切换"].tap()
         let english = app.buttons["settings-language-en"]
@@ -68,21 +68,36 @@ final class ProfileUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-ProfileUITestFixture", "-ProfileVIPUITestFixture", "-profile.language.v1", "zh-Hant"]
         app.launch()
-        app.tabBars.buttons["我的"].tap()
+        openProfile(in: app)
         XCTAssertTrue(app.staticTexts["已開通，可享所有權益"].waitForExistence(timeout: 10))
         capture(app, "我的-已开通会员")
     }
 
     @MainActor private func openProfile(in app: XCUIApplication) {
-        let profile = app.tabBars.buttons.matching(NSPredicate(format: "label IN %@", ["Profile", "我的"])).firstMatch
-        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        let tabs = profileTabs(in: app)
+        expectation(for: NSPredicate { _, _ in
+            tabs.allElementsBoundByIndex.contains(where: \.isHittable)
+        }, evaluatedWith: app)
+        waitForExpectations(timeout: 10)
+        guard let profile = tabs.allElementsBoundByIndex.first(where: \.isHittable) else {
+            XCTFail("应能找到当前位置可点击的我的入口")
+            return
+        }
         profile.tap()
     }
 
+    @MainActor private func profileTabs(in app: XCUIApplication) -> XCUIElementQuery {
+        app.buttons.matching(NSPredicate(format: "label IN %@", ["Profile", "我的"]))
+    }
+
     @MainActor private func capture(_ app: XCUIApplication, _ name: String) {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = name
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        // Capture screens directly: an app-window screenshot can be cropped
+        // after rotation or target the inactive display on a foldable device.
+        for (index, screen) in XCUIScreen.screens.enumerated() {
+            let attachment = XCTAttachment(screenshot: screen.screenshot())
+            attachment.name = "\(name)-screen-\(index)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
     }
 }

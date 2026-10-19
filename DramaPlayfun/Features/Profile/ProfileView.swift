@@ -93,15 +93,23 @@ struct ProfileView: View {
             Image(hasVIP ? "ProfileMembershipActive" : "ProfileMembershipInactive")
                 .resizable().aspectRatio(351.0 / 148, contentMode: .fit)
                 .overlay(alignment: .topLeading) {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(L10n.tr("VIP会员")).font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(LinearGradient(colors: [Color(red: 1, green: 0.85, blue: 0.45), Color(red: 1, green: 0.57, blue: 0.22)], startPoint: .leading, endPoint: .trailing))
-                        Text(hasVIP ? L10n.tr("已开通,可享所有权益") : L10n.tr("未开通,开通可享所有权益"))
-                            .font(.system(size: 13)).foregroundStyle(Color(red: 0.82, green: 0.78, blue: 0.65))
-                        Spacer(minLength: 0)
-                        Text(hasVIP ? app.profile.expiryText.map { L10n.tr("会员有效期至 %@", $0) } ?? L10n.tr("尊享会员权益") : L10n.tr("开通会员，畅享精彩好剧"))
-                            .font(.system(size: 11)).foregroundStyle(Color(red: 0.77, green: 0.72, blue: 0.6))
-                    }.padding(.leading, 12).padding(.top, 50).padding(.bottom, 12)
+                    GeometryReader { geometry in
+                        // Keep the text inside the artwork's card as its transparent
+                        // top area and crown scale with the available width.
+                        let artworkScale = geometry.size.width / 351
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text(L10n.tr("VIP会员")).font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(LinearGradient(colors: [Color(red: 1, green: 0.85, blue: 0.45), Color(red: 1, green: 0.57, blue: 0.22)], startPoint: .leading, endPoint: .trailing))
+                            Text(hasVIP ? L10n.tr("已开通,可享所有权益") : L10n.tr("未开通,开通可享所有权益"))
+                                .font(.system(size: 13)).foregroundStyle(Color(red: 0.82, green: 0.78, blue: 0.65))
+                            Spacer(minLength: 0)
+                            Text(hasVIP ? app.profile.expiryText.map { L10n.tr("会员有效期至 %@", $0) } ?? L10n.tr("尊享会员权益") : L10n.tr("开通会员，畅享精彩好剧"))
+                                .font(.system(size: 11)).foregroundStyle(Color(red: 0.77, green: 0.72, blue: 0.6))
+                        }
+                        .padding(.leading, 12 * artworkScale)
+                        .padding(.top, 50 * artworkScale)
+                        .padding(.bottom, 12 * artworkScale)
+                    }
                 }
         }
         .accessibilityIdentifier("profile-membership")

@@ -59,6 +59,7 @@ struct ProfileSettingsView: View {
         }
         .foregroundStyle(.white).background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar).toolbar(.hidden, for: .tabBar)
+        .navigationBackGesture(isEnabled: panel == nil)
         .buttonStyle(.plain)
         .overlay {
             if let panel {

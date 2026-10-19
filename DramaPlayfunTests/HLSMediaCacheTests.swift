@@ -55,12 +55,13 @@ final class HLSMediaCacheTests: XCTestCase {
         let cache = HLSMediaCache(directory: try directory())
         let body = Data(0..<100)
         try store(body, in: cache, request: request())
-        for (header, expected, contentRange) in [
+        let ranges: [(String, Data, String)] = [
             ("bytes=17-63", Data(body[17...63]), "bytes 17-63/100"),
             ("bytes=90-", Data(body[90...99]), "bytes 90-99/100"),
             ("bytes=-5", Data(body[95...99]), "bytes 95-99/100"),
             ("bytes=95-200", Data(body[95...99]), "bytes 95-99/100")
-        ] {
+        ]
+        for (header, expected, contentRange) in ranges {
             var request = request("new")
             request.setValue(header, forHTTPHeaderField: "Range")
             let reader = try XCTUnwrap(cache.reader(for: request, scope: "episode:1:key:1"))

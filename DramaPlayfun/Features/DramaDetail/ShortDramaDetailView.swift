@@ -49,7 +49,8 @@ struct ShortDramaDetailView: View {
         .background(Theme.background.ignoresSafeArea())
         .foregroundStyle(.white)
         .toolbar(.hidden, for: .navigationBar, .tabBar)
-        .fullScreenCover(item: $recommendedPlayback) { request in
+        .navigationBackGesture()
+        .navigationDestination(item: $recommendedPlayback) { request in
             PlayerView(request: request, app: store.app)
         }
         .task {

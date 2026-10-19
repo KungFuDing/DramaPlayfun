@@ -51,6 +51,7 @@ struct ContentView: View {
                         .navigationDestination(for: AppRoute.self) { route in
                             switch route {
                             case .drama(let drama): DramaDetailView(drama: drama)
+                            case .playback(let request): PlayerView(request: request, app: app)
                             case .shortDrama(let drama):
                                 ShortDramaDetailView(drama: drama, app: app) { id, favorite, count in
                                     app.theaterFeed.applyFavorite(id, isFavorite: favorite, count: count)
@@ -58,6 +59,8 @@ struct ContentView: View {
                             case .search: SearchView(network: app.network)
                             case .welfare: WelfareView()
                             case .settings: ProfileSettingsView()
+                            case .wallet: WalletView()
+                            case .history: ProfileHistoryView()
                             }
                         }
                 }
@@ -78,9 +81,6 @@ struct ContentView: View {
         .environment(router)
         .tint(Theme.accent)
         .preferredColorScheme(.dark)
-        .fullScreenCover(item: $router.playback) { request in
-            PlayerView(request: request, app: app)
-        }
         .sheet(isPresented: $router.membershipPresented) {
             NavigationStack { MembershipView(showsNavigationBar: true).toolbar {
                 ToolbarItem(placement: .confirmationAction) {

@@ -48,6 +48,7 @@ struct ProfileHistoryView: View {
         .buttonStyle(.plain).foregroundStyle(.white)
         .background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar).toolbar(.hidden, for: .tabBar)
+        .navigationBackGesture()
         .task { await app.watchHistory.reload() }
     }
 

@@ -49,6 +49,7 @@ struct WelfareView: View {
         }
         .foregroundStyle(.white).background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar).toolbar(.hidden, for: .tabBar).buttonStyle(WelfareButtonStyle())
+        .navigationBackGesture()
         .task { await reload() }
         .alert(item: $activeTask) { task in
             Alert(title: Text(task.title), message: Text(L10n.tr("在剧场%@，完成任务后金币将按活动规则自动发放。", task.title)),
@@ -65,7 +66,7 @@ struct WelfareView: View {
 
     private var signCard: some View {
         VStack(spacing: 0) {
-            NavigationLink { WalletView() } label: {
+            NavigationLink(value: AppRoute.wallet) {
                 HStack(spacing: 6) {
                     Text(L10n.tr("金币余额")).font(.system(size: 14)).foregroundStyle(Color(white: 0.58))
                     Spacer()

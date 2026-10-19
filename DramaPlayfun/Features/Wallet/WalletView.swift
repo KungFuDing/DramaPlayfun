@@ -26,6 +26,7 @@ struct WalletView: View {
         }
         .foregroundStyle(.white).background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar).toolbar(.hidden, for: .tabBar)
+        .navigationBackGesture()
         .buttonStyle(.plain)
         .sheet(isPresented: $showingRecharge) {
             NavigationStack {

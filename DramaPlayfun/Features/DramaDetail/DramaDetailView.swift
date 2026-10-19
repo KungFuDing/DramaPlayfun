@@ -50,6 +50,7 @@ struct DramaDetailView: View {
                 }
             }.padding()
         }.screenBackground().navigationTitle(L10n.tr("剧集详情")).navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar)
             .task { await load() }
     }
 

@@ -37,6 +37,29 @@ final class DramaPlayfunTests: XCTestCase {
         XCTAssertEqual(router.path(for: .home).wrappedValue, [.drama(drama)])
     }
 
+    func testPlaybackPopPreservesSourceAndOtherTabHistory() throws {
+        let router = AppRouter()
+        let drama = DemoDramaRepository.dramas[0]
+        router.paths[.home] = [.search]
+        router.openPlayback(drama)
+        let request = try XCTUnwrap(router.playback)
+        XCTAssertEqual(router.paths[.home], [.search, .playback(request)])
+
+        router.selectedTab = .profile
+        router.paths[.profile] = [.history]
+        XCTAssertNil(router.playback)
+        router.openPlayback(drama)
+        router.playback = nil
+        XCTAssertEqual(router.paths[.profile], [.history])
+        XCTAssertEqual(router.paths[.home], [.search, .playback(request)])
+
+        router.selectedTab = .home
+        // The same path mutation made by a native interactive pop.
+        router.path(for: .home).wrappedValue.removeLast()
+        XCTAssertNil(router.playback)
+        XCTAssertEqual(router.paths[.home], [.search])
+    }
+
     func testPendingAndCancelledPurchasesDoNotGrantMembership() async {
         let service = TestSubscriptions()
         let store = MembershipStore(service: service)

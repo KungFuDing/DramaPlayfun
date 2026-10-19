@@ -72,6 +72,7 @@ struct SearchView: View {
         }
         .background { SearchBackground().ignoresSafeArea() }
         .toolbar(.hidden, for: .navigationBar, .tabBar)
+        .navigationBackGesture()
         .buttonStyle(.plain)
         .task { await store.loadHistory() }
         .task { await app.homeFeed.loadIfNeeded() }

@@ -31,7 +31,7 @@ struct PlayerView: View {
     @State private var preferredSubtitleLanguage: String?
     @State private var isLoadingSubtitles = false
     @State private var quality: Double = 0
-    @State private var detailPath: [Drama] = []
+    @State private var selectedDetail: Drama?
     @Environment(AppContainer.self) private var app
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -60,16 +60,15 @@ struct PlayerView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $detailPath) {
-            playerContent
-                .toolbar(.hidden, for: .navigationBar)
-                .navigationDestination(for: Drama.self) { drama in
-                    ShortDramaDetailView(drama: drama, app: app) { id, favorite, count in
-                        store.applyFavorite(id, isFavorite: favorite, count: count)
-                        app.theaterFeed.applyFavorite(id, isFavorite: favorite, count: count)
-                    }
+        playerContent
+            .toolbar(.hidden, for: .navigationBar, .tabBar)
+            .navigationBackGesture(isEnabled: !showEpisodes && optionsKind == nil && pendingUnlock == nil)
+            .navigationDestination(item: $selectedDetail) { drama in
+                ShortDramaDetailView(drama: drama, app: app) { id, favorite, count in
+                    store.applyFavorite(id, isFavorite: favorite, count: count)
+                    app.theaterFeed.applyFavorite(id, isFavorite: favorite, count: count)
                 }
-        }
+            }
     }
 
     private var playerContent: some View {
@@ -176,7 +175,7 @@ struct PlayerView: View {
         .onAppear { isMounted = true }
         .onDisappear {
             isMounted = false
-            if detailPath.isEmpty { playback.reset() } else { playback.suspend() }
+            if selectedDetail == nil { playback.reset() } else { playback.suspend() }
         }
         .overlay {
             if let kind = optionsKind {
@@ -260,7 +259,7 @@ struct PlayerView: View {
             TheaterVideoPage(item: item, playback: playback,
                 isActive: selectedID == item.id && isVisible,
                 onRetry: { retry(item) }, onEpisodes: { showEpisodes = true },
-                onShare: { shareItem = item }, onDetail: { detailPath.append(item.drama) }, isDetail: true,
+                onShare: { shareItem = item }, onDetail: { selectedDetail = item.drama }, isDetail: true,
                 onLike: { try await store.toggleLike(item.id) },
                 onFavorite: { try await store.toggleFavorite() })
                 .blur(radius: showsUnlockLayer ? 8 : 0)
@@ -278,9 +277,9 @@ struct PlayerView: View {
         .clipped()
     }
 
-    private var isVisible: Bool { isMounted && detailPath.isEmpty && scenePhase == .active && app.appUpdate.notice == nil && !showEpisodes && optionsKind == nil && shareItem == nil && currentItem?.firstEpisode?.requiresCoinUnlock != true && pendingUnlock == nil && membershipDestination == nil && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
+    private var isVisible: Bool { isMounted && selectedDetail == nil && scenePhase == .active && app.appUpdate.notice == nil && !showEpisodes && optionsKind == nil && shareItem == nil && currentItem?.firstEpisode?.requiresCoinUnlock != true && pendingUnlock == nil && membershipDestination == nil && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
     private var isPreparationActive: Bool {
-        isMounted && isReady && detailPath.isEmpty && scenePhase == .active &&
+        isMounted && isReady && selectedDetail == nil && scenePhase == .active &&
             app.appUpdate.notice == nil && membershipDestination == nil && shareItem == nil
     }
     private var currentItem: TheaterFeedItem? { store.items.first(where: { $0.id == selectedID }) }
@@ -355,7 +354,7 @@ struct PlayerView: View {
     }
 
     private var canResolveAccess: Bool {
-        isMounted && isReady && detailPath.isEmpty && scenePhase == .active && app.appUpdate.notice == nil && membershipDestination == nil
+        isMounted && isReady && selectedDetail == nil && scenePhase == .active && app.appUpdate.notice == nil && membershipDestination == nil
     }
 
     private func refreshAfterMembership() async {

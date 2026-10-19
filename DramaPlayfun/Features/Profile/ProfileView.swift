@@ -23,20 +23,17 @@ struct ProfileView: View {
                         }.accessibilityLabel(L10n.tr("设置")).accessibilityIdentifier("profile-settings")
                     }
                     .padding(.bottom, 14)
-                    profileHeader(layout: layout).padding(.bottom, 10)
-                    shortcuts(isWide: layout.browse.isWide).padding(.bottom, 24)
-                    HStack(spacing: 12) {
-                        ForEach(ProfileCollection.allCases) { item in
-                            Button { collection = item } label: {
-                                Text(L10n.tr(item.rawValue)).font(.system(size: 14)).padding(.horizontal, 12).frame(height: 32)
-                                    .foregroundStyle(collection == item ? Color(white: 0.18) : Color(white: 0.7))
-                                    .background(collection == item ? Theme.accent : Color(white: 0.16), in: RoundedRectangle(cornerRadius: 8))
-                            }
-                            .accessibilityIdentifier(item == .favorites ? "profile-favorites" : "profile-likes")
-                            .accessibilityAddTraits(collection == item ? .isSelected : [])
+                    if layout.hasSeparateCollectionColumn {
+                        HStack(alignment: .top, spacing: layout.sectionSpacing) {
+                            profileSummary(layout: layout)
+                                .frame(width: layout.profileWidth)
+                            collectionSection(layout: layout, emptyStateMinHeight: max(0, geometry.size.height - 120))
+                                .frame(width: layout.collectionWidth)
                         }
-                    }.padding(.bottom, 10)
-                    collectionContent(layout: layout.browse)
+                    } else {
+                        profileSummary(layout: layout).padding(.bottom, 24)
+                        collectionSection(layout: layout)
+                    }
                 }
                 .frame(width: layout.contentWidth, alignment: .leading)
                 .frame(maxWidth: .infinity)
@@ -72,17 +69,30 @@ struct ProfileView: View {
         } message: { Text(message ?? "") }
     }
 
-    @ViewBuilder private func profileHeader(layout: ProfileLayout) -> some View {
-        if layout.hasSideBySideHeader {
-            HStack(spacing: 24) {
-                identity.frame(maxWidth: .infinity, alignment: .leading)
-                membershipCard.frame(width: layout.membershipWidth)
-            }
-        } else {
+    private func profileSummary(layout: ProfileLayout) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: -12) {
                 identity
                 membershipCard.frame(width: layout.membershipWidth).frame(maxWidth: .infinity)
             }
+            shortcuts
+        }
+    }
+
+    private func collectionSection(layout: ProfileLayout, emptyStateMinHeight: CGFloat = 0) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                ForEach(ProfileCollection.allCases) { item in
+                    Button { collection = item } label: {
+                        Text(L10n.tr(item.rawValue)).font(.system(size: 14)).padding(.horizontal, 12).frame(height: 32)
+                            .foregroundStyle(collection == item ? Color(white: 0.18) : Color(white: 0.7))
+                            .background(collection == item ? Theme.accent : Color(white: 0.16), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .accessibilityIdentifier(item == .favorites ? "profile-favorites" : "profile-likes")
+                    .accessibilityAddTraits(collection == item ? .isSelected : [])
+                }
+            }
+            collectionContent(layout: layout, emptyStateMinHeight: emptyStateMinHeight)
         }
     }
 
@@ -135,19 +145,14 @@ struct ProfileView: View {
         .accessibilityLabel(hasVIP ? L10n.tr("VIP会员，已开通") : L10n.tr("VIP会员，未开通"))
     }
 
-    private func shortcuts(isWide: Bool) -> some View {
+    private var shortcuts: some View {
         HStack(spacing: 14) {
-            if isWide {
-                welfareShortcut.frame(maxWidth: .infinity).frame(height: 154).profileShortcutBackground()
-                historyShortcut.frame(maxWidth: .infinity).frame(height: 154).profileShortcutBackground()
-            } else {
-                VStack(spacing: 10) {
-                    welfareShortcut.frame(height: 72).profileShortcutBackground()
-                    historyShortcut.frame(height: 72).profileShortcutBackground()
-                }.frame(maxWidth: .infinity)
-            }
+            VStack(spacing: 10) {
+                welfareShortcut.frame(height: 72).profileShortcutBackground()
+                historyShortcut.frame(height: 72).profileShortcutBackground()
+            }.frame(maxWidth: .infinity)
             VStack(alignment: .leading, spacing: 0) {
-                NavigationLink { WalletView() } label: {
+                NavigationLink(value: AppRoute.wallet) {
                     HStack(spacing: 4) { Text(L10n.tr("我的钱包")).font(.system(size: 14, weight: .medium)); chevron; Spacer() }
                 }.accessibilityIdentifier("profile-wallet")
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -156,7 +161,7 @@ struct ProfileView: View {
                     Text(L10n.tr("金币")).font(.system(size: 12)).foregroundStyle(Color(white: 0.5))
                 }.padding(.top, 15)
                 Spacer()
-                NavigationLink { WalletView() } label: {
+                NavigationLink(value: AppRoute.wallet) {
                     Text(L10n.tr("充值")).font(.system(size: 15, weight: .medium)).foregroundStyle(Color(white: 0.2))
                         .frame(maxWidth: .infinity).frame(height: 33).background(Theme.accent, in: Capsule())
                 }
@@ -165,7 +170,7 @@ struct ProfileView: View {
     }
 
     private var welfareShortcut: some View {
-        NavigationLink { WelfareView() } label: {
+        NavigationLink(value: AppRoute.welfare) {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 4) {
                     Text(L10n.tr("福利")).font(.system(size: 14, weight: .medium))
@@ -179,7 +184,7 @@ struct ProfileView: View {
     }
 
     private var historyShortcut: some View {
-        NavigationLink { ProfileHistoryView() } label: {
+        NavigationLink(value: AppRoute.history) {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 4) { Text(L10n.tr("历史记录")).font(.system(size: 14, weight: .medium)); chevron }
                 Text(L10n.tr("继续观看")).font(.system(size: 12)).foregroundStyle(Color(white: 0.5))
@@ -190,7 +195,7 @@ struct ProfileView: View {
 
     private var chevron: some View { Image("ProfileChevron").resizable().frame(width: 16, height: 16) }
 
-    @ViewBuilder private func collectionContent(layout: BrowseLayout) -> some View {
+    @ViewBuilder private func collectionContent(layout: ProfileLayout, emptyStateMinHeight: CGFloat) -> some View {
         let store = app.profile
         let dramas = store.collections[collection] ?? []
         if dramas.isEmpty, store.loading.contains(collection) {
@@ -202,11 +207,12 @@ struct ProfileView: View {
             }.frame(maxWidth: .infinity).padding(.vertical, 40)
         } else if dramas.isEmpty {
             ContentUnavailableView(collection == .favorites ? L10n.tr("还没有收藏") : L10n.tr("还没有点赞"), systemImage: collection == .favorites ? "star" : "hand.thumbsup", description: Text(L10n.tr("在剧场发现喜欢的故事")))
+                .frame(minHeight: emptyStateMinHeight)
         } else {
-            HStack(alignment: .top, spacing: layout.columnSpacing) {
-                ForEach(0..<layout.columnCount, id: \.self) { column in
+            HStack(alignment: .top, spacing: layout.browse.columnSpacing) {
+                ForEach(0..<layout.collectionColumnCount, id: \.self) { column in
                     LazyVStack(spacing: 16) {
-                        ForEach(dramas.enumerated().filter { $0.offset % layout.columnCount == column }.map(\.element)) { drama in
+                        ForEach(dramas.enumerated().filter { $0.offset % layout.collectionColumnCount == column }.map(\.element)) { drama in
                             ProfileDramaCard(drama: drama)
                         }
                     }.frame(maxWidth: .infinity)
@@ -231,9 +237,17 @@ private struct ProfileLayout {
     var contentWidth: CGFloat {
         browse.isWide ? browse.contentWidth : max(0, browse.availableWidth - 24)
     }
-    var hasSideBySideHeader: Bool { browse.availableWidth >= 700 }
-    var membershipWidth: CGFloat {
-        min(hasSideBySideHeader ? contentWidth * 0.56 : contentWidth, 440)
+    var hasSeparateCollectionColumn: Bool { browse.availableWidth >= 700 }
+    var sectionSpacing: CGFloat { 32 }
+    var profileWidth: CGFloat {
+        hasSeparateCollectionColumn ? min(380, max(320, contentWidth * 0.42)) : contentWidth
+    }
+    var collectionWidth: CGFloat {
+        hasSeparateCollectionColumn ? contentWidth - profileWidth - sectionSpacing : contentWidth
+    }
+    var membershipWidth: CGFloat { min(profileWidth, 440) }
+    var collectionColumnCount: Int {
+        max(2, min(6, Int((collectionWidth + browse.columnSpacing) / (180 + browse.columnSpacing))))
     }
 }
 

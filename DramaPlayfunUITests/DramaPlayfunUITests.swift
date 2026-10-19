@@ -271,12 +271,14 @@ final class DramaPlayfunUITests: XCTestCase {
         app.launchArguments = ["-TheaterUITestFixture", "-PlaybackProgressUITestFixture"]
         app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
-        app.tabBars.buttons["劇場"].tap()
+        let theater = app.buttons["劇場"].firstMatch
+        XCTAssertTrue(theater.waitForExistence(timeout: 10))
+        theater.tap()
         let theaterProgress = app.sliders["theater-progress-101"]
         XCTAssertTrue(theaterProgress.waitForExistence(timeout: 10))
         expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: theaterProgress)
         waitForExpectations(timeout: 10)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.scrollViews["theater-feed"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         XCTAssertTrue(app.buttons["播放影片"].waitForExistence(timeout: 5))
         XCTAssertGreaterThanOrEqual(theaterProgress.frame.height, 44)
         let theaterPage = app.otherElements["theater-video-101"]
@@ -301,7 +303,7 @@ final class DramaPlayfunUITests: XCTestCase {
         XCTAssertTrue(playerProgress.waitForExistence(timeout: 10))
         expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: playerProgress)
         waitForExpectations(timeout: 10)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.scrollViews["player-episode-feed"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         XCTAssertTrue(app.buttons["播放影片"].waitForExistence(timeout: 5))
         XCTAssertGreaterThanOrEqual(playerProgress.frame.height, 44)
         let playerPage = app.otherElements["player-episode-1"]

@@ -45,6 +45,8 @@ struct TheaterView: View {
                                     onDetail: { router.paths[.theater, default: []].append(.shortDrama(item.drama)) }
                                 )
                                 .frame(width: geometry.size.width, height: geometry.size.height)
+                                // Clipping artwork does not constrain its hit-testing bounds.
+                                .contentShape(Rectangle())
                                 .id(item.id)
                             }
                         }
@@ -275,9 +277,11 @@ struct TheaterVideoPage: View {
     var body: some View {
         ZStack {
             TheaterVideoBackdrop(drama: drama)
+                .allowsHitTesting(false)
             if let player = playback.player(for: item.id) {
                 TheaterPlayerSurface(player: player)
                     .opacity(player.currentItem == nil ? 0 : 1)
+                    .allowsHitTesting(false)
             }
             Color.clear.contentShape(Rectangle()).onTapGesture { togglePlayback() }
             LinearGradient(colors: [.black.opacity(0.2), .clear, .black.opacity(0.8)],

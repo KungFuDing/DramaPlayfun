@@ -91,6 +91,7 @@ struct PlayerView: View {
                             ForEach(store.items) { item in
                                 episodePage(item)
                                     .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .contentShape(Rectangle())
                                     .id(item.id)
                             }
                         }.scrollTargetLayout()

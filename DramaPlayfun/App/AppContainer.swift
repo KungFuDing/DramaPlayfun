@@ -2,6 +2,8 @@ import Foundation
 import Observation
 #if DEBUG
 import Moya
+import Kingfisher
+import UIKit
 
 @MainActor
 private struct EphemeralDeviceIdentifierProvider: DeviceIdentifierProviding {
@@ -140,6 +142,20 @@ final class AppContainer {
 
     #if DEBUG
     private static func theaterUITestClient() -> APIClient {
+        let artworkURL: URL? = ProcessInfo.processInfo.arguments.contains("-TheaterArtworkUITestFixture")
+            ? URL(string: "https://example.invalid/theater-portrait.jpg") : nil
+        if let artworkURL {
+            // A portrait cover must really load: empty placeholders cannot expose
+            // aspect-fill artwork intercepting touches across wide video pages.
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 180, height: 320)).image { context in
+                UIColor.darkGray.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 180, height: 320))
+                UIColor.systemIndigo.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 180, height: 160))
+            }
+            ImageCache.default.store(image, forKey: RemoteImageResource.resource(for: artworkURL).cacheKey,
+                                     toDisk: false)
+        }
         let welfareAccount = WelfareUITestAccount()
         var updateCheckCount = 0
         let failureArgumentsByPath = [
@@ -369,8 +385,22 @@ final class AppContainer {
             default:
                 response = #"{"code":200,"data":{}}"#
             }
+            var responseData = Data(response.utf8)
+            if let artworkURL, target.path == "/mobile/v2/client/list",
+               var envelope = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+               var data = envelope["data"] as? [String: Any],
+               let list = data["list"] as? [[String: Any]] {
+                data["list"] = list.map { item in
+                    var item = item
+                    item["coverUrl"] = artworkURL.absoluteString
+                    return item
+                }
+                envelope["data"] = data
+                responseData = try! JSONSerialization.data(withJSONObject: envelope)
+            }
+            let payload = responseData
             return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
-                            sampleResponseClosure: { .networkResponse(200, Data(response.utf8)) },
+                            sampleResponseClosure: { .networkResponse(200, payload) },
                             method: target.method, task: target.task, httpHeaderFields: target.headers)
         }, stubClosure: { _ in .immediate })
         return APIClient(configuration: try! APIConfiguration(baseURL: URL(string: "https://example.invalid")!),

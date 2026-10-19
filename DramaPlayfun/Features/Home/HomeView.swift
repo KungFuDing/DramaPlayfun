@@ -9,7 +9,10 @@ struct HomeView: View {
     var body: some View {
         @Bindable var categories = app.homeCategories
         GeometryReader { geometry in
-            let layout = HomeLayout(width: geometry.size.width, height: geometry.size.height)
+            let bannerTopInset = UIDevice.current.userInterfaceIdiom == .phone && geometry.size.width < 600
+                ? geometry.safeAreaInsets.top : 0
+            let layout = HomeLayout(width: geometry.size.width, height: geometry.size.height,
+                                    bannerTopInset: bannerTopInset)
             homeContent(layout: layout)
         }
         .screenBackground()
@@ -27,7 +30,7 @@ struct HomeView: View {
     private func homeContent(layout: HomeLayout) -> some View {
         @Bindable var categories = app.homeCategories
         let featured = categories.selectedID == DramaFeedTab.featured.id
-        let isCategoryPinned = scrollOffset >= categoryContentY - layout.pinnedCategoryTop
+        let isCategoryPinned = scrollOffset >= categoryContentY - layout.pinnedCategoryTop - layout.bannerTopInset
         let fadeDistance = max(1, layout.bannerHeight - layout.navbarHeight)
         let navbarOpacity = Double(min(max(scrollOffset / fadeDistance, 0), 1))
         return ZStack(alignment: .top) {
@@ -36,7 +39,7 @@ struct HomeView: View {
                 isLoadingMore: featured ? app.homeFeed.isLoadingMore : categories.selectedPage.isLoadingMore,
                 loadError: featured ? app.homeFeed.hotErrorMessage : categories.selectedPage.loadMoreErrorMessage,
                 coordinateSpaceName: "homeScroll",
-                refreshIndicatorTop: layout.pinnedCategoryTop + 8,
+                refreshIndicatorTop: layout.pinnedCategoryTop + layout.bannerTopInset + 8,
                 scrollOffset: $scrollOffset,
                 onRefresh: {
                     await app.homeFeed.reload()
@@ -81,6 +84,9 @@ struct HomeView: View {
                 }
                 .coordinateSpace(name: "homeContent")
             }
+            // Extend only the feed under the phone status bar. The taller
+            // banner compensates for this inset, keeping all content below it in place.
+            .padding(.top, -layout.bannerTopInset)
             .accessibilityIdentifier("home-feed")
 
             HomeTopControls(
@@ -101,10 +107,12 @@ struct HomeView: View {
 private struct HomeLayout {
     let browse: BrowseLayout
     let height: CGFloat
+    let bannerTopInset: CGFloat
 
-    init(width: CGFloat, height: CGFloat) {
+    init(width: CGFloat, height: CGFloat, bannerTopInset: CGFloat) {
         browse = BrowseLayout(width: width)
         self.height = height
+        self.bannerTopInset = bannerTopInset
     }
 
     // The root stays inside the system safe area, including top/side tab bars.
@@ -112,6 +120,7 @@ private struct HomeLayout {
     var navbarHeight: CGFloat { searchTop + 44 }
     var pinnedCategoryTop: CGFloat { navbarHeight + 10 }
     var bannerWidth: CGFloat { browse.contentWidth + browse.horizontalInset * 2 }
+    var bannerVisualHeight: CGFloat { bannerHeight + bannerTopInset }
     var bannerHeight: CGFloat {
         let imageHeight = bannerWidth * (browse.isWide ? 0.46 : 0.94)
         return min(browse.isWide ? 520 : 420, max(navbarHeight + 120, min(imageHeight, height * 0.72)))
@@ -255,7 +264,7 @@ private struct HomeBannerCarousel: View {
             } else {
                 TabView(selection: $selectedIndex) {
                     ForEach(Array(banners.enumerated()), id: \.element.id) { index, banner in
-                        HomeBannerPage(banner: banner, height: layout.bannerHeight)
+                        HomeBannerPage(banner: banner, height: layout.bannerVisualHeight)
                             .tag(index)
                     }
                 }
@@ -281,7 +290,7 @@ private struct HomeBannerCarousel: View {
                 .allowsHitTesting(false)
             }
         }
-        .frame(width: layout.bannerWidth, height: layout.bannerHeight)
+        .frame(width: layout.bannerWidth, height: layout.bannerVisualHeight)
         .clipped()
         .onChange(of: banners.map(\.id), initial: true) { _, _ in
             selectedIndex = 0

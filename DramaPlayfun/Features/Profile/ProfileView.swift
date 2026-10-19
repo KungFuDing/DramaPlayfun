@@ -11,45 +11,50 @@ struct ProfileView: View {
     private var hasVIP: Bool { app.profile.hasVIP || app.membership.isActive }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Spacer()
-                    NavigationLink(value: AppRoute.settings) {
-                        Image(systemName: "gearshape").font(.system(size: 24, weight: .regular))
-                            .frame(width: 44, height: 44).foregroundStyle(.white)
-                    }.accessibilityLabel(L10n.tr("设置")).accessibilityIdentifier("profile-settings")
-                }
-                .padding(.bottom, 14)
-                identity.padding(.bottom, -12)
-                membershipCard.padding(.bottom, 10)
-                shortcuts.padding(.bottom, 24)
-                HStack(spacing: 12) {
-                    ForEach(ProfileCollection.allCases) { item in
-                        Button { collection = item } label: {
-                            Text(L10n.tr(item.rawValue)).font(.system(size: 14)).padding(.horizontal, 12).frame(height: 32)
-                                .foregroundStyle(collection == item ? Color(white: 0.18) : Color(white: 0.7))
-                                .background(collection == item ? Theme.accent : Color(white: 0.16), in: RoundedRectangle(cornerRadius: 8))
-                        }
-                        .accessibilityIdentifier(item == .favorites ? "profile-favorites" : "profile-likes")
-                        .accessibilityAddTraits(collection == item ? .isSelected : [])
+        GeometryReader { geometry in
+            let layout = ProfileLayout(width: geometry.size.width)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Spacer()
+                        NavigationLink(value: AppRoute.settings) {
+                            Image(systemName: "gearshape").font(.system(size: 24, weight: .regular))
+                                .frame(width: 44, height: 44).foregroundStyle(.white)
+                        }.accessibilityLabel(L10n.tr("设置")).accessibilityIdentifier("profile-settings")
                     }
-                }.padding(.bottom, 10)
-                collectionContent
+                    .padding(.bottom, 14)
+                    profileHeader(layout: layout).padding(.bottom, 10)
+                    shortcuts(isWide: layout.browse.isWide).padding(.bottom, 24)
+                    HStack(spacing: 12) {
+                        ForEach(ProfileCollection.allCases) { item in
+                            Button { collection = item } label: {
+                                Text(L10n.tr(item.rawValue)).font(.system(size: 14)).padding(.horizontal, 12).frame(height: 32)
+                                    .foregroundStyle(collection == item ? Color(white: 0.18) : Color(white: 0.7))
+                                    .background(collection == item ? Theme.accent : Color(white: 0.16), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .accessibilityIdentifier(item == .favorites ? "profile-favorites" : "profile-likes")
+                            .accessibilityAddTraits(collection == item ? .isSelected : [])
+                        }
+                    }.padding(.bottom, 10)
+                    collectionContent(layout: layout.browse)
+                }
+                .frame(width: layout.contentWidth, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 20)
             }
-            .padding(.horizontal, 12).padding(.bottom, 20)
+            .scrollIndicators(.hidden)
+            .accessibilityIdentifier("profile-feed")
+            .refreshable {
+                await app.profile.reloadProfile()
+                await app.profile.load(collection, refresh: true)
+            }
         }
-        .scrollIndicators(.hidden)
         .background(alignment: .top) { ProfileHeaderBackground().frame(height: 330).ignoresSafeArea(edges: .top) }
         .background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .buttonStyle(.plain)
         .task { await app.profile.reloadProfile() }
         .task(id: collection) { await app.profile.load(collection, refresh: true) }
-        .refreshable {
-            await app.profile.reloadProfile()
-            await app.profile.load(collection, refresh: true)
-        }
         .alert(L10n.tr("修改昵称"), isPresented: $editingNickname) {
             TextField(L10n.tr("昵称"), text: $nickname)
             Button(L10n.tr("取消"), role: .cancel) { }
@@ -67,6 +72,20 @@ struct ProfileView: View {
         } message: { Text(message ?? "") }
     }
 
+    @ViewBuilder private func profileHeader(layout: ProfileLayout) -> some View {
+        if layout.hasSideBySideHeader {
+            HStack(spacing: 24) {
+                identity.frame(maxWidth: .infinity, alignment: .leading)
+                membershipCard.frame(width: layout.membershipWidth)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: -12) {
+                identity
+                membershipCard.frame(width: layout.membershipWidth).frame(maxWidth: .infinity)
+            }
+        }
+    }
+
     private var identity: some View {
         HStack(spacing: 10) {
             CachedRemoteImage(url: app.profile.profile.avatarUrl.flatMap(URL.init(string:))) {
@@ -78,14 +97,14 @@ struct ProfileView: View {
                     editingNickname = true
                 } label: {
                     HStack(spacing: 8) {
-                        Text(app.profile.nickname).font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                        Text(app.profile.nickname).font(.system(size: 18, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                         Image("ProfileEdit").resizable().frame(width: 18, height: 18)
                     }
                 }.accessibilityLabel(L10n.tr("修改昵称"))
-                Text("ID:\(app.profile.profile.userNo ?? "—")").font(.system(size: 13)).foregroundStyle(Color(white: 0.58))
+                Text("ID:\(app.profile.profile.userNo ?? "—")").font(.system(size: 13)).foregroundStyle(Color(white: 0.58)).lineLimit(1)
             }
             Spacer()
-        }
+        }.accessibilityIdentifier("profile-identity")
     }
 
     private var membershipCard: some View {
@@ -116,25 +135,16 @@ struct ProfileView: View {
         .accessibilityLabel(hasVIP ? L10n.tr("VIP会员，已开通") : L10n.tr("VIP会员，未开通"))
     }
 
-    private var shortcuts: some View {
+    private func shortcuts(isWide: Bool) -> some View {
         HStack(spacing: 14) {
-            VStack(spacing: 10) {
-                NavigationLink { WelfareView() } label: {
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack(spacing: 4) {
-                            Text(L10n.tr("福利")).font(.system(size: 14, weight: .medium))
-                            Image("ProfileGift").resizable().frame(width: 16, height: 16)
-                            chevron
-                        }
-                        Text(L10n.tr("去领取海量金币")).font(.system(size: 12)).foregroundStyle(Color(white: 0.5))
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                }.frame(height: 72).profileShortcutBackground().accessibilityIdentifier("profile-welfare")
-                NavigationLink { ProfileHistoryView() } label: {
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack(spacing: 4) { Text(L10n.tr("历史记录")).font(.system(size: 14, weight: .medium)); chevron }
-                        Text(L10n.tr("继续观看")).font(.system(size: 12)).foregroundStyle(Color(white: 0.5))
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                }.frame(height: 72).profileShortcutBackground().accessibilityIdentifier("profile-history")
+            if isWide {
+                welfareShortcut.frame(maxWidth: .infinity).frame(height: 154).profileShortcutBackground()
+                historyShortcut.frame(maxWidth: .infinity).frame(height: 154).profileShortcutBackground()
+            } else {
+                VStack(spacing: 10) {
+                    welfareShortcut.frame(height: 72).profileShortcutBackground()
+                    historyShortcut.frame(height: 72).profileShortcutBackground()
+                }.frame(maxWidth: .infinity)
             }
             VStack(alignment: .leading, spacing: 0) {
                 NavigationLink { WalletView() } label: {
@@ -154,9 +164,33 @@ struct ProfileView: View {
         }.foregroundStyle(.white)
     }
 
+    private var welfareShortcut: some View {
+        NavigationLink { WelfareView() } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 4) {
+                    Text(L10n.tr("福利")).font(.system(size: 14, weight: .medium))
+                    Image("ProfileGift").resizable().frame(width: 16, height: 16)
+                    chevron
+                }
+                Text(L10n.tr("去领取海量金币")).font(.system(size: 12)).foregroundStyle(Color(white: 0.5))
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading).padding(12)
+                .contentShape(Rectangle())
+        }.accessibilityIdentifier("profile-welfare")
+    }
+
+    private var historyShortcut: some View {
+        NavigationLink { ProfileHistoryView() } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 4) { Text(L10n.tr("历史记录")).font(.system(size: 14, weight: .medium)); chevron }
+                Text(L10n.tr("继续观看")).font(.system(size: 12)).foregroundStyle(Color(white: 0.5))
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading).padding(12)
+                .contentShape(Rectangle())
+        }.accessibilityIdentifier("profile-history")
+    }
+
     private var chevron: some View { Image("ProfileChevron").resizable().frame(width: 16, height: 16) }
 
-    @ViewBuilder private var collectionContent: some View {
+    @ViewBuilder private func collectionContent(layout: BrowseLayout) -> some View {
         let store = app.profile
         let dramas = store.collections[collection] ?? []
         if dramas.isEmpty, store.loading.contains(collection) {
@@ -169,21 +203,37 @@ struct ProfileView: View {
         } else if dramas.isEmpty {
             ContentUnavailableView(collection == .favorites ? L10n.tr("还没有收藏") : L10n.tr("还没有点赞"), systemImage: collection == .favorites ? "star" : "hand.thumbsup", description: Text(L10n.tr("在剧场发现喜欢的故事")))
         } else {
-            HStack(alignment: .top, spacing: 14) {
-                ForEach(0..<2) { column in
+            HStack(alignment: .top, spacing: layout.columnSpacing) {
+                ForEach(0..<layout.columnCount, id: \.self) { column in
                     LazyVStack(spacing: 16) {
-                        ForEach(dramas.enumerated().filter { $0.offset % 2 == column }.map(\.element)) { drama in
+                        ForEach(dramas.enumerated().filter { $0.offset % layout.columnCount == column }.map(\.element)) { drama in
                             ProfileDramaCard(drama: drama)
                         }
                     }.frame(maxWidth: .infinity)
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("profile-collection-grid")
             if store.hasMore[collection] == true {
                 Button(L10n.tr("加载更多")) { Task { await store.load(collection) } }.frame(maxWidth: .infinity).padding()
                     .disabled(store.loading.contains(collection))
             }
             if let error = store.errors[collection] { Text(error).font(.footnote).foregroundStyle(.secondary) }
         }
+    }
+}
+
+private struct ProfileLayout {
+    let browse: BrowseLayout
+
+    init(width: CGFloat) { browse = BrowseLayout(width: width) }
+
+    var contentWidth: CGFloat {
+        browse.isWide ? browse.contentWidth : max(0, browse.availableWidth - 24)
+    }
+    var hasSideBySideHeader: Bool { browse.availableWidth >= 700 }
+    var membershipWidth: CGFloat {
+        min(hasSideBySideHeader ? contentWidth * 0.56 : contentWidth, 440)
     }
 }
 

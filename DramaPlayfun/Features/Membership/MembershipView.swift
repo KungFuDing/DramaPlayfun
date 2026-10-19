@@ -22,14 +22,17 @@ struct MembershipView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            tabs
-            TabView(selection: $category) {
-                ForEach(MembershipCategory.allCases) { item in
-                    page(for: item).tag(item)
+        GeometryReader { geometry in
+            let layout = MembershipLayout(width: geometry.size.width)
+            VStack(spacing: 0) {
+                tabs
+                TabView(selection: $category) {
+                    ForEach(MembershipCategory.allCases) { item in
+                        page(for: item, layout: layout).tag(item)
+                    }
                 }
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .foregroundStyle(.white).buttonStyle(.plain)
         .background(MembershipBackground(category: category).ignoresSafeArea())
@@ -44,41 +47,74 @@ struct MembershipView: View {
         } message: { Text(documentMessage ?? "") }
     }
 
-    private func page(for category: MembershipCategory) -> some View {
+    private func page(for category: MembershipCategory, layout: MembershipLayout) -> some View {
         let plans = store.plans.filter { $0.category == category }
         return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if category == .coins {
-                    recharge
+                    recharge(layout: layout)
+                    status(for: category, plans: plans)
+                    MembershipTerms(isRecharge: true).padding(.top, 26)
+                } else if layout.hasColumns {
+                    HStack(alignment: .top, spacing: 28) {
+                        overview(for: category, layout: layout)
+                            .frame(width: layout.overviewWidth)
+                        VStack(alignment: .leading, spacing: 0) {
+                            offer(for: category, plans: plans, topPadding: 0)
+                            status(for: category, plans: plans)
+                            MembershipTerms(isRecharge: false).padding(.top, 24)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(.top, 18)
                 } else {
-                    MembershipHero(category: category, entitlement: store.entitlement)
-                        .padding(.top, -10)
-                    MembershipBenefits(category: category).padding(.top, 10)
-                    Text(L10n.tr("加入会员")).font(.system(size: 16, weight: .semibold))
-                        .padding(.top, 24).padding(.bottom, 11)
-                    if let plan = plans.first(where: \.isAvailableForPurchase) ?? plans.first {
-                        MembershipOffer(plan: plan, active: store.entitlement.isActive(for: category),
-                                        busy: store.isPurchasing) {
-                            Task { await store.purchase(plan) }
-                        }
-                    } else { unavailable(for: category) }
+                    overview(for: category, layout: layout)
+                    offer(for: category, plans: plans, topPadding: 24)
+                    status(for: category, plans: plans)
+                    MembershipTerms(isRecharge: false).padding(.top, 16)
                 }
-                if category == self.category, let message = store.message {
-                    Text(message).font(.system(size: 13)).foregroundStyle(Theme.accent)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 14)
-                        .accessibilityIdentifier("membership-message")
-                }
-                if !store.isLoading, plans.contains(where: { !$0.isAvailableForPurchase }) {
-                    Button(L10n.tr("重新加载商品")) { Task { await store.loadPlans() } }
-                        .font(.system(size: 13)).foregroundStyle(Theme.accent).padding(.top, 14)
-                        .accessibilityIdentifier("membership-reload-\(category.rawValue)")
-                }
-                MembershipTerms(isRecharge: category == .coins)
-                    .padding(.top, category == .coins ? 26 : 16)
                 footer.padding(.top, 25).padding(.bottom, 24)
-            }.padding(.horizontal, 12)
+            }
+            .frame(width: layout.contentWidth, alignment: .leading)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("membership-content-\(category.rawValue)")
+            .frame(maxWidth: .infinity)
         }.scrollIndicators(.hidden)
             .accessibilityIdentifier("membership-page-\(category.rawValue)")
+    }
+
+    private func overview(for category: MembershipCategory, layout: MembershipLayout) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            MembershipHero(category: category, entitlement: store.entitlement)
+                .frame(maxWidth: layout.heroWidth)
+                .frame(maxWidth: .infinity)
+                .padding(.top, -10)
+            MembershipBenefits(category: category).padding(.top, layout.hasColumns ? 24 : 10)
+        }
+    }
+
+    private func offer(for category: MembershipCategory, plans: [MembershipPlan], topPadding: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(L10n.tr("加入会员")).font(.system(size: 16, weight: .semibold))
+                .padding(.top, topPadding).padding(.bottom, 11)
+            if let plan = plans.first(where: \.isAvailableForPurchase) ?? plans.first {
+                MembershipOffer(plan: plan, active: store.entitlement.isActive(for: category),
+                                busy: store.isPurchasing) {
+                    Task { await store.purchase(plan) }
+                }
+            } else { unavailable(for: category) }
+        }
+    }
+
+    @ViewBuilder private func status(for category: MembershipCategory, plans: [MembershipPlan]) -> some View {
+        if category == self.category, let message = store.message {
+            Text(message).font(.system(size: 13)).foregroundStyle(Theme.accent)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 14)
+                .accessibilityIdentifier("membership-message")
+        }
+        if !store.isLoading, plans.contains(where: { !$0.isAvailableForPurchase }) {
+            Button(L10n.tr("重新加载商品")) { Task { await store.loadPlans() } }
+                .font(.system(size: 13)).foregroundStyle(Theme.accent).padding(.top, 14)
+                .accessibilityIdentifier("membership-reload-\(category.rawValue)")
+        }
     }
 
     private var tabs: some View {
@@ -107,17 +143,18 @@ struct MembershipView: View {
             .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
     }
 
-    private var recharge: some View {
+    private func recharge(layout: MembershipLayout) -> some View {
         VStack(spacing: 0) {
             if coinPlans.isEmpty { unavailable(for: .coins).padding(.top, 16) }
             else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 11) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: layout.coinColumnCount), spacing: 11) {
                     ForEach(coinPlans) { plan in
                         MembershipCoinTile(plan: plan, selected: selectedCoin?.id == plan.id) {
                             selectedCoinID = plan.id
                         }.disabled(store.isPurchasing)
                     }
                 }.padding(.top, 12)
+                    .accessibilityIdentifier("membership-coin-grid")
             }
             Button {
                 if let selectedCoin { Task { await store.purchase(selectedCoin) } }
@@ -131,7 +168,8 @@ struct MembershipView: View {
                     .background(MembershipPalette.goldButton, in: Capsule())
             }.disabled(selectedCoin?.isAvailableForPurchase != true || store.isPurchasing)
                 .opacity(selectedCoin?.isAvailableForPurchase == true ? 1 : 0.5)
-                .padding(.horizontal, 28).padding(.top, 40)
+                .frame(maxWidth: layout.isWide ? 440 : .infinity)
+                .padding(.horizontal, layout.isWide ? 0 : 28).padding(.top, layout.isWide ? 28 : 40)
                 .accessibilityIdentifier("membership-buy-coins")
         }
     }
@@ -159,6 +197,23 @@ struct MembershipView: View {
             return
         }
         openURL(url)
+    }
+}
+
+private struct MembershipLayout {
+    let availableWidth: CGFloat
+
+    init(width: CGFloat) {
+        availableWidth = max(0, width)
+    }
+
+    var isWide: Bool { availableWidth >= 600 }
+    var contentWidth: CGFloat { min(max(0, availableWidth - (isWide ? 48 : 24)), 1_040) }
+    var hasColumns: Bool { contentWidth >= 720 }
+    var overviewWidth: CGFloat { min(440, max(351, (contentWidth - 28) * 0.44)) }
+    var heroWidth: CGFloat { min(contentWidth, 440) }
+    var coinColumnCount: Int {
+        isWide ? max(3, min(6, Int((contentWidth + 10) / 150))) : 3
     }
 }
 

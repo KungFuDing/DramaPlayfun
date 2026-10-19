@@ -2,19 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>NSPhotoLibraryAddUsageDescription</key>
-    <string>Save drama sharing images to your photo library to share with friends.</string>
-    <key>APIBaseURL</key>
-    <string>$(API_BASE_URL)</string>
-    <key>IPGeolocationURL</key>
-    <string>https://api.country.is/</string>
-    <key>HLSSharedSecret</key>
-    <string>$(HLS_SHARED_SECRET)</string>
-    <key>NSAppTransportSecurity</key>
-    <dict><key>NSAllowsLocalNetworking</key><true/></dict>
-    <key>DebugHTTPHeaders</key>
-    <dict>
-        <key>accessToken</key><string>$(DEBUG_ACCESS_TOKEN)</string>
-    </dict>
+	<key>APIBaseURL</key>
+	<string>$(API_BASE_URL)</string>
+	<key>DebugHTTPHeaders</key>
+	<dict>
+		<key>accessToken</key>
+		<string>$(DEBUG_ACCESS_TOKEN)</string>
+	</dict>
+	<key>HLSSharedSecret</key>
+	<string>$(HLS_SHARED_SECRET)</string>
+	<key>IPGeolocationURL</key>
+	<string>https://api.country.is/</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

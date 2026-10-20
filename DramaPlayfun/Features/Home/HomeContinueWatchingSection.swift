@@ -25,6 +25,7 @@ struct HomeContinueWatchingSection: View {
                                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                         if let fraction = item.fraction(using: app.library) {
                                             ProgressView(value: fraction).tint(Theme.accent)
+                                                .accessibilityIdentifier("history-progress-\(item.id)")
                                         }
                                     }.frame(maxWidth: .infinity, alignment: .leading)
                                 }

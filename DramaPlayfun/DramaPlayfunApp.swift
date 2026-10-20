@@ -11,4 +11,4 @@ struct DramaPlayfunApp: App {
                 .environment(\.locale, LocalizationStore.shared.language.locale)
         }
     }
-}
+} 

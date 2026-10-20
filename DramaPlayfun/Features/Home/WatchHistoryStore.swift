@@ -18,8 +18,19 @@ struct WatchHistoryItem: Identifiable {
     }
 
     func fraction(using library: LibraryStore) -> Double? {
-        guard let local = library.progress[id], local.episodeID == episodeID, local.duration > 0 else { return nil }
-        return min(max(seconds / local.duration, 0), 1)
+        guard let episodeID else { return nil }
+        let local = library.progress[id]
+        let duration: Double?
+        if let local, local.episodeID == episodeID, local.duration > 0 {
+            duration = local.duration
+        } else {
+            // Localized drama IDs can differ while the watched episode ID stays the same.
+            duration = library.progress.values
+                .filter { $0.episodeID == episodeID && $0.duration > 0 }
+                .max(by: { $0.updatedAt < $1.updatedAt })?.duration
+        }
+        guard let duration else { return nil }
+        return min(max(seconds / duration, 0), 1)
     }
 
     func prepareResume(in library: LibraryStore) {

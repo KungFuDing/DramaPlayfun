@@ -44,6 +44,7 @@ final class AppContainer {
                        ProcessInfo.processInfo.arguments.contains("-TheaterUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-FeedUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture") ||
+                       ProcessInfo.processInfo.arguments.contains("-HistoryProgressUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-WelfareUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-SearchUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-PlayerUnlockUITestFixture") ||
@@ -96,6 +97,12 @@ final class AppContainer {
         let theaterFeed = TheaterFeedStore(network: self.network)
         self.theaterFeed = theaterFeed
         library = LibraryStore(defaults: defaults)
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-HistoryProgressUITestFixture") {
+            library.save(WatchProgress(dramaID: "9102", episodeID: "910101", episodeNumber: 1,
+                                       seconds: 28, duration: 85, updatedAt: Date()))
+        }
+        #endif
         hlsCache = .shared
         theaterPlayback = TheaterPlayerPool(library: library, cache: hlsCache,
             progressReporter: TheaterProgressReporter(network: self.network),
@@ -282,7 +289,17 @@ final class AppContainer {
             case "/mobile/v1/client/drama/progress":
                 response = #"{"code":200,"data":{"saved":true}}"#
             case "/mobile/v1/client/me/history/list":
-                if ProcessInfo.processInfo.arguments.contains("-ProfileHistoryUITestFixture") {
+                if ProcessInfo.processInfo.arguments.contains("-HistoryProgressUITestFixture") {
+                    let english = target.headers?["language"] == "en"
+                    let record: [String: Any] = [
+                        "dramaId": english ? 9101 : 9102, "rootDramaId": 9100,
+                        "dramaTitle": english ? "Yuan Xin’s Evolution of Love" : "袁欣的愛情進化論",
+                        "episodeId": 910101, "episodeNo": 1,
+                        "progressSeconds": 28, "isOnline": "online"
+                    ]
+                    response = String(data: try! JSONSerialization.data(withJSONObject:
+                        ["code": 200, "data": ["page": 1, "hasMore": false, "list": [record]]]), encoding: .utf8)!
+                } else if ProcessInfo.processInfo.arguments.contains("-ProfileHistoryUITestFixture") {
                     let titles = ["赶得上,就娶你", "全家抢我神笔许愿,全玩脱了", "重生后,我掀翻侯府"]
                     let records: [[String: Any]] = (0..<6).map { index -> [String: Any] in
                         let episode = index == 0 ? 3 : 12

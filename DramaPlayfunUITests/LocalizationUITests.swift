@@ -102,6 +102,40 @@ final class LocalizationUITests: XCTestCase {
         XCTAssertEqual(app.buttons["theater-like-101"].label, "按讚")
     }
 
+    @MainActor
+    func testContinueWatchingProgressSurvivesLanguageChangesWithDifferentDramaIDs() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ProfileUITestFixture", "-LocalizationUITestFixture", "-HistoryProgressUITestFixture"]
+        app.launch()
+
+        // Only the Traditional Chinese drama has local progress. Both localized
+        // drama IDs refer to the same episode and must share its known duration.
+        for (language, settingsTitle, homeTitle, dramaID, watchedText) in [
+            ("en", "Settings", "Home", "9101", "Episode 1 · Watched 0:28"),
+            ("zh-Hant", "設定", "首頁", "9102", "第1集 · 已觀看 0:28"),
+            ("en", "Settings", "Home", "9101", "Episode 1 · Watched 0:28")
+        ] {
+            openSettings(app)
+            selectLanguage(language, in: app, settingsTitle: settingsTitle)
+            app.buttons["settings-back"].tap()
+            app.tabBars.buttons[homeTitle].tap()
+
+            let card = app.buttons["history-\(dramaID)"]
+            XCTAssertTrue(card.waitForExistence(timeout: 10))
+            XCTAssertTrue(app.staticTexts[watchedText].exists)
+            let progress = app.progressIndicators["history-progress-\(dramaID)"]
+            XCTAssertTrue(progress.waitForExistence(timeout: 10), "Continue Watching must show progress in \(language)")
+            XCTAssertGreaterThan(progress.frame.width, 0)
+            XCTAssertGreaterThan(progress.frame.height, 0)
+            XCTAssertTrue(card.frame.contains(progress.frame), "The progress bar must fit inside the history card")
+
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Continue Watching progress — \(language)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+        }
+    }
+
     @MainActor private func selectLanguage(_ identifier: String, in app: XCUIApplication, settingsTitle: String) {
         app.buttons["settings-语言切换"].tap()
         let language = app.buttons["settings-language-\(identifier)"]

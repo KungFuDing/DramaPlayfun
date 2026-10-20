@@ -77,4 +77,68 @@ final class WatchHistoryTests: XCTestCase {
         XCTAssertTrue(history.hasMore)
         XCTAssertFalse(history.isLoadingMore)
     }
+
+    func testLocalizedDramaReusesSameEpisodeDurationWithoutChangingResumeProgress() throws {
+        let library = isolatedLibrary()
+        library.save(WatchProgress(dramaID: "1783", episodeID: "20425", episodeNumber: 1,
+            seconds: 28.074, duration: 84.92, updatedAt: Date()))
+        let originalProgress = library.progress
+        let englishItem = historyItem(dramaID: "1784")
+
+        XCTAssertEqual(try XCTUnwrap(englishItem.fraction(using: library)), 28.0 / 84.92, accuracy: 0.0001)
+        XCTAssertEqual(library.progress, originalProgress,
+            "Displaying progress for a localized drama must not change the saved resume position")
+    }
+
+    func testDifferentEpisodeOrUnknownDurationDoesNotFabricateProgress() {
+        let library = isolatedLibrary()
+        library.save(WatchProgress(dramaID: "1783", episodeID: "30425", episodeNumber: 1,
+            seconds: 28, duration: 90, updatedAt: Date()))
+        let item = historyItem(dramaID: "1784")
+        XCTAssertNil(item.fraction(using: library), "Matching episode numbers do not identify the same video")
+
+        library.save(WatchProgress(dramaID: "1784", episodeID: "20425", episodeNumber: 1,
+            seconds: 28, duration: 0, updatedAt: Date()))
+        library.save(WatchProgress(dramaID: "1785", episodeID: "20425", episodeNumber: 1,
+            seconds: 28, duration: -1, updatedAt: Date()))
+        XCTAssertNil(item.fraction(using: library), "An exact episode still requires a positive measured duration")
+        XCTAssertNil(historyItem(dramaID: "1784", episodeID: nil).fraction(using: library))
+    }
+
+    func testExactDramaDurationWinsOtherwiseNewestValidEpisodeRecordIsUsed() throws {
+        let library = isolatedLibrary()
+        let item = historyItem(dramaID: "1784")
+        library.save(WatchProgress(dramaID: "1782", episodeID: "20425", episodeNumber: 1,
+            seconds: 28, duration: 60, updatedAt: Date(timeIntervalSince1970: 100)))
+        library.save(WatchProgress(dramaID: "1783", episodeID: "20425", episodeNumber: 1,
+            seconds: 28, duration: 90, updatedAt: Date(timeIntervalSince1970: 200)))
+        library.save(WatchProgress(dramaID: "1785", episodeID: "20425", episodeNumber: 1,
+            seconds: 28, duration: 0, updatedAt: Date(timeIntervalSince1970: 300)))
+        XCTAssertEqual(try XCTUnwrap(item.fraction(using: library)), 28.0 / 90, accuracy: 0.0001,
+            "Choose the newest valid measurement; a newer unknown duration must not hide progress")
+
+        library.save(WatchProgress(dramaID: "1784", episodeID: "20425", episodeNumber: 1,
+            seconds: 28, duration: 120, updatedAt: Date(timeIntervalSince1970: 50)))
+        XCTAssertEqual(try XCTUnwrap(item.fraction(using: library)), 28.0 / 120, accuracy: 0.0001,
+            "The exact drama and episode measurement takes priority over cross-language fallback")
+
+        library.save(WatchProgress(dramaID: "1784", episodeID: "20426", episodeNumber: 2,
+            seconds: 28, duration: 140, updatedAt: Date(timeIntervalSince1970: 400)))
+        XCTAssertEqual(try XCTUnwrap(item.fraction(using: library)), 28.0 / 90, accuracy: 0.0001,
+            "A different episode in the exact drama must not prevent a valid same-episode fallback")
+    }
+
+    private func historyItem(dramaID: String, episodeID: String? = "20425") -> WatchHistoryItem {
+        let drama = Drama(id: dramaID, title: "English title", summary: "", category: .all,
+            episodeCount: 1, heat: 0, badge: nil, coverURL: nil)
+        return WatchHistoryItem(drama: drama, episodeID: episodeID, episodeNumber: 1,
+            seconds: 28, episodeText: nil, isOnline: true)
+    }
+
+    private func isolatedLibrary() -> LibraryStore {
+        let suite = "WatchHistoryTests-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        return LibraryStore(defaults: defaults)
+    }
 }

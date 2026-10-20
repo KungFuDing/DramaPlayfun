@@ -12,6 +12,7 @@ final class NetworkTests: XCTestCase {
 
     private func client(status: Int = 200, json: String, delay: TimeInterval = 0,
                         headers: [String: String] = ["X-Test-Token": "stub-only"],
+                        payloadCipher: APIPayloadCipher? = nil,
                         inspect: @escaping (APITarget) -> Void = { _ in }) throws -> APIClient {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             inspect(target)
@@ -20,7 +21,7 @@ final class NetworkTests: XCTestCase {
                             method: target.method, task: target.task, httpHeaderFields: target.headers)
         }, stubClosure: { _ in delay > 0 ? .delayed(seconds: delay) : .immediate })
         return APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!),
-                         provider: provider, headerProvider: { _ in headers })
+                         provider: provider, payloadCipher: payloadCipher, headerProvider: { _ in headers })
     }
 
     func testTypedRequestEncodesDocumentedBodyAndHeaders() async throws {
@@ -142,6 +143,58 @@ final class NetworkTests: XCTestCase {
         XCTAssertEqual(display.title, "")
     }
 
+    func testPayloadEncodingAndDecodingRunOffMainThreadAcrossTransportModes() async throws {
+        let endpoint = APIEndpoint<ThreadRecordingRequest, ThreadRecordingResponse>(path: "/stub/thread-check")
+        for cipher in [nil, APIPayloadCipher(password: "thread-test")] as [APIPayloadCipher?] {
+            for unwrapEnvelope in [false, true] {
+                for decoding in [APIResponseDecoding.strict, .tolerant] {
+                    let plaintext = Data((unwrapEnvelope
+                        ? #"{"code":200,"data":{"value":42}}"#
+                        : #"{"value":42}"#).utf8)
+                    let reply = try cipher?.encryptForTransport(plaintext) ?? plaintext
+                    let client = try client(json: String(decoding: reply, as: UTF8.self),
+                                            payloadCipher: cipher) { target in
+                        XCTAssertTrue(Thread.isMainThread, "Provider/session access must stay on MainActor")
+                        do {
+                            let body = try cipher?.decryptFromTransport(target.body) ?? target.body
+                            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Bool])
+                            XCTAssertEqual(object["encodedOnMainThread"], false)
+                        } catch {
+                            XCTFail("Cannot inspect encoded request: \(error)")
+                        }
+                    }
+                    let response = try await client.request(endpoint, body: .init(),
+                        decoding: decoding, unwrapEnvelope: unwrapEnvelope)
+                    XCTAssertEqual(response.value, 42)
+                    XCTAssertFalse(response.decodedOnMainThread)
+                }
+            }
+        }
+    }
+
+    func testMainActorRemainsResponsiveWhileResponseDecoderIsRunning() async throws {
+        let client = try client(json: "{}")
+        let endpoint = APIEndpoint<APIModels.V1GuestLoginReq, MainActorResponsiveResponse>(path: "/stub/responsiveness")
+        let response = try await client.request(endpoint, body: login)
+        XCTAssertTrue(response.mainActorRanDuringDecoding, "Response decoding must not hold the main actor")
+    }
+
+    func testCancellationDuringEncodingDoesNotSendRequest() async throws {
+        let client = try client(json: "{}") { _ in XCTFail("Cancelled encoding must not send a request") }
+        let endpoint = APIEndpoint<CancellingRequest, APIModels.V1GuestLoginRes>(path: "/stub/cancel-encoding")
+        let task = _Concurrency.Task { try await client.request(endpoint, body: .init()) }
+        do { _ = try await task.value; XCTFail("Expected cancellation") }
+        catch is CancellationError { }
+    }
+
+    func testCancellationDuringDecodingDoesNotPublishResponse() async throws {
+        let client = try client(json: "{}")
+        let endpoint = APIEndpoint<APIModels.V1GuestLoginReq, CancellingResponse>(path: "/stub/cancel-decoding")
+        let task = _Concurrency.Task { try await client.request(endpoint, body: login) }
+        do { _ = try await task.value; XCTFail("Expected cancellation") }
+        catch is CancellationError { }
+    }
+
     func testCancellationDuringRequestReturnsCancellationError() async throws {
         let started = expectation(description: "Request started")
         let client = try client(json: "{}", delay: 5) { _ in started.fulfill() }
@@ -201,7 +254,52 @@ final class NetworkTests: XCTestCase {
     }
 }
 
-nonisolated private struct DisplayResponse: Decodable {
+nonisolated private struct DisplayResponse: Decodable, Sendable {
     let count: Int
     let title: String
+}
+
+nonisolated private struct ThreadRecordingRequest: Encodable, Sendable {
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(["encodedOnMainThread": Thread.isMainThread])
+    }
+}
+
+nonisolated private struct ThreadRecordingResponse: Decodable, Sendable {
+    let value: Int
+    let decodedOnMainThread: Bool
+
+    private enum CodingKeys: String, CodingKey { case value }
+
+    init(from decoder: any Decoder) throws {
+        value = try decoder.container(keyedBy: CodingKeys.self).decode(Int.self, forKey: .value)
+        decodedOnMainThread = Thread.isMainThread
+    }
+}
+
+nonisolated private struct MainActorResponsiveResponse: Decodable, Sendable {
+    let mainActorRanDuringDecoding: Bool
+
+    init(from decoder: any Decoder) throws {
+        let scheduled = DispatchSemaphore(value: 0)
+        _Concurrency.Task { @MainActor in scheduled.signal() }
+        // A bounded wait fails on the old synchronous MainActor decoder without
+        // hanging the test. Background decoding leaves MainActor free to signal.
+        mainActorRanDuringDecoding = scheduled.wait(timeout: .now() + 2) == .success
+    }
+}
+
+nonisolated private struct CancellingRequest: Encodable, Sendable {
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode([String: String]())
+        withUnsafeCurrentTask { $0?.cancel() }
+    }
+}
+
+nonisolated private struct CancellingResponse: Decodable, Sendable {
+    init(from decoder: any Decoder) throws {
+        withUnsafeCurrentTask { $0?.cancel() }
+    }
 }

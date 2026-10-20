@@ -446,7 +446,13 @@ final class AppContainer {
             return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
                             sampleResponseClosure: { .networkResponse(200, payload) },
                             method: target.method, task: target.task, httpHeaderFields: target.headers)
-        }, stubClosure: { _ in .immediate })
+        }, stubClosure: { target in
+            if ProcessInfo.processInfo.arguments.contains("-SlowRankingTabsUITestFixture"),
+               target.path == "/mobile/v1/drama/category/list" {
+                return .delayed(seconds: 15)
+            }
+            return .immediate
+        })
         return APIClient(configuration: try! APIConfiguration(baseURL: URL(string: "https://example.invalid")!),
                          provider: provider)
     }

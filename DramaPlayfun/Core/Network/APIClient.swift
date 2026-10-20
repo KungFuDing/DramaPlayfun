@@ -1,10 +1,9 @@
 import Foundation
 import Moya
 import Alamofire
-import CleanJSON
 import CryptoKit
 
-nonisolated struct APIEndpoint<Request: Encodable, Response: Decodable>: Sendable {
+nonisolated struct APIEndpoint<Request: Encodable & Sendable, Response: Decodable & Sendable>: Sendable {
     let path: String
 }
 
@@ -52,7 +51,7 @@ nonisolated enum APIError: AppLocalizedError {
     }
 }
 
-nonisolated enum APIResponseDecoding {
+nonisolated enum APIResponseDecoding: Sendable {
     case strict, tolerant
 }
 
@@ -195,27 +194,22 @@ final class APIClient {
             } else { requestCipher = payloadCipher }
             let networkLocation = await networkLocationProvider?.current()
             try _Concurrency.Task<Never, Never>.checkCancellation()
-            let data: Data
-            do { data = try JSONEncoder().encode(body) }
-            catch { throw APIError.encoding(error) }
             var headers = headers(for: endpoint.path, networkLocation: networkLocation).filter {
                 !["content-type", "accept", "x-payload-encryption"].contains($0.key.lowercased())
             }
-            let wireBody: Data
-            if let requestCipher {
-                do { wireBody = try requestCipher.encryptForTransport(data) }
-                catch { throw APIError.encryption(error) }
+            let payload = try await APIPayloadProcessing.encode(body, cipher: requestCipher)
+            try _Concurrency.Task<Never, Never>.checkCancellation()
+            if requestCipher != nil {
                 headers["Content-Type"] = "text/plain; charset=utf-8"
                 headers["Accept"] = "text/plain"
             } else {
-                wireBody = data
                 headers["Content-Type"] = "application/json"
                 headers["Accept"] = "application/json"
             }
             let target = APITarget(baseURL: configuration.baseURL, path: endpoint.path,
-                                   body: wireBody, requestHeaders: headers)
+                                   body: payload.wireBody, requestHeaders: headers)
             #if DEBUG
-            APIDebugLogger.request(id: requestID, target: target, plaintextBody: data)
+            APIDebugLogger.request(id: requestID, target: target, plaintextBody: payload.plaintextBody)
             #endif
             let pending = PendingAPIRequest()
             let response: Moya.Response = try await withTaskCancellationHandler {
@@ -241,47 +235,14 @@ final class APIClient {
                 #endif
                 throw APIError.httpStatus(response.statusCode)
             }
-            let responseData: Data
-            if let requestCipher {
-                do { responseData = try requestCipher.decryptFromTransport(response.data) }
-                catch {
-                    #if DEBUG
-                    logResponse()
-                    #endif
-                    throw APIError.decryption(error)
-                }
-            } else { responseData = response.data }
+            let processed = try await APIPayloadProcessing.decode(
+                Output.self, from: response.data, cipher: requestCipher,
+                decoding: decoding, unwrapEnvelope: unwrapEnvelope)
+            try _Concurrency.Task<Never, Never>.checkCancellation()
             #if DEBUG
-            logResponse(plaintextBody: responseData)
+            logResponse(plaintextBody: processed.plaintextBody)
             #endif
-            let object: [String: Any]
-            do {
-                guard let root = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
-                    throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Expected a JSON object"))
-                }
-                object = root
-            } catch { throw APIError.decoding(error) }
-            if unwrapEnvelope, let code = object["code"] as? Int {
-                guard code == 200 else { throw APIError.business(code, object["message"] as? String) }
-                do {
-                    let envelope: APIEnvelope<Output>
-                    switch decoding {
-                    case .strict: envelope = try JSONDecoder().decode(APIEnvelope<Output>.self, from: responseData)
-                    case .tolerant: envelope = try CleanJSONDecoder().decode(APIEnvelope<Output>.self, from: responseData)
-                    }
-                    guard let data = envelope.data else {
-                        throw DecodingError.valueNotFound(Output.self,
-                            .init(codingPath: [], debugDescription: "Missing envelope data"))
-                    }
-                    return data
-                } catch { throw APIError.decoding(error) }
-            }
-            do {
-                switch decoding {
-                case .strict: return try JSONDecoder().decode(Output.self, from: responseData)
-                case .tolerant: return try CleanJSONDecoder().decode(Output.self, from: responseData)
-                }
-            } catch { throw APIError.decoding(error) }
+            return try processed.result.get()
         } catch {
             #if DEBUG
             APIDebugLogger.failure(id: requestID, path: endpoint.path, error: error)
@@ -290,10 +251,6 @@ final class APIClient {
         }
     }
 
-}
-
-nonisolated private struct APIEnvelope<Payload: Decodable>: Decodable {
-    let data: Payload?
 }
 
 /// Lock protects callback/cancellation races, including cancellation before Moya returns its token.

@@ -73,6 +73,8 @@ xcodebuild -project DramaPlayfun.xcodeproj -scheme DramaPlayfun \
 
 Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴权及个人敏感字段会脱敏；Release 构建不输出。
 
+请求参数编码、加密及响应解密、JSON 校验和模型解码在后台执行；会话、请求头和页面状态仍由主线程管理。Debug 日志的脱敏、格式化及输出使用独立串行队列，避免启动时多个接口返回占用 Tab 点击所需的主线程。排行榜首次进入先显示页面和加载状态，再等待分类与榜单数据；`RankingTabResponsivenessUITests` 使用延迟分类响应验证单击切换、加载中离开及再次进入。
+
 `POST /mobile/v1/client/transport/encryption/config`、`POST /mobile/v1/client/service/notice`、`POST /mobile/v1/client/app/config`、`POST /mobile/v1/client/app/update/check` 四个接口始终使用 JSON 明文请求和响应，不依赖加密开关查询。免加密路径统一定义在 `APITransportEncryption.swift`，其中加密配置接口不携带鉴权令牌。
 
 应用共享网络客户端在首个需要检查加密开关的请求（包括游客登录）前，先以明文 `POST /mobile/v1/client/transport/encryption/config` 获取 `data.enabled`。开启时使用 AES-256-GCM，关闭时使用 JSON 明文。配置在客户端实例生命周期内缓存，并发调用合并为一次请求；获取失败或开关字段缺失时阻止需检查开关的请求，下次调用可重试，四个免加密接口仍可直接请求。需要重新读取时调用 `reloadTransportEncryptionConfiguration()`，在途请求保留发送时的传输方式，避免切换开关导致响应解密错误。加密配置接口尚未包含在当前 OpenAPI 文件中，端点及必填 Bool 模型独立定义在 `APITransportEncryption.swift`。

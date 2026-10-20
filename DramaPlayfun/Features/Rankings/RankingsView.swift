@@ -122,6 +122,7 @@ private struct RankingHeader: View {
         }
         .frame(height: 140 * scale, alignment: .top)
         .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("ranking-header")
         .accessibilityLabel(L10n.tr("短剧排行榜，真实榜单、精品热播、神作推荐"))
     }
 }

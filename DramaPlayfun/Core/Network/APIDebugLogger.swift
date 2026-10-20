@@ -5,25 +5,37 @@ import Alamofire
 
 /// Console diagnostics for Debug builds only. Credentials and personal fields are masked.
 nonisolated enum APIDebugLogger {
-    private static let outputLock = NSLock()
+    private static let writer = Writer()
 
     static func request(id: String, target: APITarget, plaintextBody: Data? = nil) {
-        let url = target.baseURL.appendingPathComponent(target.path)
-        let headers = formattedJSONObject(target.requestHeaders)
-        let body = formattedBody(plaintextBody ?? target.body)
-        output(id: id, event: "REQUEST", text: "→ \(target.method.rawValue) \(url.absoluteString)\nHeaders: \(headers)\nBody: \(body)")
+        let baseURL = target.baseURL
+        let path = target.path
+        let method = target.method.rawValue
+        let headers = target.requestHeaders
+        let data = plaintextBody ?? target.body
+        writer.enqueue(id: id, event: "REQUEST") {
+            let url = baseURL.appendingPathComponent(path)
+            return "→ \(method) \(url.absoluteString)\nHeaders: \(formattedJSONObject(headers))\nBody: \(formattedBody(data))"
+        }
     }
 
     static func response(id: String, response: Moya.Response, duration: TimeInterval,
                          plaintextBody: Data? = nil, isEncrypted: Bool = false) {
-        let body = plaintextBody.map(formattedBody)
-            ?? (isEncrypted ? "<encrypted, \(response.data.count) bytes>" : formattedBody(response.data))
-        output(id: id, event: "RESPONSE", text: "← HTTP \(response.statusCode) (\(String(format: "%.2f", duration))s) · \(response.data.count) bytes\nBody: \(body)")
+        // Moya.Response is not Sendable; retain only its immutable value snapshots.
+        let data = response.data
+        let statusCode = response.statusCode
+        writer.enqueue(id: id, event: "RESPONSE") {
+            let body = plaintextBody.map(formattedBody)
+                ?? (isEncrypted ? "<encrypted, \(data.count) bytes>" : formattedBody(data))
+            return "← HTTP \(statusCode) (\(String(format: "%.2f", duration))s) · \(data.count) bytes\nBody: \(body)"
+        }
     }
 
     static func failure(id: String, path: String, error: Error) {
-        let label = error is CancellationError ? "cancelled" : "failed"
-        output(id: id, event: "ERROR", text: "\(label) \(path): \(error.localizedDescription)")
+        writer.enqueue(id: id, event: "ERROR") {
+            let label = error is CancellationError ? "cancelled" : "failed"
+            return "\(label) \(path): \(error.localizedDescription)"
+        }
     }
 
     static func formattedBody(_ data: Data) -> String {
@@ -35,16 +47,26 @@ nonisolated enum APIDebugLogger {
         return "<binary, \(data.count) bytes>"
     }
 
-    /// Use stdout instead of one oversized NSLog/unified-log entry. Keep each block small and
-    /// serialize the complete message so simultaneous requests cannot interleave their parts.
-    private static func output(id: String, event: String, text: String) {
-        let parts = chunks(text)
-        outputLock.lock()
-        defer { outputLock.unlock() }
-        for (index, part) in parts.enumerated() {
-            print("[API \(id)] \(event) [\(index + 1)/\(parts.count)]\n\(part)")
+    /// Format, redact and write on one background queue. Logging must never make an API
+    /// completion wait for a large JSON payload or for the debugger's stdout consumer.
+    nonisolated struct Writer: Sendable {
+        private let queue = DispatchQueue(label: "com.dramaplayfun.api-debug-log", qos: .utility)
+        private let write: @Sendable (String) -> Void
+
+        init(write: @escaping @Sendable (String) -> Void = { print($0) }) {
+            self.write = write
         }
-        print("[API \(id)] \(event) END")
+
+        func enqueue(id: String, event: String, text: @escaping @Sendable () -> String) {
+            queue.async {
+                let parts = APIDebugLogger.chunks(text())
+                // Keep complete messages ordered, including all chunks and their END marker.
+                for (index, part) in parts.enumerated() {
+                    self.write("[API \(id)] \(event) [\(index + 1)/\(parts.count)]\n\(part)")
+                }
+                self.write("[API \(id)] \(event) END")
+            }
+        }
     }
 
     /// Byte-based limits keep Chinese and emoji payloads small without splitting a UTF-8 scalar.

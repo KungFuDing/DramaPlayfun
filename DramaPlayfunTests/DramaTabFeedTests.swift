@@ -136,6 +136,36 @@ final class DramaTabFeedTests: XCTestCase {
         XCTAssertFalse(feed.selectedPage.hasMore)
     }
 
+    func testCancelledFirstRankingLoadCanRetryOnNextVisit() async throws {
+        let started = expectation(description: "First category request started")
+        var categoryRequests = 0
+        let network = try client(response: { target, _ in
+            if target.path == "/mobile/v1/drama/category/list" {
+                categoryRequests += 1
+                if categoryRequests == 1 { started.fulfill() }
+                return #"{"code":200,"data":{"list":[{"categoryId":42,"categoryName":"日榜"}]}}"#
+            }
+            return #"{"code":200,"data":{"list":[{"dramaId":8,"dramaTitle":"榜首"}]}}"#
+        }, delay: { target in
+            target.path == "/mobile/v1/drama/category/list" && categoryRequests == 1
+                ? .delayed(seconds: 10) : .immediate
+        })
+        let feed = DramaTabFeedStore(network: network, source: .rankings)
+        let firstVisit = _Concurrency.Task { await feed.loadTabsIfNeeded() }
+        await fulfillment(of: [started], timeout: 2)
+        firstVisit.cancel()
+        await firstVisit.value
+        XCTAssertFalse(feed.isLoadingTabs)
+        XCTAssertFalse(feed.hasLoadedTabs)
+        XCTAssertNil(feed.tabsErrorMessage)
+
+        await feed.loadTabsIfNeeded()
+        await feed.loadSelectedIfNeeded()
+        XCTAssertEqual(categoryRequests, 2)
+        XCTAssertEqual(feed.selectedID, "ranking-42")
+        XCTAssertEqual(feed.selectedPage.dramas.map(\.id), ["8"])
+    }
+
     func testRefreshDiscardsOlderTagPagination() async throws {
         let network = try client(response: { target, body in
             if target.path == "/mobile/v1/drama/tag/list" {

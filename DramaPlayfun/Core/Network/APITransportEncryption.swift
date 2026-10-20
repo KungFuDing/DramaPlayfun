@@ -24,9 +24,9 @@ extension AppAPI {
 }
 
 extension APIModels {
-    struct V1GetTransportEncryptionConfigReq: Codable, Sendable { }
+    nonisolated struct V1GetTransportEncryptionConfigReq: Codable, Sendable { }
 
-    struct V1GetTransportEncryptionConfigRes: Codable, Sendable {
+    nonisolated struct V1GetTransportEncryptionConfigRes: Codable, Sendable {
         let enabled: Bool
     }
 }

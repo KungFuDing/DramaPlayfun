@@ -234,6 +234,7 @@ final class DramaPlayfunUITests: XCTestCase {
             return value > 45 && value < 65
         }, evaluatedWith: secondProgress)
         waitForExpectations(timeout: 10)
+        app.revealPlayerControlsIfNeeded()
         app.buttons["player-back"].tap()
         XCTAssertTrue(theaterProgress.waitForExistence(timeout: 10))
         expectation(for: NSPredicate { _, _ in
@@ -264,6 +265,7 @@ final class DramaPlayfunUITests: XCTestCase {
             return secondProgress.isEnabled && value > 0 && value < 25
         }, evaluatedWith: secondProgress)
         waitForExpectations(timeout: 10)
+        app.revealPlayerControlsIfNeeded()
         app.buttons["player-back"].tap()
         XCTAssertTrue(app.otherElements["theater-video-101"].waitForExistence(timeout: 10))
         expectation(for: NSPredicate { _, _ in
@@ -314,6 +316,7 @@ final class DramaPlayfunUITests: XCTestCase {
         expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: playerProgress)
         waitForExpectations(timeout: 10)
         app.scrollViews["player-episode-feed"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.buttons["player-pause"].tap()
         XCTAssertTrue(app.buttons["播放影片"].waitForExistence(timeout: 5))
         XCTAssertGreaterThanOrEqual(playerProgress.frame.height, 44)
         let playerPage = app.otherElements["player-episode-1"]

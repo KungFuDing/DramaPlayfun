@@ -152,6 +152,7 @@ final class PlayerUnlockUITests: XCTestCase {
 
     @MainActor
     private func assertPlayable(_ number: Int, in app: XCUIApplication) {
+        app.revealPlayerControlsIfNeeded()
         let progress = app.sliders["player-progress-\(number)"]
         XCTAssertTrue(progress.waitForExistence(timeout: 10))
         expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: progress)
@@ -160,9 +161,10 @@ final class PlayerUnlockUITests: XCTestCase {
 
     @MainActor
     private func scrubNearEnd(_ progress: XCUIElement) {
-        // The upper touch area overlaps the introduction's expand button; use the visible track.
+        // Use the visible track and leave fewer than 5 seconds, so the replay
+        // control is still visible when the auto-play-off scenario finishes.
         progress.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.8))
-            .press(forDuration: 0.1, thenDragTo: progress.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8)))
+            .press(forDuration: 0.1, thenDragTo: progress.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.8)))
         expectation(for: NSPredicate { _, _ in
             guard progress.exists else { return false }
             let value = Double((progress.value as? String ?? "").replacingOccurrences(of: "%", with: "")) ?? -1
@@ -173,6 +175,7 @@ final class PlayerUnlockUITests: XCTestCase {
 
     @MainActor
     private func openWallet(fromPlayer app: XCUIApplication) {
+        app.revealPlayerControlsIfNeeded()
         app.buttons["player-back"].tap()
         XCTAssertTrue(app.tabBars.buttons["我的"].waitForExistence(timeout: 5))
         app.tabBars.buttons["我的"].tap()

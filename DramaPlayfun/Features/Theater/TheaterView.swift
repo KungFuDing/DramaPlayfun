@@ -261,6 +261,8 @@ struct TheaterVideoPage: View {
     let onShare: () -> Void
     let onDetail: () -> Void
     var isDetail = false
+    var controlsVisible = true
+    var onVideoTap: (() -> Void)?
     var onLike: (() async throws -> Void)?
     var onFavorite: (() async throws -> Void)?
     @Environment(AppContainer.self) private var app
@@ -274,6 +276,7 @@ struct TheaterVideoPage: View {
     init(item: TheaterFeedItem, playback: TheaterPlayerPool, isActive: Bool,
          onRetry: @escaping () -> Void, onEpisodes: @escaping () -> Void,
          onShare: @escaping () -> Void, onDetail: @escaping () -> Void, isDetail: Bool = false,
+         controlsVisible: Bool = true, onVideoTap: (() -> Void)? = nil,
          onLike: (() async throws -> Void)? = nil, onFavorite: (() async throws -> Void)? = nil) {
         self.item = item
         self.playback = playback
@@ -283,6 +286,8 @@ struct TheaterVideoPage: View {
         self.onShare = onShare
         self.onDetail = onDetail
         self.isDetail = isDetail
+        self.controlsVisible = controlsVisible
+        self.onVideoTap = onVideoTap
         self.onLike = onLike
         self.onFavorite = onFavorite
     }
@@ -296,23 +301,32 @@ struct TheaterVideoPage: View {
                     .opacity(player.currentItem == nil ? 0 : 1)
                     .allowsHitTesting(false)
             }
-            Color.clear.contentShape(Rectangle()).onTapGesture { togglePlayback() }
-            LinearGradient(colors: [.black.opacity(0.2), .clear, .black.opacity(0.8)],
-                           startPoint: .top, endPoint: .bottom)
-                .allowsHitTesting(false)
+            Color.clear.contentShape(Rectangle()).onTapGesture {
+                if let onVideoTap { onVideoTap() }
+                else { togglePlayback() }
+            }
+            if controlsVisible {
+                LinearGradient(colors: [.black.opacity(0.2), .clear, .black.opacity(0.8)],
+                               startPoint: .top, endPoint: .bottom)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
 
             playbackStatus
 
-            VStack {
-                Spacer(minLength: 24)
-                HStack(alignment: .bottom, spacing: 16) {
-                    metadata.frame(maxWidth: .infinity, alignment: .leading)
-                    actions.padding(.bottom, 64)
+            if controlsVisible {
+                VStack {
+                    Spacer(minLength: 24)
+                    HStack(alignment: .bottom, spacing: 16) {
+                        metadata.frame(maxWidth: .infinity, alignment: .leading)
+                        actions.padding(.bottom, 64)
+                    }
+                    .zIndex(1) // Keep introduction buttons above the expanded progress touch area.
+                    progressBar
                 }
-                .zIndex(1) // Keep introduction buttons above the expanded progress touch area.
-                progressBar
+                .padding(.horizontal, 14)
+                .transition(.opacity)
             }
-            .padding(.horizontal, 14)
         }
         .clipped()
         .foregroundStyle(.white)
@@ -337,7 +351,7 @@ struct TheaterVideoPage: View {
             .padding(.horizontal, 48)
         } else if isActive && (playback.states[item.id] != .ready || playback.isBuffering) {
             ProgressView().tint(.white)
-        } else if isActive && (playback.isPaused || playback.hasEnded) {
+        } else if controlsVisible && isActive && (playback.isPaused || playback.hasEnded) {
             Button { togglePlayback() } label: {
                 if isDetail {
                     ZStack {

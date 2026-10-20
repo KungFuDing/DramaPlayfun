@@ -45,6 +45,7 @@ final class SearchUITests: XCTestCase {
             return progress.isEnabled && percent >= 28 && percent < 50
         }, evaluatedWith: progress)
         waitForExpectations(timeout: 5)
+        app.revealPlayerControlsIfNeeded()
         app.buttons["player-back"].tap()
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         app.buttons["search-back"].tap()

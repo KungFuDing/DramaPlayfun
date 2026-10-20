@@ -23,7 +23,8 @@ struct PlayerView: View {
     @State private var feedbackEpisode: Episode?
     @State private var isSubmittingFeedback = false
     @State private var feedbackSubmitted = false
-    @State private var controlVisible = false
+    @State private var controlsVisible = true
+    @State private var controlsInteraction = 0
     @State private var rate: Float = 1
     @State private var optionsKind: PlayerOptionsKind?
     @State private var subtitleGroup: AVMediaSelectionGroup?
@@ -36,6 +37,7 @@ struct PlayerView: View {
     @Environment(AppContainer.self) private var app
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityVoiceOverEnabled) private var isVoiceOverEnabled
 
     init(request: PlaybackRequest, app: AppContainer) {
         self.request = request
@@ -65,6 +67,7 @@ struct PlayerView: View {
     var body: some View {
         playerContent
             .toolbar(.hidden, for: .navigationBar, .tabBar)
+            .statusBarHidden(!controlsVisible)
             .navigationBackGesture(isEnabled: !showEpisodes && optionsKind == nil && pendingUnlock == nil)
             .navigationDestination(item: $selectedDetail) { drama in
                 ShortDramaDetailView(drama: drama, app: app) { id, favorite, count in
@@ -109,28 +112,33 @@ struct PlayerView: View {
                     }
                     }
                 }
-                if controlVisible && isVisible && !playback.isPaused && !playback.hasEnded {
+                if controlsVisible && isVisible && !playback.isPaused && !playback.hasEnded {
                     Button { playback.toggle() } label: {
                         ZStack {
                             Image("PlayerPauseBackground").resizable().scaledToFit()
                             Image("PlayerPause").resizable().scaledToFit().frame(width: 28, height: 28)
                         }.frame(width: 68, height: 68)
                     }.accessibilityLabel(L10n.tr("暂停"))
+                        .accessibilityIdentifier("player-pause")
                 }
             }
-            .overlay(alignment: .top) { header.padding(.top, max(geometry.safeAreaInsets.top, 54) + 8) }
-            .simultaneousGesture(TapGesture().onEnded { controlVisible = true })
-            .task(id: controlVisible) {
-                guard controlVisible else { return }
-                try? await Task.sleep(for: .seconds(2))
-                if !Task.isCancelled { controlVisible = false }
+            .overlay(alignment: .top) {
+                if controlsVisible {
+                    header.padding(.top, max(geometry.safeAreaInsets.top, 54) + 8)
+                        .transition(.opacity)
+                }
             }
+            .simultaneousGesture(TapGesture().onEnded { revealControls() })
         }
         .ignoresSafeArea(edges: .top)
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomControls }
         .background(.black)
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
+        .task(id: controlsAutoHideID) { await hideControlsAfterPlayback() }
+        .onChange(of: isVoiceOverEnabled) { _, enabled in
+            if enabled { revealControls() }
+        }
         .task(id: attempt) {
             if isReady && completedAttempt == attempt {
                 updatePlayback()
@@ -276,6 +284,7 @@ struct PlayerView: View {
                 isActive: selectedID == item.id && isVisible,
                 onRetry: { retry(item) }, onEpisodes: { showEpisodes = true },
                 onShare: { shareItem = item }, onDetail: { selectedDetail = item.drama }, isDetail: true,
+                controlsVisible: controlsVisible, onVideoTap: revealControls,
                 onLike: { try await store.toggleLike(item.id) },
                 onFavorite: { try await store.toggleFavorite() })
                 .blur(radius: showsUnlockLayer ? 8 : 0)
@@ -315,6 +324,43 @@ struct PlayerView: View {
     private var mediaItemID: ObjectIdentifier? { mediaItem.map(ObjectIdentifier.init) }
     private var subtitleTracks: [AVMediaSelectionOption] {
         (subtitleGroup?.options ?? []).filter { $0.mediaType == .subtitle }
+    }
+
+    private var canAutoHideControls: Bool {
+        controlsVisible && !isVoiceOverEnabled && isReady && isVisible && playback.currentID == selectedID &&
+            playback.states[selectedID ?? ""] == .ready && !playback.isPaused &&
+            !playback.isBuffering && !playback.isScrubbing && !playback.hasEnded
+    }
+
+    private var controlsAutoHideID: String {
+        "\(canAutoHideControls)-\(selectedID ?? "")-\(controlsInteraction)"
+    }
+
+    private func revealControls() {
+        controlsInteraction += 1
+        withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
+    }
+
+    private func hideControlsAfterPlayback() async {
+        guard canAutoHideControls else { return }
+        let clock = ContinuousClock()
+        var playingSince: ContinuousClock.Instant?
+        // A ready item can still be waiting for its first frame. Count actual
+        // playing time in wall-clock seconds, independent of playback speed.
+        while !Task.isCancelled && canAutoHideControls {
+            if playback.player(for: selectedID ?? "")?.timeControlStatus == .playing {
+                let now = clock.now
+                if let playingSince, now - playingSince >= .seconds(5) {
+                    withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
+                    return
+                }
+                if playingSince == nil { playingSince = now }
+            } else {
+                playingSince = nil
+            }
+            do { try await Task.sleep(for: .milliseconds(100)) }
+            catch { return }
+        }
     }
 
     private var header: some View {

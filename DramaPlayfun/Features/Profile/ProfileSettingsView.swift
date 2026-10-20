@@ -140,50 +140,47 @@ private struct SettingsBottomPanel: View {
     @State private var copiedEmail: String?
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                Color.black.opacity(0.45).contentShape(Rectangle())
-                    .onTapGesture { if !isDeactivating { onClose() } }
-                    .accessibilityLabel(L10n.tr("关闭%@弹窗", kind.title))
-                    .accessibilityIdentifier("settings-panel-dismiss")
-                VStack(spacing: 0) {
-                    Text(kind.title).font(.system(size: 16, weight: .semibold)).frame(height: 24)
-                        .padding(.top, 32)
-                    switch kind {
-                    case .language: languageOptions.padding(.top, 20)
-                    case .contact: contact.padding(.top, 12)
-                    case .deactivate: deactivation.padding(.top, 18)
-                    }
-                    Spacer(minLength: 0)
+        AdaptiveBottomPanel(background: .black.opacity(0.45),
+                            dismissLabel: L10n.tr("关闭%@弹窗", kind.title),
+                            dismissIdentifier: "settings-panel-dismiss",
+                            onDismiss: { if !isDeactivating { onClose() } }) { layout in
+            VStack(spacing: 0) {
+                Text(kind.title).font(.system(size: 16, weight: .semibold)).frame(height: 24)
+                    .padding(.top, 32)
+                switch kind {
+                case .language: languageOptions.padding(.top, 20)
+                case .contact: contact.padding(.top, 12)
+                case .deactivate: deactivation.padding(.top, 18)
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, max(geometry.safeAreaInsets.bottom, 20))
-                .frame(maxWidth: .infinity)
-                .frame(height: min(panelHeight(bottomInset: geometry.safeAreaInsets.bottom), geometry.size.height * 0.9))
-                .background(Color(white: 0.16)).clipShape(PlayerBottomPanelShape())
-                .overlay(alignment: .top) {
-                    Button { if !isDeactivating { onClose() } } label: {
-                        Capsule().fill(Color(white: 0.55)).frame(width: 43, height: 6)
-                            .padding(.top, 2).frame(width: 76, height: 24, alignment: .top).contentShape(Rectangle())
-                    }.accessibilityLabel(L10n.tr("收起%@", kind.title))
-                        .accessibilityIdentifier("settings-panel-close")
-                        .gesture(DragGesture(minimumDistance: 10).onEnded { value in
-                            if value.translation.height > 30, !isDeactivating { onClose() }
-                        })
-                }
-                .overlay(alignment: .topTrailing) {
-                    if kind == .contact {
-                        Button(action: onClose) {
-                            Image(systemName: "xmark").font(.system(size: 23, weight: .regular))
-                                .foregroundStyle(Color(white: 0.7)).frame(width: 44, height: 44)
-                        }.padding(.top, 2).padding(.trailing, 2).accessibilityLabel(L10n.tr("关闭联系客服"))
-                            .accessibilityIdentifier("settings-contact-close")
-                    }
-                }
-                .accessibilityElement(children: .contain).accessibilityIdentifier("settings-\(kind.rawValue)-panel")
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 12)
+            .padding(.bottom, max(layout.safeAreaInsets.bottom, 20))
+            .frame(maxWidth: .infinity)
+            .frame(height: min(panelHeight(bottomInset: layout.safeAreaInsets.bottom), layout.size.height * 0.9))
+            .background(Color(white: 0.16)).clipShape(PlayerBottomPanelShape())
+            .overlay(alignment: .top) {
+                Button { if !isDeactivating { onClose() } } label: {
+                    Capsule().fill(Color(white: 0.55)).frame(width: 43, height: 6)
+                        .padding(.top, 2).frame(width: 76, height: 24, alignment: .top).contentShape(Rectangle())
+                }.accessibilityLabel(L10n.tr("收起%@", kind.title))
+                    .accessibilityIdentifier("settings-panel-close")
+                    .gesture(DragGesture(minimumDistance: 10).onEnded { value in
+                        if value.translation.height > 30, !isDeactivating { onClose() }
+                    })
+            }
+            .overlay(alignment: .topTrailing) {
+                if kind == .contact {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark").font(.system(size: 23, weight: .regular))
+                            .foregroundStyle(Color(white: 0.7)).frame(width: 44, height: 44)
+                    }.padding(.top, 2).padding(.trailing, 2).accessibilityLabel(L10n.tr("关闭联系客服"))
+                        .accessibilityIdentifier("settings-contact-close")
+                }
+            }
+            .accessibilityElement(children: .contain).accessibilityIdentifier("settings-\(kind.rawValue)-panel")
         }
-        .ignoresSafeArea().buttonStyle(.plain)
+        .buttonStyle(.plain)
         .alert(L10n.tr("注销失败"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button(L10n.tr("确定"), role: .cancel) { error = nil }
         } message: { Text(error ?? "") }

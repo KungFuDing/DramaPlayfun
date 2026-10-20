@@ -14,19 +14,14 @@ struct PlayerUnlockConfirmationSheet: View {
     private let accent = Color(red: 1, green: 199.0 / 255, blue: 48.0 / 255)
 
     var body: some View {
-        GeometryReader { geometry in
-            let bottomPadding = max(geometry.safeAreaInsets.bottom, 34) + 16
-            let availableHeight = max(0, geometry.size.height - max(geometry.safeAreaInsets.top, 8))
-            ZStack(alignment: .bottom) {
-                Color.clear.contentShape(Rectangle()).onTapGesture(perform: onClose)
-                    .accessibilityHidden(true)
-                panel(bottomPadding: bottomPadding,
-                    width: min(geometry.size.width, 430),
-                    height: min(339 + bottomPadding, availableHeight))
-                    .transition(.move(edge: .bottom))
-            }
+        AdaptiveBottomPanel(onDismiss: onClose) { layout in
+            let bottomPadding = max(layout.safeAreaInsets.bottom, 34) + 16
+            let availableHeight = max(0, layout.size.height - max(layout.safeAreaInsets.top, 8))
+            panel(bottomPadding: bottomPadding,
+                width: layout.width,
+                height: min(339 + bottomPadding, availableHeight))
+                .transition(.move(edge: .bottom))
         }
-        .ignoresSafeArea()
         .foregroundStyle(Color(white: 0.9))
         .buttonStyle(.plain)
     }

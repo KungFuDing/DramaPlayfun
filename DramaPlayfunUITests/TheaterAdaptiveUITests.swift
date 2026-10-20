@@ -42,6 +42,41 @@ final class TheaterAdaptiveUITests: XCTestCase {
     }
 
     @MainActor
+    func testLoadedShareClosesFromCenterAndHitTargetEdges() {
+        let app = launchTheater()
+        let share = app.buttons["theater-share-101"]
+        let close = app.buttons["關閉分享"]
+        let qrCode = app.images["短劇分享 QR Code"]
+        let save = app.buttons["儲存至相簿"]
+        let tapPoints: [(String, CGVector)] = [
+            ("中心", CGVector(dx: 0.5, dy: 0.5)),
+            ("左边缘", CGVector(dx: 0.05, dy: 0.5)),
+            ("右边缘", CGVector(dx: 0.95, dy: 0.5)),
+            ("上边缘", CGVector(dx: 0.5, dy: 0.05)),
+            ("下边缘", CGVector(dx: 0.5, dy: 0.95))
+        ]
+
+        for (name, point) in tapPoints {
+            waitForHittable(share)
+            share.tap()
+            XCTAssertTrue(qrCode.waitForExistence(timeout: 10), "应等海报二维码加载完成后测试关闭")
+            XCTAssertTrue(save.waitForExistence(timeout: 5), "应显示加载完成后的保存按钮")
+            waitForHittable(close)
+            XCTAssertGreaterThanOrEqual(close.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(close.frame.height, 44)
+            if name == "中心" { capture(app, "分享海报加载后关闭按钮位置") }
+
+            // Coordinate taps verify the visible button and its padded hit area;
+            // an accessibility-directed tap can choose another hittable point.
+            close.coordinate(withNormalizedOffset: point).tap()
+            expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: close)
+            waitForExpectations(timeout: 5)
+            XCTAssertFalse(qrCode.exists, "点击关闭按钮\(name)后海报二维码应消失")
+            waitForHittable(share)
+        }
+    }
+
+    @MainActor
     func testTheaterControlsRespondAfterLandscapeAndPortraitRotation() {
         let originalOrientation = XCUIDevice.shared.orientation
         defer { XCUIDevice.shared.orientation = originalOrientation }

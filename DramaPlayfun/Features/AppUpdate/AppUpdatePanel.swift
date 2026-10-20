@@ -16,30 +16,19 @@ struct AppUpdatePanel: View {
     private let accent = Color(red: 1, green: 197.0 / 255, blue: 49.0 / 255)
 
     var body: some View {
-        GeometryReader { geometry in
-            let insets = geometry.safeAreaInsets
-            let fullWidth = geometry.size.width + insets.leading + insets.trailing
-            let fullHeight = geometry.size.height + insets.top + insets.bottom
-            let panelWidth = min(fullWidth, 430)
+        AdaptiveBottomPanel(background: .black.opacity(0.65),
+                            dismissIdentifier: "app-update-backdrop",
+                            onDismiss: dismissIfAllowed) { layout in
+            let insets = layout.safeAreaInsets
             let bottomPadding = insets.bottom + 24
             let defaultHeight: CGFloat = notice.isForced ? 315 : 337
             let panelHeight = min(
                 (contentHeight > 0 ? contentHeight : defaultHeight) + bottomPadding,
-                max(0, fullHeight - max(insets.top, 20))
+                max(0, layout.size.height - max(insets.top, 20))
             )
 
-            ZStack(alignment: .bottom) {
-                Color.black.opacity(0.65)
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: dismissIfAllowed)
-                    .accessibilityIdentifier("app-update-backdrop")
-                    .accessibilityHidden(true)
-
-                panel(width: panelWidth, height: panelHeight, bottomPadding: bottomPadding)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            .frame(width: fullWidth, height: fullHeight)
-            .offset(x: -insets.leading, y: -insets.top)
+            panel(width: layout.width, height: panelHeight, bottomPadding: bottomPadding)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         .foregroundStyle(.white)
         .buttonStyle(.plain)

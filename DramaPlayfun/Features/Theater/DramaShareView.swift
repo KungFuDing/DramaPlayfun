@@ -13,7 +13,12 @@ struct DramaShareView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let width = min(geometry.size.width * 0.75, max(180, (geometry.size.height - 148) / DramaShareCard.aspectRatio), 360)
+            // Reserve space inside the safe area for the close row, both gaps,
+            // the actions and vertical padding before sizing the poster.
+            let reservedHeight: CGFloat = 44 + 8 + 24 + 44 + 24
+            let width = min(geometry.size.width * 0.75,
+                            max(0, (geometry.size.height - reservedHeight) / DramaShareCard.aspectRatio), 360)
+            let actionWidth = min(max(width, 280), max(0, geometry.size.width - 32))
             ZStack {
                 Rectangle().fill(.ultraThinMaterial).overlay(.black.opacity(0.55))
                     .ignoresSafeArea()
@@ -23,56 +28,58 @@ struct DramaShareView: View {
                         .clipped().blur(radius: 22)
                         .overlay(.black.opacity(0.7)).ignoresSafeArea()
                 }
-                VStack(spacing: 24) {
-                    Group {
+                VStack(spacing: 8) {
+                    Button { dismiss() } label: {
+                        Image("ShareClose").renderingMode(.original).resizable()
+                            .scaledToFit().frame(width: 24, height: 24)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.tr("关闭分享"))
+                    .frame(width: actionWidth, alignment: .trailing)
+                    VStack(spacing: 24) {
+                        Group {
+                            if let content {
+                                DramaShareCard(drama: item.drama, content: content, width: width)
+                            } else {
+                                VStack(spacing: 16) {
+                                    if let loadError {
+                                        Text(loadError).multilineTextAlignment(.center).font(.subheadline)
+                                        Button(L10n.tr("重试")) { attempt += 1 }.buttonStyle(.bordered)
+                                    } else {
+                                        ProgressView(L10n.tr("正在生成分享图片…")).tint(.white)
+                                    }
+                                }.frame(width: width, height: width * DramaShareCard.aspectRatio)
+                            }
+                        }
                         if let content {
-                            DramaShareCard(drama: item.drama, content: content, width: width)
-                        } else {
-                            VStack(spacing: 16) {
-                                if let loadError {
-                                    Text(loadError).multilineTextAlignment(.center).font(.subheadline)
-                                    Button(L10n.tr("重试")) { attempt += 1 }.buttonStyle(.bordered)
-                                } else {
-                                    ProgressView(L10n.tr("正在生成分享图片…")).tint(.white)
-                                }
-                            }.frame(width: width, height: width * DramaShareCard.aspectRatio)
+                            HStack(spacing: 12) {
+                                Button { save(content, width: width) } label: {
+                                    HStack(spacing: 7) {
+                                        Image("ShareSave").renderingMode(.original)
+                                        Text(isSaving ? L10n.tr("保存中…") : L10n.tr("保存相册"))
+                                            .lineLimit(2).minimumScaleFactor(0.85)
+                                    }
+                                }.disabled(isSaving)
+                                Button { share(content, width: width) } label: {
+                                    HStack(spacing: 7) {
+                                        Image("ShareSend").renderingMode(.original)
+                                        Text(L10n.tr("分享至"))
+                                    }
+                                }.disabled(isSaving)
+                            }
+                            .font(.system(size: 16, weight: .medium))
+                            .buttonStyle(ShareOutlineButtonStyle())
+                            .frame(width: actionWidth)
                         }
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        Button { dismiss() } label: {
-                            Image("ShareClose").renderingMode(.original).resizable()
-                                .scaledToFit().frame(width: 24, height: 24)
-                                .frame(width: 44, height: 44)
-                        }
-                        .offset(x: 10, y: -40)
-                        .accessibilityLabel(L10n.tr("关闭分享"))
-                    }
-                    if let content {
-                        HStack(spacing: 12) {
-                            Button { save(content, width: width) } label: {
-                                HStack(spacing: 7) {
-                                    Image("ShareSave").renderingMode(.original)
-                                    Text(isSaving ? L10n.tr("保存中…") : L10n.tr("保存相册"))
-                                        .lineLimit(2).minimumScaleFactor(0.85)
-                                }
-                            }.disabled(isSaving)
-                            Button { share(content, width: width) } label: {
-                                HStack(spacing: 7) {
-                                    Image("ShareSend").renderingMode(.original)
-                                    Text(L10n.tr("分享至"))
-                                }
-                            }.disabled(isSaving)
-                        }
-                        .font(.system(size: 16, weight: .medium))
-                        .buttonStyle(ShareOutlineButtonStyle())
-                        .frame(width: width)
                     }
                 }
+                .padding(.vertical, 12)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .ignoresSafeArea()
         .presentationBackground(.clear)
         .task(id: attempt) {
             loadError = nil

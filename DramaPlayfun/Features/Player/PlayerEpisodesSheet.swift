@@ -39,23 +39,11 @@ struct PlayerEpisodesSheet: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            let insets = geometry.safeAreaInsets
-            let fullSize = CGSize(width: geometry.size.width + insets.leading + insets.trailing,
-                                  height: geometry.size.height + insets.top + insets.bottom)
-            let layout = EpisodeSheetLayout(size: fullSize, safeAreaInsets: insets,
-                                            episodeCount: min(episodes.count, 30))
-            ZStack(alignment: .bottom) {
-                Color.clear.contentShape(Rectangle()).onTapGesture(perform: onClose)
-                    .accessibilityLabel(L10n.tr("关闭选集弹窗"))
-                panel(layout: layout)
-                    .frame(width: layout.width, height: layout.height)
-                    .padding(.leading, insets.leading)
-                    .padding(.trailing, insets.trailing)
-                    .transition(.move(edge: .bottom))
-            }
-            .frame(width: fullSize.width, height: fullSize.height)
-            .offset(x: -insets.leading, y: -insets.top)
+        AdaptiveBottomPanel(dismissLabel: L10n.tr("关闭选集弹窗"), onDismiss: onClose) { panelLayout in
+            let layout = EpisodeSheetLayout(panel: panelLayout, episodeCount: min(episodes.count, 30))
+            panel(layout: layout)
+                .frame(width: panelLayout.width, height: layout.height)
+                .transition(.move(edge: .bottom))
         }
         .foregroundStyle(.white)
     }
@@ -159,20 +147,16 @@ struct PlayerEpisodesSheet: View {
 }
 
 private struct EpisodeSheetLayout {
-    let width: CGFloat
     let height: CGFloat
     let horizontalPadding: CGFloat
     let bottomPadding: CGFloat
     let columnCount: Int
 
-    init(size: CGSize, safeAreaInsets: EdgeInsets, episodeCount: Int) {
-        let safeWidth = max(0, size.width - safeAreaInsets.leading - safeAreaInsets.trailing)
-        let isWide = safeWidth >= 600
-        width = min(640, max(0, safeWidth - (isWide ? 48 : 0)))
-        horizontalPadding = isWide ? 20 : 12
-        bottomPadding = max(20, safeAreaInsets.bottom + 12)
+    init(panel: BottomPanelLayout, episodeCount: Int) {
+        horizontalPadding = panel.isWide ? 20 : 12
+        bottomPadding = max(20, panel.safeAreaInsets.bottom + 12)
 
-        let contentWidth = max(0, width - horizontalPadding * 2)
+        let contentWidth = max(0, panel.width - horizontalPadding * 2)
         // Keep six columns on phones, reduce them in narrow windows, and add
         // columns on wider panels so square cells never grow beyond 72 points.
         let compactColumns = min(6, max(1, Int((contentWidth + 12) / 56)))
@@ -181,8 +165,8 @@ private struct EpisodeSheetLayout {
         let rows = CGFloat((episodeCount + columnCount - 1) / columnCount)
         let gridHeight = rows * cellSize + max(0, rows - 1) * 10
         let contentHeight = 30 + 92 + 32 + 33 + 1 + gridHeight + bottomPadding
-        let availableHeight = max(0, size.height - max(safeAreaInsets.top, 12) - 12)
-        height = min(availableHeight, 600, max(size.height * 0.602, contentHeight))
+        let availableHeight = max(0, panel.size.height - max(panel.safeAreaInsets.top, 12) - 12)
+        height = min(availableHeight, 600, max(panel.size.height * 0.602, contentHeight))
     }
 }
 

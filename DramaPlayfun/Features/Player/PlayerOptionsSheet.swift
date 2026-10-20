@@ -31,55 +31,51 @@ struct PlayerOptionsSheet: View {
     private var rowCount: Int { max(4, (options.count + columns - 1) / columns) }
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
-                Color.black.opacity(0.25).contentShape(Rectangle())
-                    .onTapGesture(perform: onClose)
-                    .accessibilityLabel(L10n.tr("关闭%@弹窗", kind.title))
-                VStack(spacing: 22) {
-                    Text(kind.title).font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white).frame(height: 22)
-                    ScrollView {
-                        if isLoading {
-                            ProgressView(L10n.tr("正在加载字幕…")).tint(.white).padding(.top, 40)
-                        } else if options.isEmpty {
-                            Text(emptyMessage ?? L10n.tr("本集暂无可切换字幕")).font(.system(size: 14))
-                                .foregroundStyle(Color(white: 0.7)).padding(.top, 40)
-                        } else {
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 11), count: columns), spacing: 10) {
-                                ForEach(options) { option in
-                                    PlayerOptionButton(option: option, kind: kind,
-                                        isSelected: selectedID == option.id, accent: accent) {
-                                            onSelect(option)
-                                        }
-                                }
+        AdaptiveBottomPanel(background: .black.opacity(0.25),
+                            dismissLabel: L10n.tr("关闭%@弹窗", kind.title),
+                            onDismiss: onClose) { layout in
+            VStack(spacing: 22) {
+                Text(kind.title).font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white).frame(height: 22)
+                ScrollView {
+                    if isLoading {
+                        ProgressView(L10n.tr("正在加载字幕…")).tint(.white).padding(.top, 40)
+                    } else if options.isEmpty {
+                        Text(emptyMessage ?? L10n.tr("本集暂无可切换字幕")).font(.system(size: 14))
+                            .foregroundStyle(Color(white: 0.7)).padding(.top, 40)
+                    } else {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 11), count: columns), spacing: 10) {
+                            ForEach(options) { option in
+                                PlayerOptionButton(option: option, kind: kind,
+                                    isSelected: selectedID == option.id, accent: accent) {
+                                        onSelect(option)
+                                    }
                             }
                         }
-                    }.scrollIndicators(.hidden)
-                }
-                .padding(.horizontal, 12).padding(.top, 32).padding(.bottom, 64)
-                .frame(height: min(CGFloat(rowCount * 56 + 130), geometry.size.height * 0.85))
-                .frame(maxWidth: .infinity)
-                .background(Color(white: 0.16))
-                .clipShape(PlayerBottomPanelShape())
-                .overlay(alignment: .top) {
-                    Button(action: onClose) {
-                        Capsule().fill(Color(white: 0.56)).frame(width: 43, height: 6)
-                            .frame(width: 76, height: 24, alignment: .top).padding(.top, 2)
-                            .contentShape(Rectangle())
                     }
-                    .gesture(DragGesture(minimumDistance: 10).onEnded { value in
-                        if value.translation.height > 30 { onClose() }
-                    })
-                    .accessibilityLabel(L10n.tr("收起%@", kind.title))
-                    .accessibilityIdentifier("player-options-close")
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("player-\(kind.rawValue)-panel")
+                }.scrollIndicators(.hidden)
             }
+            .padding(.horizontal, 12).padding(.top, 32).padding(.bottom, 64)
+            .frame(height: min(CGFloat(rowCount * 56 + 130), layout.size.height * 0.85))
+            .frame(maxWidth: .infinity)
+            .background(Color(white: 0.16))
+            .clipShape(PlayerBottomPanelShape())
+            .overlay(alignment: .top) {
+                Button(action: onClose) {
+                    Capsule().fill(Color(white: 0.56)).frame(width: 43, height: 6)
+                        .frame(width: 76, height: 24, alignment: .top).padding(.top, 2)
+                        .contentShape(Rectangle())
+                }
+                .gesture(DragGesture(minimumDistance: 10).onEnded { value in
+                    if value.translation.height > 30 { onClose() }
+                })
+                .accessibilityLabel(L10n.tr("收起%@", kind.title))
+                .accessibilityIdentifier("player-options-close")
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("player-\(kind.rawValue)-panel")
         }
         .buttonStyle(.plain)
-        .ignoresSafeArea()
     }
 }
 

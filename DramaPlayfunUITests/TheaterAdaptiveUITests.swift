@@ -6,6 +6,35 @@ final class TheaterAdaptiveUITests: XCTestCase {
     }
 
     @MainActor
+    func testHomeStartupEntersTheaterWithPlayableFirstEpisode() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TheaterUITestFixture", "-PlaybackProgressUITestFixture",
+            "-profile.language.v1", "zh-Hant"
+        ]
+        app.launch()
+        XCTAssertTrue(app.buttons["home-search"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.otherElements["home-banner"].exists)
+        XCTAssertFalse(app.buttons["theater-favorite-101"].isHittable,
+                       "Startup should remain on the home tab while theater playback is prepared")
+
+        let theaterButtons = app.buttons.matching(NSPredicate(format: "label == %@", "劇場"))
+        guard let theater = theaterButtons.allElementsBoundByIndex.first(where: \.isHittable) else {
+            XCTFail("The theater tab must be available from home")
+            return
+        }
+        theater.tap()
+        let progress = app.sliders["theater-progress-101"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 2))
+        XCTAssertTrue(progress.isEnabled, "The prepared first episode should be playable upon entry")
+        XCTAssertFalse(app.activityIndicators.firstMatch.exists)
+        expectation(for: NSPredicate { _, _ in
+            ((progress.value as? NSString)?.doubleValue ?? 0) > 0
+        }, evaluatedWith: progress)
+        waitForExpectations(timeout: 3)
+    }
+
+    @MainActor
     func testTheaterControlsRespondAtCurrentDeviceSize() {
         let app = launchTheater()
         exerciseControls(in: app, dramaID: 101, title: "剧场测试甲")

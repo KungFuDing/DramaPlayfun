@@ -10,6 +10,7 @@ struct TheaterView: View {
     @State private var replayAfterPlaybackID: Drama.ID?
     @State private var continuation: PlaybackPreparation?
     @State private var checkInError: String?
+    @State private var hasActivatedPlayback = false
     private let showsCheckInBanner = false
 
     var body: some View {
@@ -82,7 +83,11 @@ struct TheaterView: View {
         .ignoresSafeArea(edges: .top)
         .background(.black)
         .toolbar(.hidden, for: .navigationBar)
-        .task { await app.theaterFeed.loadIfNeeded() }
+        .task(id: isTheaterVisible) {
+            guard isTheaterVisible else { return }
+            app.startupContent.handoff()
+            await app.theaterFeed.loadIfNeeded()
+        }
         .task(id: isTheaterVisible) {
             if isTheaterVisible { await app.welfare.reloadSignPopupStatus() }
         }
@@ -94,9 +99,16 @@ struct TheaterView: View {
                 app.theaterPlayback.reset()
                 replayAfterPlaybackID = nil
             }
+            guard isTheaterVisible else {
+                // A tab mounted in the background must not suspend startup prewarming.
+                if hasActivatedPlayback { app.theaterPlayback.suspend() }
+                return
+            }
+            guard let playbackID = selectedID ?? app.theaterFeed.items.first?.id else { return }
+            hasActivatedPlayback = true
+            app.startupContent.handoff()
             app.theaterPlayback.update(items: app.theaterFeed.items,
-                                       selectedID: selectedID, visible: isTheaterVisible)
-            guard isTheaterVisible else { return }
+                                       selectedID: playbackID, visible: true)
             while !Task.isCancelled {
                 prepareContinuationIfNeeded()
                 do { try await Task.sleep(for: .milliseconds(500)) }
@@ -121,13 +133,14 @@ struct TheaterView: View {
             if !ids.contains(where: { $0 == selectedID }) { selectedID = ids.first }
         }
         .onChange(of: selectedID) { _, id in
-            guard let index = app.theaterFeed.items.firstIndex(where: { $0.id == id }),
+            guard isTheaterVisible,
+                  let index = app.theaterFeed.items.firstIndex(where: { $0.id == id }),
                   index >= app.theaterFeed.items.count - 3 else { return }
             Task { await app.theaterFeed.loadMore() }
         }
         .onDisappear {
             cancelContinuation()
-            app.theaterPlayback.suspend()
+            if hasActivatedPlayback { app.theaterPlayback.suspend() }
         }
         .fullScreenCover(item: $shareItem) { item in
             DramaShareView(item: item)

@@ -25,6 +25,7 @@ final class TheaterPlayerPool {
     @ObservationIgnored private var prepareVersions: [TheaterFeedItem.ID: UUID] = [:]
     @ObservationIgnored private var loadingIDs: Set<TheaterFeedItem.ID> = []
     @ObservationIgnored private var prerollingIDs: Set<TheaterFeedItem.ID> = []
+    @ObservationIgnored private var interruptedPreloadIDs: Set<TheaterFeedItem.ID> = []
     @ObservationIgnored private var startedPlaybackIDs: Set<TheaterFeedItem.ID> = []
     @ObservationIgnored private var itemObservers: [TheaterFeedItem.ID: [NSObjectProtocol]] = [:]
     @ObservationIgnored private var progressTask: Task<Void, Never>?
@@ -134,7 +135,7 @@ final class TheaterPlayerPool {
         }
     }
 
-    /// Explicit preloading is silent and prepares only the continuation episode.
+    /// Silently prepares one selected episode for a later playback handoff.
     func preload(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID) {
         guard !visible, let item = items.first(where: { $0.id == selectedID }),
               item.videoURL != nil else { return }
@@ -143,6 +144,41 @@ final class TheaterPlayerPool {
         preloadingID = selectedID
         cache.setPlaybackActive(true, owner: cacheOwner)
         if players[selectedID] == nil { prepare(item) }
+        else if interruptedPreloadIDs.remove(selectedID) != nil,
+                states[selectedID] == .ready, let player = players[selectedID],
+                prepareTasks[selectedID] == nil {
+            let version = UUID()
+            prepareVersions[selectedID] = version
+            prepareTasks[selectedID] = Task {
+                defer {
+                    if prepareVersions[selectedID] == version {
+                        prerollingIDs.remove(selectedID)
+                        prepareTasks[selectedID] = nil
+                        prepareVersions[selectedID] = nil
+                    }
+                }
+                await warmDecoder(player, id: selectedID, version: version)
+            }
+        }
+    }
+
+    /// Stops speculative work while retaining an already prepared item for entry.
+    func stopPreloading() {
+        guard !visible, let id = preloadingID else { return }
+        preloadingID = nil
+        if states[id] == .ready, let player = players[id] {
+            if prepareTasks[id] != nil { interruptedPreloadIDs.insert(id) }
+            prepareVersions[id] = nil
+            prepareTasks.removeValue(forKey: id)?.cancel()
+            loadingIDs.remove(id)
+            prerollingIDs.remove(id)
+            player.cancelPendingPrerolls()
+            player.pause()
+            player.isMuted = true
+        } else {
+            release(id)
+        }
+        cache.setPlaybackActive(preparationActive, owner: cacheOwner)
     }
 
     func update(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID?, visible: Bool,
@@ -700,6 +736,7 @@ final class TheaterPlayerPool {
         prepareTasks.removeValue(forKey: id)?.cancel()
         loadingIDs.remove(id)
         prerollingIDs.remove(id)
+        interruptedPreloadIDs.remove(id)
         startedPlaybackIDs.remove(id)
         prepareVersions[id] = nil
         timeObservers[id] = nil

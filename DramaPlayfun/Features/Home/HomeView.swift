@@ -19,7 +19,6 @@ struct HomeView: View {
         .screenBackground()
         .scrollDismissesKeyboard(.interactively)
         .toolbar(.hidden, for: .navigationBar)
-        .task { await app.homeFeed.loadIfNeeded() }
         .task { await app.watchHistory.reload() }
         .onChange(of: router.playback?.id) { old, new in
             if old != nil && new == nil { Task { await app.watchHistory.reload() } }

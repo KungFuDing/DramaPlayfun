@@ -4,6 +4,117 @@ import Moya
 
 @MainActor
 final class TheaterFeedTests: XCTestCase {
+    func testConcurrentPrefetchAndEntryAwaitTheSameFirstPage() async throws {
+        var requestCount = 0
+        let feed = try delayedFeed {
+            requestCount += 1
+            return Self.firstPageJSON(id: 107)
+        }
+        var prefetchFinished = false
+        var entryFinished = false
+        var reloadFinished = false
+        let prefetch = _Concurrency.Task {
+            await feed.loadIfNeeded()
+            prefetchFinished = true
+        }
+        try await waitForRequest { requestCount == 1 }
+        let entry = _Concurrency.Task {
+            await feed.loadIfNeeded()
+            entryFinished = true
+        }
+        let reload = _Concurrency.Task {
+            await feed.reload()
+            reloadFinished = true
+        }
+        try await _Concurrency.Task.sleep(for: .milliseconds(20))
+
+        XCTAssertEqual(requestCount, 1)
+        XCTAssertTrue(feed.isLoading)
+        XCTAssertFalse(prefetchFinished)
+        XCTAssertFalse(entryFinished, "Entering the theater must wait for its in-flight prefetch")
+        XCTAssertFalse(reloadFinished, "Reload must join an existing first-page request")
+
+        await prefetch.value
+        await entry.value
+        await reload.value
+        XCTAssertEqual(requestCount, 1)
+        XCTAssertEqual(feed.items.map(\.id), ["107"])
+        XCTAssertTrue(feed.hasLoaded)
+        XCTAssertFalse(feed.isLoading)
+    }
+
+    func testCancelingOneWaiterDoesNotCancelTheSharedFirstPage() async throws {
+        var requestCount = 0
+        let feed = try delayedFeed {
+            requestCount += 1
+            return Self.firstPageJSON(id: 107)
+        }
+        let prefetch = _Concurrency.Task { await feed.loadIfNeeded() }
+        try await waitForRequest { requestCount == 1 }
+        let entry = _Concurrency.Task { await feed.loadIfNeeded() }
+        prefetch.cancel()
+
+        await prefetch.value
+        await entry.value
+
+        XCTAssertEqual(requestCount, 1)
+        XCTAssertEqual(feed.items.map(\.id), ["107"])
+        XCTAssertTrue(feed.hasLoaded)
+        XCTAssertFalse(feed.isLoading)
+        XCTAssertNil(feed.errorMessage)
+    }
+
+    func testExplicitCancellationDiscardsOldResultAndAllowsRetry() async throws {
+        var requestCount = 0
+        let feed = try delayedFeed {
+            requestCount += 1
+            return Self.firstPageJSON(id: requestCount == 1 ? 107 : 281)
+        }
+        let original = _Concurrency.Task { await feed.loadIfNeeded() }
+        try await waitForRequest { requestCount == 1 }
+
+        feed.cancelLoading()
+        XCTAssertFalse(feed.isLoading)
+        XCTAssertFalse(feed.hasLoaded)
+        XCTAssertTrue(feed.items.isEmpty)
+        XCTAssertNil(feed.errorMessage)
+
+        let retry = _Concurrency.Task { await feed.loadIfNeeded() }
+        try await waitForRequest { requestCount == 2 }
+        await original.value
+        XCTAssertTrue(feed.isLoading, "Retired request cleanup must not clear the retry's loading state")
+        XCTAssertTrue(feed.items.isEmpty)
+        await retry.value
+
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertEqual(feed.items.map(\.id), ["281"])
+        XCTAssertTrue(feed.hasLoaded)
+        XCTAssertFalse(feed.isLoading)
+        XCTAssertNil(feed.errorMessage)
+    }
+
+    func testFailedSharedFirstPageCanBeRetried() async throws {
+        var requestCount = 0
+        let feed = try delayedFeed {
+            requestCount += 1
+            return requestCount == 1
+                ? #"{"code":500,"data":null,"message":"temporarily unavailable"}"#
+                : Self.firstPageJSON(id: 281)
+        }
+
+        await feed.loadIfNeeded()
+        XCTAssertFalse(feed.hasLoaded)
+        XCTAssertFalse(feed.isLoading)
+        XCTAssertNotNil(feed.errorMessage)
+
+        await feed.loadIfNeeded()
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertEqual(feed.items.map(\.id), ["281"])
+        XCTAssertTrue(feed.hasLoaded)
+        XCTAssertFalse(feed.isLoading)
+        XCTAssertNil(feed.errorMessage)
+    }
+
     func testPlayerPoolKeepsOnlyCurrentAndImmediateNeighbors() {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         let pool = TheaterPlayerPool(library: LibraryStore(defaults: defaults), cache: .shared)
@@ -88,5 +199,30 @@ final class TheaterFeedTests: XCTestCase {
             _ = try await repository.playbackURL(dramaID: "107", episodeID: "2532")
             XCTFail("Locked episode must not return a playback URL")
         } catch CatalogError.episodeLocked { }
+    }
+
+    private func delayedFeed(response: @escaping () -> String) throws -> TheaterFeedStore {
+        let provider = MoyaProvider<APITarget>(endpointClosure: { target in
+            XCTAssertEqual(target.path, "/mobile/v2/client/list")
+            let json = response()
+            return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
+                            sampleResponseClosure: { .networkResponse(200, Data(json.utf8)) },
+                            method: target.method, task: target.task, httpHeaderFields: target.headers)
+        }, stubClosure: { _ in .delayed(seconds: 0.2) })
+        let network = APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!),
+                                provider: provider)
+        return TheaterFeedStore(network: network)
+    }
+
+    private static func firstPageJSON(id: Int) -> String {
+        #"{"code":200,"data":{"page":1,"hasMore":false,"list":[{"dramaId":\#(id),"dramaTitle":"短剧"}]}}"#
+    }
+
+    private func waitForRequest(_ started: () -> Bool) async throws {
+        for _ in 0..<100 {
+            if started() { return }
+            try await _Concurrency.Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("The delayed theater request did not start")
     }
 }

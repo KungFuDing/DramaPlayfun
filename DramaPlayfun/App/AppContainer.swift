@@ -29,6 +29,7 @@ final class AppContainer {
     let library: LibraryStore
     let hlsCache: HLSOfflineCache
     private(set) var theaterPlayback: TheaterPlayerPool
+    private(set) var startupContent: StartupContentLoader
     let membership: MembershipStore
     private(set) var profile: ProfileStore
     private(set) var wallet: WalletStore
@@ -98,7 +99,8 @@ final class AppContainer {
         homeCategories = DramaTabFeedStore(network: self.network, source: .homeTags)
         rankings = DramaTabFeedStore(network: self.network, source: .rankings)
         watchHistory = WatchHistoryStore(network: self.network)
-        homeFeed = HomeFeedStore(network: self.network)
+        let homeFeed = HomeFeedStore(network: self.network)
+        self.homeFeed = homeFeed
         let theaterFeed = TheaterFeedStore(network: self.network, detailCache: playbackDetails)
         self.theaterFeed = theaterFeed
         library = LibraryStore(defaults: defaults)
@@ -109,9 +111,11 @@ final class AppContainer {
         }
         #endif
         hlsCache = .shared
-        theaterPlayback = TheaterPlayerPool(library: library, cache: hlsCache,
+        let theaterPlayback = TheaterPlayerPool(library: library, cache: hlsCache,
             progressReporter: TheaterProgressReporter(network: self.network),
             refreshURLs: { [theaterFeed] item in try await theaterFeed.refreshPlaybackURLs(for: item) })
+        self.theaterPlayback = theaterPlayback
+        startupContent = StartupContentLoader(home: homeFeed, theater: theaterFeed, playback: theaterPlayback)
         let purchaseBackend = StorePurchaseBackend(network: self.network)
         var subscriptionService: any SubscriptionService = subscriptions ?? StoreKitSubscriptionService(backend: purchaseBackend)
         #if DEBUG
@@ -135,6 +139,7 @@ final class AppContainer {
     func reloadLocalizedContent(for language: AppLanguage) {
         guard contentLanguage != language else { return }
         contentLanguage = language
+        startupContent.cancel()
         theaterPlayback.reset()
         catalog = CatalogStore(repository: repository)
         homeCategories = DramaTabFeedStore(network: network, source: .homeTags)
@@ -148,6 +153,7 @@ final class AppContainer {
         theaterPlayback = TheaterPlayerPool(library: library, cache: hlsCache,
             progressReporter: TheaterProgressReporter(network: network),
             refreshURLs: { [theaterFeed] item in try await theaterFeed.refreshPlaybackURLs(for: item) })
+        startupContent = StartupContentLoader(home: homeFeed, theater: theaterFeed, playback: theaterPlayback)
         membership.invalidateLocalizedContent()
         appUpdate.invalidateLocalizedContent()
         contentRevision = UUID()

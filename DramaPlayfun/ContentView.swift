@@ -90,11 +90,27 @@ struct ContentView: View {
             } }
         }
         .task(id: app.contentRevision) { await app.catalog.loadIfNeeded() }
+        .task(id: app.contentRevision) { await app.startupContent.load() }
+        .onChange(of: canPreloadTheater, initial: true) { _, enabled in
+            if router.selectedTab == .theater && scenePhase == .active {
+                // Transfer ownership before disabling home preloading so a quick
+                // tab switch keeps even an in-flight first-episode asset.
+                app.startupContent.handoff()
+            }
+            app.startupContent.setPreloadingEnabled(enabled)
+        }
         .task(id: app.contentRevision) { await app.profile.reloadProfile() }
         .task { await app.membership.observeTransactions() }
         .task(id: scenePhase) {
             if scenePhase == .active { await app.membership.refresh() }
         }
+    }
+
+    private var canPreloadTheater: Bool {
+        scenePhase == .active && router.selectedTab == .home
+            && router.paths[.home, default: []].isEmpty
+            && !router.membershipPresented && app.appUpdate.notice == nil
+            && !app.homeFeed.isLoading && !app.homeFeed.isLoadingMore
     }
 
     @ViewBuilder private func tabContent(_ tab: AppTab) -> some View {

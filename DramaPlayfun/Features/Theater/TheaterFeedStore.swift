@@ -46,6 +46,7 @@ final class TheaterFeedStore {
     private let pageSize = 20
     private var page = 0
     private var generation = 0
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     init(network: APIClient, detailCache: PlaybackDetailCache? = nil) {
         self.network = network
@@ -67,19 +68,49 @@ final class TheaterFeedStore {
     }
 
     func loadIfNeeded() async {
+        if let loadTask {
+            await loadTask.value
+            return
+        }
         guard !hasLoaded else { return }
         await reload()
     }
 
     func reload() async {
-        guard !isLoading else { return }
+        if let loadTask {
+            await loadTask.value
+            return
+        }
+        guard !Task.isCancelled else { return }
         generation += 1
         let requestGeneration = generation
         isLoading = true
         isLoadingMore = false
         loadError = nil
         loadMoreError = nil
-        defer { isLoading = false }
+        // The store owns this request so leaving one screen cannot cancel another
+        // caller's load. Every caller waits until the same result is published.
+        let task = Task { await loadFirstPage(generation: requestGeneration) }
+        loadTask = task
+        await task.value
+    }
+
+    /// Retires pending reads when this store is replaced, such as a language change.
+    func cancelLoading() {
+        generation += 1
+        loadTask?.cancel()
+        loadTask = nil
+        isLoading = false
+        isLoadingMore = false
+    }
+
+    private func loadFirstPage(generation requestGeneration: Int) async {
+        defer {
+            if requestGeneration == generation {
+                isLoading = false
+                loadTask = nil
+            }
+        }
         do {
             let result = try await network.request(AppAPI.v2ClientList,
                 body: .init(page: 1, pageSize: pageSize), unwrapEnvelope: true)
@@ -91,7 +122,7 @@ final class TheaterFeedStore {
             hasLoaded = true
         } catch is CancellationError {
         } catch {
-            loadError = error
+            if requestGeneration == generation { loadError = error }
         }
     }
 

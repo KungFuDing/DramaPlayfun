@@ -86,7 +86,12 @@ final class HomeSearchAdaptiveUITests: XCTestCase {
         let plot = visibleButton("剧情", in: app)
         XCTAssertTrue(plot.isSelected, "滑动分类页面后，分类按钮应同步选中")
         capture(app, "\(screenshotPrefix)-首页分类联动")
-        visibleButton("精選", in: app).tap()
+        // Check the actual tap, as with the other controls in the floating home header.
+        let featured = header.buttons.matching(NSPredicate(format: "label CONTAINS %@", "精選")).firstMatch
+        XCTAssertTrue(featured.waitForExistence(timeout: 5))
+        XCTAssertTrue(featured.isEnabled)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(featured.frame))
+        featured.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         waitForValue("精選", on: pages)
     }
 

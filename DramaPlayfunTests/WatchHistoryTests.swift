@@ -4,12 +4,14 @@ import Moya
 
 @MainActor
 final class WatchHistoryTests: XCTestCase {
-    private func client(empty: Bool = false, delayed: Bool = false) throws -> APIClient {
+    private func client(empty: Bool = false, delayed: Bool = false, historyJSON: String? = nil) throws -> APIClient {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
             let json: String
             if target.path != "/mobile/v1/client/me/history/list" || body?["pageSize"] != 20 {
                 json = #"{"code":500,"data":null}"#
+            } else if let historyJSON {
+                json = historyJSON
             } else if empty {
                 json = #"{"code":200,"data":{"list":[],"hasMore":false}}"#
             } else if body?["page"] == 1 {
@@ -43,18 +45,42 @@ final class WatchHistoryTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let library = LibraryStore(defaults: defaults)
         XCTAssertNil(first.fraction(using: library), "Unknown duration must not produce a fabricated percentage")
-        first.prepareResume(in: library)
-        XCTAssertEqual(library.progress["11"]?.episodeID, "111")
-        XCTAssertEqual(library.progress["11"]?.episodeNumber, 3)
-        XCTAssertEqual(library.progress["11"]?.seconds, 65)
+        let router = AppRouter()
+        router.openPlayback(first.drama, position: first.playbackPosition)
+        XCTAssertEqual(router.playback?.startPosition?.episodeNumber, 3)
+        XCTAssertEqual(router.playback?.startPosition?.seconds, 65)
+        XCTAssertNil(library.progress["11"], "Opening server history must not replace saved local progress")
         library.save(WatchProgress(dramaID: "11", episodeID: "111", episodeNumber: 3, seconds: 70,
             duration: 100, updatedAt: Date()))
         XCTAssertEqual(first.fraction(using: library), 0.65)
-        first.prepareResume(in: library)
+        router.openPlayback(first.drama, position: first.playbackPosition)
+        XCTAssertEqual(router.playback?.startPosition?.seconds, 65,
+            "The item position must win even when the local record is farther ahead")
         XCTAssertEqual(library.progress["11"]?.seconds, 70)
         await history.loadMore()
         XCTAssertEqual(history.items.map(\.id), ["11", "12", "14"])
         XCTAssertFalse(history.hasMore)
+    }
+
+    func testHistoryRoutesByEpisodeNumberWithoutEpisodeIDAndPreservesItemPosition() async throws {
+        let history = WatchHistoryStore(network: try client(historyJSON:
+            #"{"code":200,"data":{"list":[{"dramaId":11,"dramaTitle":"无集ID历史","episodeNo":5,"progressSeconds":23}],"hasMore":false}}"#))
+        await history.reload()
+        let item = try XCTUnwrap(history.items.first)
+        XCTAssertNil(item.episodeID)
+        let library = isolatedLibrary()
+        library.save(WatchProgress(dramaID: item.id, episodeID: "111", episodeNumber: 1,
+            seconds: 90, duration: 100, updatedAt: Date()))
+        let originalProgress = library.progress
+        let router = AppRouter()
+
+        router.openPlayback(item.drama, position: item.playbackPosition)
+
+        let request = try XCTUnwrap(router.playback)
+        XCTAssertEqual(request.drama.id, "11")
+        XCTAssertEqual(request.startPosition?.episodeNumber, 5)
+        XCTAssertEqual(request.startPosition?.seconds, 23)
+        XCTAssertEqual(library.progress, originalProgress)
     }
 
     func testEmptyHistoryHasNoItems() async throws {

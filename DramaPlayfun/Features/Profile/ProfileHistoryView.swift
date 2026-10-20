@@ -27,8 +27,7 @@ struct ProfileHistoryView: View {
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                             ForEach(app.watchHistory.items) { item in
                                 Button {
-                                    item.prepareResume(in: app.library)
-                                    router.openPlayback(item.drama)
+                                    router.openPlayback(item.drama, position: item.playbackPosition)
                                 } label: {
                                     ProfileHistoryCard(item: item)
                                 }.disabled(!item.isOnline)

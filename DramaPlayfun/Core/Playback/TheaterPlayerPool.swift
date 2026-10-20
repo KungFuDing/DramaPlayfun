@@ -59,6 +59,10 @@ final class TheaterPlayerPool {
         }
     }
     private let resumesProgress: Bool
+    private var initialPosition: PlaybackPosition?
+    private let preservesSessionProgress: Bool
+    // Explicit list entry ignores old local history, but keeps new progress across player rebuilds.
+    private var sessionPositions: [String: Double] = [:]
     private let library: LibraryStore
     private let cache: HLSOfflineCache
     private let progressReporter: TheaterProgressReporter?
@@ -66,9 +70,12 @@ final class TheaterPlayerPool {
     private let refreshURLs: ((TheaterFeedItem) async throws -> [TheaterFeedItem])?
 
     init(library: LibraryStore, cache: HLSOfflineCache, progressReporter: TheaterProgressReporter? = nil,
-         resumesProgress: Bool = false, assetLoader: ((TheaterFeedItem) async throws -> AVURLAsset)? = nil,
+         resumesProgress: Bool = false, initialPosition: PlaybackPosition? = nil,
+         assetLoader: ((TheaterFeedItem) async throws -> AVURLAsset)? = nil,
          refreshURLs: ((TheaterFeedItem) async throws -> [TheaterFeedItem])? = nil) {
         self.resumesProgress = resumesProgress
+        self.initialPosition = initialPosition
+        self.preservesSessionProgress = initialPosition != nil
         self.library = library
         self.cache = cache
         self.progressReporter = progressReporter
@@ -376,8 +383,19 @@ final class TheaterPlayerPool {
                 }
                 try Task.checkCancellation()
                 guard prepareVersions[id] == version, players[id] === player else { return }
-                if let resumeSeconds, resumeSeconds.isFinite, resumeSeconds >= 0 {
+                if let position = initialPosition, item.firstEpisode?.number == position.episodeNumber {
+                    // The tapped list item is authoritative, even near the end or after a startup retry.
+                    try await restorePosition(position.seconds, player: player, id: id, version: version)
+                    try Task.checkCancellation()
+                    guard prepareVersions[id] == version, players[id] === player else { return }
+                    initialPosition = nil
+                    sessionPositions[id] = position.seconds
+                } else if let resumeSeconds, resumeSeconds.isFinite, resumeSeconds >= 0 {
                     try await restorePosition(resumeSeconds, player: player, id: id, version: version)
+                    try Task.checkCancellation()
+                    guard prepareVersions[id] == version, players[id] === player else { return }
+                } else if let seconds = sessionPositions[id] {
+                    try await restorePosition(seconds, player: player, id: id, version: version)
                     try Task.checkCancellation()
                     guard prepareVersions[id] == version, players[id] === player else { return }
                 } else if resumesProgress, let progress = library.progress[item.drama.id],
@@ -436,7 +454,8 @@ final class TheaterPlayerPool {
             player.currentItem?.cancelPendingSeeks()
         }
         defer { timeout.cancel() }
-        let finished = await player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+        let finished = await player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
+                                         toleranceBefore: .zero, toleranceAfter: .zero)
         try Task.checkCancellation()
         guard finished else { throw TheaterPlayerError.timeout }
     }
@@ -444,6 +463,7 @@ final class TheaterPlayerPool {
     private func handleFailure(_ item: TheaterFeedItem, error: Error, forceRefresh: Bool = false) {
         let id = item.id
         guard !renewingIDs.contains(id), players[id] != nil else { return }
+        preserveSessionPosition(id)
         let player = players[id]
         let expired = (error as? HLSKeyError) == .invalidMediaToken ||
             player?.currentItem.map { HLSLocalGateway.authorizationExpired(for: $0.asset) } == true ||
@@ -458,7 +478,7 @@ final class TheaterPlayerPool {
         renewalAttempts.insert(id)
         renewingIDs.insert(id)
         renewalHealthySince[id] = nil
-        let seconds = player?.currentTime().seconds
+        let seconds = sessionPositions[id] ?? player?.currentTime().seconds
         player?.pause()
         if scrubbingID == id { resetScrubbing() }
         timeObservers[id] = nil
@@ -570,6 +590,7 @@ final class TheaterPlayerPool {
             return
         }
         networkRecoveryAttempts.insert(item.id)
+        preserveSessionPosition(item.id)
         let seconds = player.currentTime().seconds
         player.pause()
         player.cancelPendingPrerolls()
@@ -660,7 +681,16 @@ final class TheaterPlayerPool {
         saveProgress()
     }
 
+    private func preserveSessionPosition(_ id: TheaterFeedItem.ID) {
+        guard preservesSessionProgress, states[id] == .ready,
+              let player = players[id], player.currentItem != nil else { return }
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite, seconds >= 0 else { return }
+        sessionPositions[id] = seconds
+    }
+
     private func release(_ id: TheaterFeedItem.ID) {
+        preserveSessionPosition(id)
         renewingIDs.remove(id)
         renewalAttempts.remove(id)
         preparedURLs[id] = nil

@@ -7,12 +7,18 @@ enum ProfileCollection: String, CaseIterable, Identifiable {
     var title: String { L10n.tr(rawValue) }
 }
 
+struct ProfileCollectionItem: Identifiable {
+    let drama: Drama
+    let playbackPosition: PlaybackPosition
+    var id: String { drama.id }
+}
+
 @MainActor @Observable
 final class ProfileStore {
     private(set) var profile = APIModels.V1GetMyProfileRes()
     private(set) var hasLoadedProfile = false
     private(set) var config = AppConfiguration()
-    private(set) var collections: [ProfileCollection: [Drama]] = [:]
+    private(set) var collections: [ProfileCollection: [ProfileCollectionItem]] = [:]
     private(set) var loading: Set<ProfileCollection> = []
     private var failures: [ProfileCollection: Error] = [:]
     var errors: [ProfileCollection: String] {
@@ -72,23 +78,35 @@ final class ProfileStore {
         failures[collection] = nil
         defer { loading.remove(collection) }
         do {
-            let dramas: [Drama]
+            let items: [ProfileCollectionItem]
             let more: Bool
             switch collection {
             case .favorites:
                 let result = try await network.request(AppAPI.v1ClientMeFavorites, body: .init(page: page, pageSize: 20), unwrapEnvelope: true)
-                dramas = (result.list ?? []).compactMap { Self.drama(id: $0.dramaId ?? $0.id ?? $0.rootDramaId,
-                    rootID: $0.rootDramaId, title: $0.dramaTitle, cover: $0.coverUrl, summary: $0.episodeText) }
+                items = (result.list ?? []).compactMap { item in
+                    guard let drama = Self.drama(id: item.dramaId ?? item.id ?? item.rootDramaId,
+                        rootID: item.rootDramaId, title: item.dramaTitle, cover: item.coverUrl,
+                        summary: item.episodeText) else { return nil }
+                    return ProfileCollectionItem(drama: drama,
+                        playbackPosition: PlaybackPosition(episodeNumber: item.episodeNo,
+                            seconds: item.progressSeconds.map(Double.init)))
+                }
                 more = result.hasMore ?? false
             case .likes:
                 let result = try await network.request(AppAPI.v1ClientMeLikes, body: .init(page: page, pageSize: 20), unwrapEnvelope: true)
-                dramas = (result.list ?? []).compactMap { Self.drama(id: $0.dramaId ?? $0.id ?? $0.rootDramaId,
-                    rootID: $0.rootDramaId, title: $0.dramaTitle, cover: $0.coverUrl, summary: $0.dramaDesc ?? $0.episodeText) }
+                items = (result.list ?? []).compactMap { item in
+                    guard let drama = Self.drama(id: item.dramaId ?? item.id ?? item.rootDramaId,
+                        rootID: item.rootDramaId, title: item.dramaTitle, cover: item.coverUrl,
+                        summary: item.dramaDesc ?? item.episodeText) else { return nil }
+                    return ProfileCollectionItem(drama: drama,
+                        playbackPosition: PlaybackPosition(episodeNumber: item.episodeNo,
+                            seconds: item.progressSeconds.map(Double.init)))
+                }
                 more = result.hasMore ?? false
             }
             try Task.checkCancellation()
             var ids = Set<String>()
-            collections[collection] = ((page == 1 ? [] : collections[collection] ?? []) + dramas).filter { ids.insert($0.id).inserted }
+            collections[collection] = ((page == 1 ? [] : collections[collection] ?? []) + items).filter { ids.insert($0.id).inserted }
             pages[collection] = page
             hasMore[collection] = more
         } catch is CancellationError {

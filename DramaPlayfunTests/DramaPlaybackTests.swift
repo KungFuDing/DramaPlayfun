@@ -115,6 +115,209 @@ final class DramaPlaybackTests: XCTestCase {
         router.openPlayback(drama)
         XCTAssertEqual(store.initialID(request: router.playback!), "1003", "Ordinary entry must still resume history")
         XCTAssertFalse(router.playback!.startsFromBeginning)
+        router.openPlayback(drama, position: PlaybackPosition(episodeNumber: 2, seconds: 17))
+        let positionedRequest = try XCTUnwrap(router.playback)
+        XCTAssertTrue(positionedRequest.episode.id.isEmpty)
+        XCTAssertEqual(store.initialID(request: positionedRequest), "1002",
+                       "List progress identifies the episode by number and overrides saved local history")
+        router.openPlayback(drama, position: PlaybackPosition(seconds: 17))
+        XCTAssertEqual(store.initialID(request: router.playback!), "1001",
+                       "A list item without an episode number starts at episode 1 despite local history")
+    }
+
+    func testInitialPositionOverridesLocalProgressAndPreservesSessionPosition() async throws {
+        let (pool, item) = try makePositionedPool(PlaybackPosition(episodeNumber: 2, seconds: 17),
+                                                 savedSeconds: 40)
+        defer { pool.reset() }
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        XCTAssertEqual(player.currentTime().seconds, 17, accuracy: 0.1)
+        XCTAssertEqual(player.rate, 0)
+        let playerItem = try XCTUnwrap(player.currentItem)
+
+        let finished = await player.seek(to: CMTime(seconds: 24, preferredTimescale: 600),
+                                         toleranceBefore: .zero, toleranceAfter: .zero)
+        XCTAssertTrue(finished)
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(100))
+        XCTAssertTrue(player.currentItem === playerItem)
+        XCTAssertEqual(player.currentTime().seconds, 24, accuracy: 0.1,
+                       "A view update must not seek back to the list item's initial position")
+        XCTAssertEqual(player.rate, 0)
+
+        var replacement = item
+        replacement.videoURL = URL(string: "https://example.invalid/replacement.m3u8")
+        pool.update(items: [replacement], selectedID: replacement.id, visible: false, preparationActive: true)
+        let replacementPlayer = try await preparedPlayer(in: pool, for: replacement.id)
+        XCTAssertEqual(replacementPlayer.currentTime().seconds, 24, accuracy: 0.1,
+                       "Replacing the source must preserve this session's latest position")
+
+        pool.reset()
+        pool.update(items: [replacement], selectedID: replacement.id, visible: false, preparationActive: true)
+        let restoredPlayer = try await preparedPlayer(in: pool, for: replacement.id)
+        XCTAssertEqual(restoredPlayer.currentTime().seconds, 24, accuracy: 0.1,
+                       "Rebuilding the player must preserve session progress without reapplying the initial position")
+        XCTAssertEqual(restoredPlayer.rate, 0)
+    }
+
+    func testFailedRenewalAndManualRetryPreserveRequestedEpisodePosition() async throws {
+        var refreshes = 0
+        let (pool, item) = try makePositionedPool(PlaybackPosition(episodeNumber: 2, seconds: 17),
+            savedSeconds: 40, refreshURLs: { item in
+                refreshes += 1
+                if refreshes == 1 { throw URLError(.notConnectedToInternet) }
+                return [item]
+            })
+        defer { pool.reset() }
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        let finished = await player.seek(to: CMTime(seconds: 24, preferredTimescale: 600),
+                                         toleranceBefore: .zero, toleranceAfter: .zero)
+        XCTAssertTrue(finished)
+
+        pool.retry(item.id)
+        let failureDeadline = Date().addingTimeInterval(5)
+        while pool.states[item.id] == .preparing, Date() < failureDeadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(refreshes, 1)
+        guard case .unavailable = pool.states[item.id] else {
+            return XCTFail("The first URL refresh must fail before the manual retry")
+        }
+        XCTAssertNil(player.currentItem, "The failed renewal has already discarded the original player item")
+
+        pool.retry(item.id)
+        let restoredPlayer = try await preparedPlayer(in: pool, for: item.id)
+        XCTAssertEqual(refreshes, 2)
+        XCTAssertEqual(restoredPlayer.currentTime().seconds, 24, accuracy: 0.1,
+                       "A retry after failed renewal must retain the last position from this playback session")
+        XCTAssertEqual(restoredPlayer.rate, 0)
+    }
+
+    func testOrdinaryPlaybackFailureAndRetryPreserveLatestSessionPosition() async throws {
+        var refreshes = 0
+        let (pool, item) = try makePositionedPool(PlaybackPosition(episodeNumber: 2, seconds: 17),
+            savedSeconds: 40, refreshURLs: { item in refreshes += 1; return [item] })
+        defer { pool.reset() }
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        let playerItem = try XCTUnwrap(player.currentItem)
+        let finished = await player.seek(to: CMTime(seconds: 24, preferredTimescale: 600),
+                                         toleranceBefore: .zero, toleranceAfter: .zero)
+        XCTAssertTrue(finished)
+
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
+        let failureDeadline = Date().addingTimeInterval(5)
+        while pool.states[item.id] == .ready, Date() < failureDeadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        guard case .unavailable = pool.states[item.id] else {
+            return XCTFail("The ordinary playback failure must be surfaced before retrying")
+        }
+        XCTAssertEqual(refreshes, 0, "An ordinary playback failure must not renew authorization automatically")
+
+        pool.retry(item.id)
+        let restoredPlayer = try await preparedPlayer(in: pool, for: item.id)
+        XCTAssertEqual(refreshes, 1)
+        XCTAssertEqual(restoredPlayer.currentTime().seconds, 24, accuracy: 0.1,
+                       "Failure must retain the latest position before the player becomes unavailable")
+        XCTAssertEqual(restoredPlayer.rate, 0)
+    }
+
+    func testSessionPositionSurvivesResetAfterSelectingAnotherEpisode() async throws {
+        let (pool, target) = try makePositionedPool(PlaybackPosition(episodeNumber: 2, seconds: 17),
+                                                   savedSeconds: 40)
+        defer { pool.reset() }
+        let next = makePlaybackItem(number: 3)
+        let items = [target, next]
+        pool.update(items: items, selectedID: target.id, visible: false, preparationActive: true)
+        _ = try await preparedPlayer(in: pool, for: target.id)
+        pool.update(items: items, selectedID: next.id, visible: false, preparationActive: true)
+        let nextPlayer = try await preparedPlayer(in: pool, for: next.id)
+        let finished = await nextPlayer.seek(to: CMTime(seconds: 10, preferredTimescale: 600),
+                                             toleranceBefore: .zero, toleranceAfter: .zero)
+        XCTAssertTrue(finished)
+
+        pool.reset()
+        pool.update(items: items, selectedID: next.id, visible: false, preparationActive: true)
+        let restoredPlayer = try await preparedPlayer(in: pool, for: next.id)
+        XCTAssertEqual(restoredPlayer.currentTime().seconds, 10, accuracy: 0.1,
+                       "Session progress must survive rebuilding after switching away from the requested episode")
+        let restoredTarget = try await preparedPlayer(in: pool, for: target.id)
+        XCTAssertEqual(restoredTarget.currentTime().seconds, 17, accuracy: 0.1,
+                       "Each episode must retain its own session position")
+        XCTAssertEqual(restoredPlayer.rate, 0)
+        XCTAssertEqual(restoredTarget.rate, 0)
+    }
+
+    func testInitialPositionStillSeeksNearTheEndOfAnEpisode() async throws {
+        let (pool, item) = try makePositionedPool(PlaybackPosition(episodeNumber: 2, seconds: 59),
+                                                 savedSeconds: 59)
+        defer { pool.reset() }
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        XCTAssertEqual(player.currentItem?.duration.seconds ?? 0, 60, accuracy: 0.1)
+        XCTAssertEqual(player.currentTime().seconds, 59, accuracy: 0.1,
+                       "Explicit list progress must survive the completed-history cutoff at 98 percent")
+        XCTAssertEqual(player.rate, 0)
+    }
+
+    func testInitialPositionWithoutSecondsStartsAtZeroDespiteLocalProgress() async throws {
+        let (pool, item) = try makePositionedPool(PlaybackPosition(episodeNumber: 2), savedSeconds: 40)
+        defer { pool.reset() }
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        XCTAssertEqual(player.currentTime().seconds, 0, accuracy: 0.1,
+                       "A missing list progress value must override local history with zero seconds")
+        XCTAssertEqual(player.rate, 0)
+    }
+
+    func testPreparingAnotherEpisodeDoesNotConsumeOrApplyInitialPosition() async throws {
+        let (pool, target) = try makePositionedPool(PlaybackPosition(episodeNumber: 2, seconds: 17),
+                                                   savedSeconds: 40)
+        defer { pool.reset() }
+        let first = makePlaybackItem(number: 1)
+        pool.update(items: [first, target], selectedID: first.id, visible: false, preparationActive: true)
+        let firstPlayer = try await preparedPlayer(in: pool, for: first.id)
+        XCTAssertEqual(firstPlayer.currentTime().seconds, 0, accuracy: 0.1,
+                       "An initial position for episode 2 must not seek episode 1")
+        let targetPlayer = try await preparedPlayer(in: pool, for: target.id)
+        XCTAssertEqual(targetPlayer.currentTime().seconds, 17, accuracy: 0.1,
+                       "Preparing another episode must leave the initial position available for its target")
+        XCTAssertEqual(firstPlayer.rate, 0)
+        XCTAssertEqual(targetPlayer.rate, 0)
+    }
+
+    private func makePositionedPool(_ position: PlaybackPosition, savedSeconds: Double,
+                                   refreshURLs: ((TheaterFeedItem) async throws -> [TheaterFeedItem])? = nil) throws
+        -> (TheaterPlayerPool, TheaterFeedItem) {
+        let item = makePlaybackItem(number: position.episodeNumber)
+        let library = LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        library.save(WatchProgress(dramaID: item.drama.id, episodeID: item.firstEpisode!.id,
+            episodeNumber: position.episodeNumber, seconds: savedSeconds, duration: 60, updatedAt: Date()))
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4"))
+        let pool = TheaterPlayerPool(library: library, cache: .shared, resumesProgress: false,
+            initialPosition: position, assetLoader: { _ in AVURLAsset(url: url) }, refreshURLs: refreshURLs)
+        return (pool, item)
+    }
+
+    private func makePlaybackItem(number: Int) -> TheaterFeedItem {
+        let id = String(1000 + number)
+        return TheaterFeedItem(drama: makeDrama(),
+            firstEpisode: Episode(id: id, number: number, title: "", requiresMembership: false),
+            videoURL: URL(string: "https://example.invalid/\(number).m3u8"), firstEpisodeLikeCount: 0,
+            isFirstEpisodeLiked: false, isFavorited: false, playbackID: id)
+    }
+
+    private func preparedPlayer(in pool: TheaterPlayerPool, for id: String,
+                                file: StaticString = #filePath, line: UInt = #line) async throws -> AVPlayer {
+        let deadline = Date().addingTimeInterval(5)
+        while pool.states[id] != .ready, Date() < deadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(pool.states[id], .ready, file: file, line: line)
+        return try XCTUnwrap(pool.player(for: id), file: file, line: line)
     }
 
     func testEpisodePageRangesCoverFinalPartialPage() {

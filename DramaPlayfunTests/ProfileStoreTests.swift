@@ -124,6 +124,57 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(store.collections[.favorites]?.map(\.id), ["1"])
     }
 
+    func testCollectionsRouteUsingItemEpisodeAndProgressWithIndependentDefaults() async throws {
+        let response = #"{"code":200,"data":{"hasMore":false,"list":[{"dramaId":1,"rootDramaId":10,"dramaTitle":"集数和进度","episodeId":999,"episodeNo":3,"progressSeconds":65},{"dramaId":2,"dramaTitle":"只有集数","episodeId":998,"episodeNo":4},{"dramaId":3,"dramaTitle":"只有进度","episodeId":997,"progressSeconds":12},{"dramaId":4,"dramaTitle":"均未提供","episodeId":996},{"dramaId":5,"dramaTitle":"无效数值","episodeNo":0,"progressSeconds":-1},{"dramaId":6,"dramaTitle":"空字段","episodeNo":null,"progressSeconds":null}]}}"#
+        let expected: [(episodeNumber: Int, seconds: Double)] = [
+            (3, 65), (4, 0), (1, 12), (1, 0), (1, 0), (1, 0)
+        ]
+        for collection in ProfileCollection.allCases {
+            let expectedPath = collection == .favorites
+                ? AppAPI.v1ClientMeFavorites.path : AppAPI.v1ClientMeLikes.path
+            let network = try makeNetwork { target in
+                guard target.path == expectedPath else { return #"{"code":500,"data":null}"# }
+                return response
+            }
+            let store = ProfileStore(network: network)
+            await store.load(collection)
+            let items = try XCTUnwrap(store.collections[collection])
+            XCTAssertNil(store.errors[collection])
+            XCTAssertEqual(items.count, expected.count)
+            XCTAssertEqual(items.first?.drama.rootDramaID, 10)
+            let router = AppRouter()
+
+            for (item, position) in zip(items, expected) {
+                router.openPlayback(item.drama, position: item.playbackPosition)
+                let request = try XCTUnwrap(router.playback)
+                XCTAssertEqual(request.drama.id, item.id)
+                XCTAssertEqual(request.startPosition?.episodeNumber, position.episodeNumber,
+                    "\(collection) item \(item.id) must use episodeNo, defaulting to episode 1")
+                XCTAssertEqual(request.startPosition?.seconds, position.seconds,
+                    "\(collection) item \(item.id) must use progressSeconds, defaulting to zero")
+            }
+        }
+    }
+
+    func testCollectionRefreshReplacesPlaybackPositionAlongWithItem() async throws {
+        for collection in ProfileCollection.allCases {
+            let responses = ConfigurationResponses([
+                #"{"code":200,"data":{"hasMore":false,"list":[{"dramaId":1,"dramaTitle":"同一剧","episodeNo":2,"progressSeconds":14}]}}"#,
+                #"{"code":200,"data":{"hasMore":false,"list":[{"dramaId":1,"dramaTitle":"同一剧","episodeNo":5,"progressSeconds":48}]}}"#
+            ])
+            let store = ProfileStore(network: try makeNetwork { _ in responses.next() })
+            await store.load(collection)
+            XCTAssertEqual(store.collections[collection]?.first?.playbackPosition.episodeNumber, 2)
+            XCTAssertEqual(store.collections[collection]?.first?.playbackPosition.seconds, 14)
+
+            await store.load(collection, refresh: true)
+
+            XCTAssertEqual(store.collections[collection]?.map(\.id), ["1"])
+            XCTAssertEqual(store.collections[collection]?.first?.playbackPosition.episodeNumber, 5)
+            XCTAssertEqual(store.collections[collection]?.first?.playbackPosition.seconds, 48)
+        }
+    }
+
     func testFailedDeactivationPreservesAccount() async throws {
         let network = try makeNetwork { target in
             if target.path == AppAPI.v1AuthDeactivate.path {

@@ -55,7 +55,9 @@ struct PlayerView: View {
         _unlockCoordinator = State(initialValue: EpisodeUnlockCoordinator(playback: store,
             wallet: app.wallet, profile: app.profile, membership: app.membership))
         _playback = State(initialValue: TheaterPlayerPool(library: app.library, cache: app.hlsCache,
-            progressReporter: TheaterProgressReporter(network: app.network), resumesProgress: !request.startsFromBeginning,
+            progressReporter: TheaterProgressReporter(network: app.network),
+            resumesProgress: !request.startsFromBeginning && request.startPosition == nil,
+            initialPosition: request.startPosition,
             refreshURLs: { item in try await store.refreshPlaybackURLs(for: item) }))
     }
 

@@ -14,8 +14,7 @@ struct HomeContinueWatchingSection: View {
                     LazyHStack(spacing: 14) {
                         ForEach(history.items) { item in
                             Button {
-                                item.prepareResume(in: app.library)
-                                router.openPlayback(item.drama)
+                                router.openPlayback(item.drama, position: item.playbackPosition)
                             } label: {
                                 HStack(spacing: 12) {
                                     DramaPoster(drama: item.drama).frame(width: layout.isWide ? 74 : 64)

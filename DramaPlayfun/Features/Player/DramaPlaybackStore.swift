@@ -98,6 +98,9 @@ final class DramaPlaybackStore {
     }
 
     func initialID(request: PlaybackRequest) -> String? {
+        if let position = request.startPosition {
+            return items.first(where: { $0.firstEpisode?.number == position.episodeNumber })?.id ?? items.first?.id
+        }
         if let item = items.first(where: { $0.firstEpisode?.id == request.episode.id }) { return item.id }
         if request.episode.id.isEmpty, request.startsFromBeginning {
             return items.first(where: { $0.firstEpisode?.number == request.episode.number })?.id ?? items.first?.id

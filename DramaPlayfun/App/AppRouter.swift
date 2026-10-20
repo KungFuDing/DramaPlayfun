@@ -22,10 +22,21 @@ enum AppTab: String, CaseIterable, Identifiable {
 
 enum AppRoute: Hashable { case drama(Drama), shortDrama(Drama), playback(PlaybackRequest), search, welfare, settings, wallet, history }
 
+struct PlaybackPosition: Hashable {
+    let episodeNumber: Int
+    let seconds: Double
+
+    init(episodeNumber: Int? = nil, seconds: Double? = nil) {
+        self.episodeNumber = max(episodeNumber ?? 1, 1)
+        self.seconds = seconds.flatMap { $0.isFinite ? max($0, 0) : nil } ?? 0
+    }
+}
+
 struct PlaybackRequest: Identifiable, Hashable {
     let drama: Drama
     let episode: Episode
     var startsFromBeginning = false
+    var startPosition: PlaybackPosition?
     var preparation: PlaybackPreparation?
     var id: String { "\(drama.id):\(episode.id.isEmpty ? String(episode.number) : episode.id)" }
 
@@ -82,6 +93,12 @@ final class AppRouter {
         playback = PlaybackRequest(drama: drama,
             episode: Episode(id: "", number: episodeNumber, title: "", requiresMembership: false),
             startsFromBeginning: true, preparation: preparation)
+    }
+
+    func openPlayback(_ drama: Drama, position: PlaybackPosition) {
+        playback = PlaybackRequest(drama: drama,
+            episode: Episode(id: "", number: position.episodeNumber, title: "", requiresMembership: false),
+            startPosition: position)
     }
 
     func path(for tab: AppTab) -> Binding<[AppRoute]> {

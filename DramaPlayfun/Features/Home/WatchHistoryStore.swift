@@ -33,13 +33,8 @@ struct WatchHistoryItem: Identifiable {
         return min(max(seconds / duration, 0), 1)
     }
 
-    func prepareResume(in library: LibraryStore) {
-        guard let episodeID, let episodeNumber else { return }
-        let local = library.progress[id]
-        let sameEpisode = local?.episodeID == episodeID
-        library.save(WatchProgress(dramaID: id, episodeID: episodeID, episodeNumber: episodeNumber,
-            seconds: sameEpisode ? max(seconds, local?.seconds ?? 0) : seconds,
-            duration: sameEpisode ? local?.duration ?? 0 : 0, updatedAt: Date()))
+    var playbackPosition: PlaybackPosition {
+        PlaybackPosition(episodeNumber: episodeNumber, seconds: seconds)
     }
 }
 

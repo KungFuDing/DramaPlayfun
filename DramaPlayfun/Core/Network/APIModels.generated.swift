@@ -776,6 +776,10 @@ nonisolated enum APIModels {
         var `badge`: String? = nil
         /// 横竖屏类型：vertical=竖屏，horizontal=横屏
         var `screenType`: String? = nil
+        /// 集号
+        var `episodeNo`: Int? = nil
+        /// 观看进度(秒)
+        var `progressSeconds`: Int? = nil
     }
 
     struct V1BatchClearMyHistoryReq: Codable, Sendable {
@@ -892,6 +896,8 @@ nonisolated enum APIModels {
         var `screenType`: String? = nil
         /// 集号
         var `episodeNo`: Int? = nil
+        /// 观看进度(秒)
+        var `progressSeconds`: Int? = nil
     }
 
     struct V1UpdateMyProfileReq: Codable, Sendable {

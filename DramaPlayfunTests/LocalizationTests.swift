@@ -191,11 +191,11 @@ final class LocalizationTests: XCTestCase {
         LocalizationStore.shared.select(.traditionalChinese)
         app.reloadLocalizedContent(for: .traditionalChinese)
         await app.profile.load(.favorites)
-        XCTAssertEqual(app.profile.collections[.favorites]?.first?.title, "繁體標題")
+        XCTAssertEqual(app.profile.collections[.favorites]?.first?.drama.title, "繁體標題")
         XCTAssertNil(retiredProfile.collections[.favorites])
         await oldRequest.value
-        XCTAssertEqual(retiredProfile.collections[.favorites]?.first?.title, "English title")
-        XCTAssertEqual(app.profile.collections[.favorites]?.map(\.title), ["繁體標題"])
+        XCTAssertEqual(retiredProfile.collections[.favorites]?.first?.drama.title, "English title")
+        XCTAssertEqual(app.profile.collections[.favorites]?.map(\.drama.title), ["繁體標題"])
     }
 
     func testLanguageChangeClearsDramaRoutesAndKeepsCurrentSettingsDestination() {
@@ -246,7 +246,7 @@ final class LocalizationTests: XCTestCase {
     }
 
     private func loadedTitles(_ app: AppContainer) -> [String?] {
-        [app.profile.collections[.favorites]?.first?.title, app.homeFeed.banners.first?.drama.title,
+        [app.profile.collections[.favorites]?.first?.drama.title, app.homeFeed.banners.first?.drama.title,
          app.homeFeed.shelves.first?.title, app.homeFeed.hotDramas.first?.title,
          app.homeCategories.tabs.last?.title, app.homeCategories.selectedPage.dramas.first?.title,
          app.rankings.tabs.first?.title, app.rankings.selectedPage.dramas.first?.title,

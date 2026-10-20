@@ -197,23 +197,23 @@ struct ProfileView: View {
 
     @ViewBuilder private func collectionContent(layout: ProfileLayout, emptyStateMinHeight: CGFloat) -> some View {
         let store = app.profile
-        let dramas = store.collections[collection] ?? []
-        if dramas.isEmpty, store.loading.contains(collection) {
+        let items = store.collections[collection] ?? []
+        if items.isEmpty, store.loading.contains(collection) {
             ProgressView().frame(maxWidth: .infinity).padding(40)
-        } else if dramas.isEmpty, let error = store.errors[collection] {
+        } else if items.isEmpty, let error = store.errors[collection] {
             VStack(spacing: 12) {
                 Text(error).font(.footnote).foregroundStyle(.secondary)
                 Button(L10n.tr("重新加载")) { Task { await store.load(collection, refresh: true) } }
             }.frame(maxWidth: .infinity).padding(.vertical, 40)
-        } else if dramas.isEmpty {
+        } else if items.isEmpty {
             ContentUnavailableView(collection == .favorites ? L10n.tr("还没有收藏") : L10n.tr("还没有点赞"), systemImage: collection == .favorites ? "star" : "hand.thumbsup", description: Text(L10n.tr("在剧场发现喜欢的故事")))
                 .frame(minHeight: emptyStateMinHeight)
         } else {
             HStack(alignment: .top, spacing: layout.browse.columnSpacing) {
                 ForEach(0..<layout.collectionColumnCount, id: \.self) { column in
                     LazyVStack(spacing: 16) {
-                        ForEach(dramas.enumerated().filter { $0.offset % layout.collectionColumnCount == column }.map(\.element)) { drama in
-                            ProfileDramaCard(drama: drama)
+                        ForEach(items.enumerated().filter { $0.offset % layout.collectionColumnCount == column }.map(\.element)) { item in
+                            ProfileDramaCard(item: item)
                         }
                     }.frame(maxWidth: .infinity)
                 }
@@ -288,9 +288,11 @@ private extension View {
 
 struct ProfileDramaCard: View {
     @Environment(AppRouter.self) private var router
-    let drama: Drama
+    let item: ProfileCollectionItem
+    private var drama: Drama { item.drama }
+
     var body: some View {
-        Button { router.openPlayback(drama) } label: {
+        Button { router.openPlayback(item.drama, position: item.playbackPosition) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 CachedRemoteImage(url: drama.coverURL) {
                     Rectangle().fill(Theme.surface).overlay { Image(systemName: "film").foregroundStyle(Theme.accent) }

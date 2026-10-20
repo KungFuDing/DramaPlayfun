@@ -4,6 +4,82 @@ import Moya
 
 @MainActor
 final class HomeFeedTests: XCTestCase {
+    func testEveryHomeEntryRoutesUsingResponseHistoryAndIndependentDefaults() async throws {
+        let cases: [(episode: Int?, seconds: Int?, expectedEpisode: Int, expectedSeconds: Double)] = [
+            (4, 27, 4, 27),
+            (nil, nil, 1, 0),
+            (6, nil, 6, 0),
+            (nil, 35, 1, 35)
+        ]
+        for scenario in cases {
+            func itemJSON(id: Int) throws -> String {
+                var item: [String: Any] = [
+                    "id": id, "dramaId": id, "dramaTitle": "续播短剧", "lastEpisodeNo": 99
+                ]
+                item["episodeNo"] = scenario.episode
+                item["progressSeconds"] = scenario.seconds
+                return String(decoding: try JSONSerialization.data(withJSONObject: item), as: UTF8.self)
+            }
+            let firstItem = try itemJSON(id: 101)
+            let nextItem = try itemJSON(id: 102)
+            let refreshedItem = try itemJSON(id: 103)
+            let provider = MoyaProvider<APITarget>(endpointClosure: { target in
+                let json: String
+                switch target.path {
+                case "/mobile/v1/theater/home":
+                    json = """
+                    {"code":200,"data":{"banners":[\(firstItem)],"rank":[\(firstItem)],
+                    "list":[{"categoryName":"续播专题","list":[\(firstItem)]}]}}
+                    """
+                case "/mobile/v1/client/drama/random/list":
+                    json = #"{"code":200,"data":{"list":[\#(refreshedItem)]}}"#
+                default:
+                    let body = (try? JSONSerialization.jsonObject(with: target.body)) as? [String: Int]
+                    json = body?["page"] == 1
+                        ? #"{"code":200,"data":{"page":1,"hasMore":true,"list":[\#(firstItem)]}}"#
+                        : #"{"code":200,"data":{"page":2,"hasMore":false,"list":[\#(nextItem)]}}"#
+                }
+                return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
+                    sampleResponseClosure: { .networkResponse(200, Data(json.utf8)) },
+                    method: target.method, task: target.task, httpHeaderFields: target.headers)
+            }, stubClosure: { _ in .immediate })
+            let network = APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!),
+                                    provider: provider)
+            let feed = HomeFeedStore(network: network)
+            let expected = PlaybackPosition(episodeNumber: scenario.expectedEpisode, seconds: scenario.expectedSeconds)
+            let router = AppRouter()
+
+            await feed.reload()
+            let initialEntries = [
+                try XCTUnwrap(feed.banners.first?.drama),
+                try XCTUnwrap(feed.shelves.first?.dramas.first),
+                try XCTUnwrap(feed.moments.first?.drama),
+                try XCTUnwrap(feed.hotDramas.first)
+            ]
+            for drama in initialEntries {
+                router.openPlayback(drama)
+                XCTAssertEqual(router.playback?.episode.number, scenario.expectedEpisode)
+                XCTAssertEqual(router.playback?.startPosition, expected)
+            }
+            XCTAssertEqual(feed.moments.first?.lastEpisodeNumber, scenario.episode ?? 99)
+
+            await feed.loadMore()
+            let paginatedDrama = try XCTUnwrap(feed.hotDramas.last)
+            XCTAssertEqual(paginatedDrama.id, "102")
+            router.openPlayback(paginatedDrama)
+            XCTAssertEqual(router.playback?.episode.number, scenario.expectedEpisode)
+            XCTAssertEqual(router.playback?.startPosition, expected)
+
+            await feed.refreshMoments()
+            let refreshedDrama = try XCTUnwrap(feed.moments.first?.drama)
+            XCTAssertEqual(refreshedDrama.id, "103")
+            router.openPlayback(refreshedDrama)
+            XCTAssertEqual(router.playback?.episode.number, scenario.expectedEpisode)
+            XCTAssertEqual(router.playback?.startPosition, expected)
+            XCTAssertEqual(feed.moments.first?.lastEpisodeNumber, scenario.episode ?? 99)
+        }
+    }
+
     func testHomeSectionsFollowResponseAndHotPagesAppend() async throws {
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
             let json: String

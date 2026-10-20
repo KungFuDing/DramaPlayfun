@@ -16,6 +16,60 @@ final class DramaTabFeedTests: XCTestCase {
         return APIClient(configuration: try APIConfiguration(baseURL: URL(string: "https://example.invalid")!), provider: provider)
     }
 
+    func testHomeTagRoutesPreserveResponseHistoryAcrossPaginationAndRefresh() async throws {
+        var firstPageRequests = 0
+        let network = try client { target, body in
+            if target.path == "/mobile/v1/drama/tag/list" {
+                return #"{"code":200,"data":{"list":[{"tagId":1,"tagName":"续播标签"}]}}"#
+            }
+            if body["page"] as? Int == 2 {
+                return #"{"code":200,"data":{"list":[{"dramaId":5,"dramaTitle":"分页剧","episodeNo":7,"progressSeconds":54}],"hasMore":false}}"#
+            }
+            firstPageRequests += 1
+            if firstPageRequests > 1 {
+                return #"{"code":200,"data":{"list":[{"dramaId":1,"dramaTitle":"刷新剧","episodeNo":8,"progressSeconds":63}],"hasMore":false}}"#
+            }
+            return """
+            {"code":200,"data":{"list":[
+                {"dramaId":1,"dramaTitle":"完整进度","episodeNo":4,"progressSeconds":27},
+                {"dramaId":2,"dramaTitle":"没有进度","lastEpisodeNo":99},
+                {"dramaId":3,"dramaTitle":"只有集数","episodeNo":6},
+                {"dramaId":4,"dramaTitle":"只有秒数","progressSeconds":35,"lastEpisodeNo":99}
+            ],"hasMore":true}}
+            """
+        }
+        let feed = DramaTabFeedStore(network: network, source: .homeTags)
+        let router = AppRouter()
+        await feed.loadTabsIfNeeded()
+        feed.selectedID = "tag-1"
+        await feed.loadSelectedIfNeeded()
+        let expected = [
+            PlaybackPosition(episodeNumber: 4, seconds: 27),
+            PlaybackPosition(episodeNumber: 1, seconds: 0),
+            PlaybackPosition(episodeNumber: 6, seconds: 0),
+            PlaybackPosition(episodeNumber: 1, seconds: 35)
+        ]
+        XCTAssertEqual(feed.selectedPage.dramas.count, expected.count)
+        for (drama, position) in zip(feed.selectedPage.dramas, expected) {
+            router.openPlayback(drama)
+            XCTAssertEqual(router.playback?.episode.number, position.episodeNumber)
+            XCTAssertEqual(router.playback?.startPosition, position)
+        }
+
+        await feed.loadMore()
+        let paginatedDrama = try XCTUnwrap(feed.selectedPage.dramas.last)
+        XCTAssertEqual(paginatedDrama.id, "5")
+        router.openPlayback(paginatedDrama)
+        XCTAssertEqual(router.playback?.episode.number, 7)
+        XCTAssertEqual(router.playback?.startPosition, PlaybackPosition(episodeNumber: 7, seconds: 54))
+
+        await feed.refreshSelected()
+        XCTAssertEqual(feed.selectedPage.dramas.map(\.id), ["1"])
+        router.openPlayback(try XCTUnwrap(feed.selectedPage.dramas.first))
+        XCTAssertEqual(router.playback?.episode.number, 8)
+        XCTAssertEqual(router.playback?.startPosition, PlaybackPosition(episodeNumber: 8, seconds: 63))
+    }
+
     func testHomeUsesTagIDsAndKeepsPagesSeparate() async throws {
         let network = try client { target, body in
             if target.path == "/mobile/v1/drama/tag/list" {
@@ -75,6 +129,7 @@ final class DramaTabFeedTests: XCTestCase {
         XCTAssertEqual(feed.selectedID, "ranking-42")
         await feed.loadSelectedIfNeeded()
         XCTAssertEqual(feed.selectedPage.dramas.map(\.id), ["8", "2"])
+        XCTAssertTrue(feed.selectedPage.dramas.allSatisfy { $0.playbackPosition == nil })
         XCTAssertTrue(feed.selectedPage.hasMore)
         await feed.loadMore()
         XCTAssertEqual(feed.selectedPage.dramas.map(\.id), ["8", "2", "3"])

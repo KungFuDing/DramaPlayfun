@@ -12,10 +12,11 @@ struct Drama: Identifiable, Hashable, Codable, Sendable {
     let badge: String?
     let coverURL: URL?
     let tagNames: [String]
+    let playbackPosition: PlaybackPosition?
 
     init(id: String, title: String, summary: String, category: DramaCategory, episodeCount: Int,
          heat: Int, badge: String?, coverURL: URL?, tagNames: [String] = [],
-         rootDramaID: Int64? = nil, isLocalDemo: Bool? = nil) {
+         rootDramaID: Int64? = nil, isLocalDemo: Bool? = nil, playbackPosition: PlaybackPosition? = nil) {
         self.id = id
         self.rootDramaID = rootDramaID
         self.storedTitle = title
@@ -27,11 +28,12 @@ struct Drama: Identifiable, Hashable, Codable, Sendable {
         self.badge = badge
         self.coverURL = coverURL
         self.tagNames = tagNames
+        self.playbackPosition = playbackPosition
     }
 
     // Keep persisted/server values intact while rendering bundled demo copy in the active language.
     private enum CodingKeys: String, CodingKey {
-        case id, rootDramaID, category, episodeCount, heat, badge, coverURL, tagNames, isLocalDemo
+        case id, rootDramaID, category, episodeCount, heat, badge, coverURL, tagNames, isLocalDemo, playbackPosition
         case storedTitle = "title"
         case storedSummary = "summary"
     }

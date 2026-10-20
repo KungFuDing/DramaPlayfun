@@ -22,16 +22,6 @@ enum AppTab: String, CaseIterable, Identifiable {
 
 enum AppRoute: Hashable { case drama(Drama), shortDrama(Drama), playback(PlaybackRequest), search, welfare, settings, wallet, history }
 
-struct PlaybackPosition: Hashable {
-    let episodeNumber: Int
-    let seconds: Double
-
-    init(episodeNumber: Int? = nil, seconds: Double? = nil) {
-        self.episodeNumber = max(episodeNumber ?? 1, 1)
-        self.seconds = seconds.flatMap { $0.isFinite ? max($0, 0) : nil } ?? 0
-    }
-}
-
 struct PlaybackRequest: Identifiable, Hashable {
     let drama: Drama
     let episode: Episode
@@ -85,6 +75,10 @@ final class AppRouter {
     }
 
     func openPlayback(_ drama: Drama, episode: Episode? = nil) {
+        if episode == nil, let position = drama.playbackPosition {
+            openPlayback(drama, position: position)
+            return
+        }
         playback = PlaybackRequest(drama: drama, episode: episode ??
             Episode(id: "", number: 1, title: "", requiresMembership: false))
     }

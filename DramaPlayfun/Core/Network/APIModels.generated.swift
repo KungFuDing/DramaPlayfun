@@ -577,6 +577,8 @@ nonisolated enum APIModels {
         var `lastEpisodeId`: Int64? = nil
         /// 最后观看集号
         var `lastEpisodeNo`: Int? = nil
+        /// 观看集号
+        var `episodeNo`: Int? = nil
         /// 观看进度（秒）
         var `progressSeconds`: Int? = nil
         /// 封面地址
@@ -1351,6 +1353,8 @@ nonisolated enum APIModels {
         var `lastEpisodeId`: Int64? = nil
         /// 最后观看集号
         var `lastEpisodeNo`: Int? = nil
+        /// 观看集号
+        var `episodeNo`: Int? = nil
         /// 观看进度（秒）
         var `progressSeconds`: Int? = nil
         /// 角标
@@ -1396,6 +1400,8 @@ nonisolated enum APIModels {
         var `lastEpisodeId`: Int64? = nil
         /// 最后观看集号
         var `lastEpisodeNo`: Int? = nil
+        /// 观看集号
+        var `episodeNo`: Int? = nil
         /// 观看进度（秒）
         var `progressSeconds`: Int? = nil
         /// 封面地址
@@ -1425,6 +1431,8 @@ nonisolated enum APIModels {
         var `lastEpisodeId`: Int64? = nil
         /// 最后观看集号
         var `lastEpisodeNo`: Int? = nil
+        /// 观看集号
+        var `episodeNo`: Int? = nil
         /// 观看进度（秒）
         var `progressSeconds`: Int? = nil
         /// 封面地址
@@ -1472,6 +1480,8 @@ nonisolated enum APIModels {
         var `lastEpisodeId`: Int64? = nil
         /// 最后观看集号
         var `lastEpisodeNo`: Int? = nil
+        /// 观看集号
+        var `episodeNo`: Int? = nil
         /// 观看进度（秒）
         var `progressSeconds`: Int? = nil
         /// 封面地址
@@ -1608,6 +1618,8 @@ nonisolated enum APIModels {
         var `lastEpisodeId`: Int64? = nil
         /// 最后观看集号
         var `lastEpisodeNo`: Int? = nil
+        /// 观看集号
+        var `episodeNo`: Int? = nil
         /// 观看进度（秒）
         var `progressSeconds`: Int? = nil
         /// 封面地址
@@ -1649,6 +1661,8 @@ nonisolated enum APIModels {
         var `lastEpisodeId`: Int64? = nil
         /// 最后观看集号
         var `lastEpisodeNo`: Int? = nil
+        /// 观看集号
+        var `episodeNo`: Int? = nil
         /// 观看进度（秒）
         var `progressSeconds`: Int? = nil
         /// 封面地址

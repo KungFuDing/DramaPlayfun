@@ -144,7 +144,9 @@ final class DramaTabFeedStore {
                 dramas = (result.list ?? []).compactMap { item in
                     Self.drama(id: item.dramaId ?? item.id ?? item.rootDramaId, title: item.dramaTitle,
                         summary: nil, tags: item.tagNames, badge: item.badge, cover: item.coverUrl,
-                        rootID: item.rootDramaId)
+                        rootID: item.rootDramaId,
+                        playbackPosition: PlaybackPosition(episodeNumber: item.episodeNo,
+                                                           seconds: item.progressSeconds.map(Double.init)))
                 }
                 hasMore = result.hasMore ?? false
             case .rankings:
@@ -186,7 +188,8 @@ final class DramaTabFeedStore {
     }
 
     private static func drama(id: Int64?, title: String?, summary: String?, tags: [String]?,
-                              badge: String?, cover: String?, rootID: Int64?) -> Drama? {
+                              badge: String?, cover: String?, rootID: Int64?,
+                              playbackPosition: PlaybackPosition? = nil) -> Drama? {
         guard let id, let title, !title.isEmpty else { return nil }
         let category = DramaCategory.allCases.first { category in
             category != .all && (tags ?? []).contains(where: { $0.localizedStandardContains(category.rawValue) })
@@ -195,6 +198,7 @@ final class DramaTabFeedStore {
             ["https", "http"].contains(url.scheme?.lowercased() ?? "") && url.host != nil ? url : nil
         }
         return Drama(id: String(id), title: title, summary: summary ?? "", category: category,
-            episodeCount: 0, heat: 0, badge: badge, coverURL: url, tagNames: tags ?? [], rootDramaID: rootID)
+            episodeCount: 0, heat: 0, badge: badge, coverURL: url, tagNames: tags ?? [], rootDramaID: rootID,
+            playbackPosition: playbackPosition)
     }
 }

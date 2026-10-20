@@ -96,7 +96,9 @@ final class SearchStore {
             suggestions = Self.unique((response.list ?? []).compactMap {
                 Self.drama(id: $0.dramaId ?? $0.id ?? $0.rootDramaId, root: $0.rootDramaId,
                     title: $0.dramaTitle, summary: $0.dramaDesc, tags: $0.tagNames,
-                    badge: $0.badge, cover: $0.coverUrl)
+                    badge: $0.badge, cover: $0.coverUrl,
+                    playbackPosition: PlaybackPosition(episodeNumber: $0.episodeNo,
+                        seconds: $0.progressSeconds.map(Double.init)))
             })
         } catch is CancellationError {
         } catch {
@@ -142,7 +144,9 @@ final class SearchStore {
             let incoming = (response.list ?? []).compactMap {
                 Self.drama(id: $0.dramaId ?? $0.id ?? $0.rootDramaId, root: $0.rootDramaId,
                     title: $0.dramaTitle, summary: $0.dramaDesc, tags: $0.tagNames,
-                    badge: $0.badge, cover: $0.coverUrl)
+                    badge: $0.badge, cover: $0.coverUrl,
+                    playbackPosition: PlaybackPosition(episodeNumber: $0.episodeNo,
+                        seconds: $0.progressSeconds.map(Double.init)))
             }
             results = Self.unique(results + incoming)
             page = max(nextPage, response.page ?? nextPage)
@@ -172,7 +176,8 @@ final class SearchStore {
     }
 
     private static func drama(id: Int64?, root: Int64?, title: String?, summary: String?,
-                              tags: [String]?, badge: String?, cover: String?) -> Drama? {
+                              tags: [String]?, badge: String?, cover: String?,
+                              playbackPosition: PlaybackPosition) -> Drama? {
         guard let id, let title, !trim(title).isEmpty else { return nil }
         let url = cover.flatMap(URL.init(string:)).flatMap {
             ["http", "https"].contains($0.scheme?.lowercased() ?? "") && $0.host != nil ? $0 : nil
@@ -181,6 +186,7 @@ final class SearchStore {
             category != .all && (tags ?? []).contains { $0.localizedStandardContains(category.rawValue) }
         } ?? .all
         return Drama(id: String(id), title: title, summary: summary ?? "", category: category,
-            episodeCount: 0, heat: 0, badge: badge, coverURL: url, tagNames: tags ?? [], rootDramaID: root)
+            episodeCount: 0, heat: 0, badge: badge, coverURL: url, tagNames: tags ?? [],
+            rootDramaID: root, playbackPosition: playbackPosition)
     }
 }

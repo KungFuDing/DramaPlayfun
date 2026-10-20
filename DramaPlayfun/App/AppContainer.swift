@@ -342,7 +342,7 @@ final class AppContainer {
                 }
                 response = String(data: try! JSONSerialization.data(withJSONObject: ["code": 200, "data": ["list": list]]), encoding: .utf8)!
             case "/mobile/v1/client/drama/random/list":
-                response = #"{"code":200,"data":{"list":[{"dramaId":51,"dramaTitle":"随机片刻甲"},{"dramaId":52,"dramaTitle":"随机片刻乙"},{"dramaId":53,"dramaTitle":"随机片刻丙"}]}}"#
+                response = #"{"code":200,"data":{"list":[{"dramaId":51,"dramaTitle":"随机片刻甲","episodeNo":4,"progressSeconds":23},{"dramaId":52,"dramaTitle":"随机片刻乙"},{"dramaId":53,"dramaTitle":"随机片刻丙"}]}}"#
             case "/mobile/v1/theater/home":
                 if let localizationLanguage {
                     let title = localizationLanguage == "en" ? "English Home Story" : "繁體首頁故事"
@@ -380,6 +380,7 @@ final class AppContainer {
                 }
                 var items: [[String: Any]] = keyword == "不存在" ? [] : [
                     ["dramaId": 801, "rootDramaId": 801, "dramaTitle": keyword,
+                     "episodeNo": 3, "progressSeconds": 17,
                      "tagNames": ["剧情", "都市", "甜宠"], "dramaDesc": "什么忍者卡卡西，拙劣模仿五条悟大人的可笑货色罢了！"]]
                 if !items.isEmpty && ProcessInfo.processInfo.arguments.contains("-BrowseAdaptiveUITestFixture") {
                     items += (802...803).map { id in

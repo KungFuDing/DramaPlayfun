@@ -60,6 +60,34 @@ final class DramaPlayfunTests: XCTestCase {
         XCTAssertEqual(router.paths[.home], [.search])
     }
 
+    func testServerPlaybackPositionIsUsedUnlessAnEpisodeWasExplicitlySelected() throws {
+        let drama = Drama(id: "101", title: "续播剧", summary: "", category: .all,
+            episodeCount: 8, heat: 0, badge: nil, coverURL: nil,
+            playbackPosition: PlaybackPosition(episodeNumber: 5, seconds: 37))
+        let router = AppRouter()
+        router.paths[.home] = [.search]
+
+        router.openPlayback(drama)
+        XCTAssertEqual(router.playback?.startPosition, drama.playbackPosition)
+        XCTAssertEqual(router.playback?.episode.number, 5)
+        XCTAssertEqual(router.paths[.home]?.count, 2)
+
+        let selected = Episode(id: "102", number: 2, title: "", requiresMembership: false)
+        router.openPlayback(drama, episode: selected)
+        XCTAssertEqual(router.playback?.episode, selected)
+        XCTAssertNil(router.playback?.startPosition, "An explicit episode selection overrides list history")
+
+        router.openPlayback(drama, episodeNumber: 2)
+        XCTAssertEqual(router.playback?.episode.number, 2)
+        XCTAssertTrue(try XCTUnwrap(router.playback).startsFromBeginning)
+        XCTAssertNil(router.playback?.startPosition, "Theater continuation still starts the selected episode at zero")
+
+        let restored = try JSONDecoder().decode(Drama.self, from: JSONEncoder().encode(drama))
+        XCTAssertEqual(restored, drama)
+        router.openPlayback(restored)
+        XCTAssertEqual(router.playback?.startPosition?.seconds, 37)
+    }
+
     func testPendingAndCancelledPurchasesDoNotGrantMembership() async {
         let service = TestSubscriptions()
         let store = MembershipStore(service: service)

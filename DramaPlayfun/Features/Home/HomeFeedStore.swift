@@ -167,48 +167,59 @@ final class HomeFeedStore {
     private static func moment(_ item: APIModels.V1TheaterHomeRankItem) -> HomeMoment? {
         guard let drama = makeDrama(id: item.dramaId ?? item.id ?? item.rootDramaId, title: item.dramaTitle,
             summary: nil, tags: item.tagNames, badge: item.badge, cover: item.coverUrl,
-            rootDramaID: item.rootDramaId) else { return nil }
+            rootDramaID: item.rootDramaId,
+            playbackPosition: PlaybackPosition(episodeNumber: item.episodeNo,
+                                               seconds: item.progressSeconds.map(Double.init))) else { return nil }
         return HomeMoment(drama: drama, landscapeURL: imageURL(item.coverFourThreeUrl),
-                          lastEpisodeNumber: item.lastEpisodeNo)
+                          lastEpisodeNumber: item.episodeNo ?? item.lastEpisodeNo)
     }
 
     private static func moment(_ item: APIModels.V1DramaSeriesItem) -> HomeMoment? {
         guard let drama = makeDrama(id: item.dramaId ?? item.id ?? item.rootDramaId, title: item.dramaTitle,
             summary: nil, tags: item.tagNames, badge: item.badge, cover: item.coverUrl,
-            rootDramaID: item.rootDramaId) else { return nil }
+            rootDramaID: item.rootDramaId,
+            playbackPosition: PlaybackPosition(episodeNumber: item.episodeNo,
+                                               seconds: item.progressSeconds.map(Double.init))) else { return nil }
         return HomeMoment(drama: drama, landscapeURL: imageURL(item.coverFourThreeUrl),
-                          lastEpisodeNumber: item.lastEpisodeNo)
+                          lastEpisodeNumber: item.episodeNo ?? item.lastEpisodeNo)
     }
 
     private static func banner(_ item: APIModels.V1TheaterHomeBannerItem) -> HomeBanner? {
         guard let id = item.id, let title = item.dramaTitle, !title.isEmpty else { return nil }
         let drama = Drama(id: String(id), title: title, summary: "", category: .all,
                           episodeCount: 0, heat: 0, badge: item.badge,
-                          coverURL: imageURL(item.coverUrl))
+                          coverURL: imageURL(item.coverUrl),
+                          playbackPosition: PlaybackPosition(episodeNumber: item.episodeNo,
+                                                             seconds: item.progressSeconds.map(Double.init)))
         return HomeBanner(id: String(id), drama: drama, imageURL: imageURL(item.bannerImage))
     }
 
     private static func drama(_ item: APIModels.V1GetTheaterHomeCategoryDramaItem) -> Drama? {
         makeDrama(id: item.dramaId ?? item.id ?? item.rootDramaId, title: item.dramaTitle,
                   summary: nil, tags: item.tagNames, badge: item.badge, cover: item.coverUrl,
-                  rootDramaID: item.rootDramaId)
+                  rootDramaID: item.rootDramaId,
+                  playbackPosition: PlaybackPosition(episodeNumber: item.episodeNo,
+                                                     seconds: item.progressSeconds.map(Double.init)))
     }
 
     private static func drama(_ item: APIModels.V1GetTheaterHomeHotPageItem) -> Drama? {
         makeDrama(id: item.dramaId ?? item.id ?? item.rootDramaId, title: item.dramaTitle,
                   summary: item.dramaDesc, tags: item.tagNames, badge: item.badge, cover: item.coverUrl,
-                  rootDramaID: item.rootDramaId)
+                  rootDramaID: item.rootDramaId,
+                  playbackPosition: PlaybackPosition(episodeNumber: item.episodeNo,
+                                                     seconds: item.progressSeconds.map(Double.init)))
     }
 
     private static func makeDrama(id: Int64?, title: String?, summary: String?, tags: [String]?,
-                                  badge: String?, cover: String?, rootDramaID: Int64?) -> Drama? {
+                                  badge: String?, cover: String?, rootDramaID: Int64?,
+                                  playbackPosition: PlaybackPosition) -> Drama? {
         guard let id, let title, !title.isEmpty else { return nil }
         let category = DramaCategory.allCases.first { category in
             category != .all && (tags ?? []).contains(where: { $0.localizedStandardContains(category.rawValue) })
         } ?? .all
         return Drama(id: String(id), title: title, summary: summary ?? "", category: category,
                      episodeCount: 0, heat: 0, badge: badge, coverURL: imageURL(cover),
-                     tagNames: tags ?? [], rootDramaID: rootDramaID)
+                     tagNames: tags ?? [], rootDramaID: rootDramaID, playbackPosition: playbackPosition)
     }
 
     private static func imageURL(_ raw: String?) -> URL? {

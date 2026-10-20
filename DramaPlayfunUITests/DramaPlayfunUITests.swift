@@ -434,7 +434,7 @@ final class DramaPlayfunUITests: XCTestCase {
     @MainActor
     func testFeaturedMomentsLayoutAndNavigation() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-FeedUITestFixture"]
+        app.launchArguments = ["-FeedUITestFixture", "-PlaybackProgressUITestFixture"]
         app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         let heading = app.staticTexts["今日片刻"]
@@ -474,7 +474,16 @@ final class DramaPlayfunUITests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
         app.buttons["home-moment-51"].tap()
-        XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))
+        let feed = app.scrollViews["player-episode-feed"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 5))
+        expectation(for: NSPredicate(format: "value == %@", "第4集"), evaluatedWith: feed)
+        waitForExpectations(timeout: 5)
+        let progress = app.sliders["player-progress-4"]
+        expectation(for: NSPredicate { _, _ in
+            let percent = Double((progress.value as? String ?? "").replacingOccurrences(of: "%", with: "")) ?? -1
+            return progress.isEnabled && percent >= 38 && percent < 60
+        }, evaluatedWith: progress)
+        waitForExpectations(timeout: 5)
     }
 
     @MainActor

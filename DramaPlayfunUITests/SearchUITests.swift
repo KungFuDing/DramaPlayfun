@@ -6,7 +6,7 @@ final class SearchUITests: XCTestCase {
     @MainActor
     func testSearchHistorySuggestionsResultsAndPlayback() throws {
         let app = XCUIApplication()
-        app.launchArguments.append("-SearchUITestFixture")
+        app.launchArguments += ["-SearchUITestFixture", "-PlaybackProgressUITestFixture"]
         app.launchArguments.append(contentsOf: ["-profile.language.v1", "zh-Hant"])
         app.launch()
         XCTAssertTrue(app.buttons["home-search"].waitForExistence(timeout: 10))
@@ -36,6 +36,15 @@ final class SearchUITests: XCTestCase {
 
         app.buttons["search-result-801"].tap()
         XCTAssertTrue(app.buttons["player-back"].waitForExistence(timeout: 5))
+        let feed = app.scrollViews["player-episode-feed"]
+        expectation(for: NSPredicate(format: "value == %@", "第3集"), evaluatedWith: feed)
+        waitForExpectations(timeout: 5)
+        let progress = app.sliders["player-progress-3"]
+        expectation(for: NSPredicate { _, _ in
+            let percent = Double((progress.value as? String ?? "").replacingOccurrences(of: "%", with: "")) ?? -1
+            return progress.isEnabled && percent >= 28 && percent < 50
+        }, evaluatedWith: progress)
+        waitForExpectations(timeout: 5)
         app.buttons["player-back"].tap()
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         app.buttons["search-back"].tap()

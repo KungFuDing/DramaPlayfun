@@ -95,8 +95,16 @@ final class EpisodeUnlockCoordinator {
     }
 
     private func performResolution(_ requested: Episode, automatically: Bool) async throws -> EpisodeUnlockOutcome {
+        playback.expireAccessIfNeeded()
         let episode = playback.items.first(where: { $0.firstEpisode?.id == requested.id })?.firstEpisode ?? requested
-        if playback.hasAuthorizedPlayback(episode) || !episode.requiresCoinUnlock {
+        if episode.requiresAccessValidation || requested.requiresAccessValidation {
+            try await playback.validateCachedAccess(episode)
+            let validated = playback.items.first(where: { $0.firstEpisode?.id == episode.id })?.firstEpisode
+            // An unknown cached grant never authorizes a transaction. A denial
+            // exposes the freshly fetched price for a subsequent confirmation.
+            return validated?.canPlayWithoutValidation == true ? .unlocked(coins: 0) : .needsConfirmation
+        }
+        if playback.hasAuthorizedPlayback(episode) || episode.canPlayWithoutValidation {
             if playback.items.first(where: { $0.firstEpisode?.id == episode.id })?.videoURL == nil {
                 try await playback.refreshPlayableEpisode(episode)
             }
@@ -108,11 +116,15 @@ final class EpisodeUnlockCoordinator {
         let status = try await playback.unlockStatus(episode)
         try Task.checkCancellation()
         guard status.canWatch != nil else { throw EpisodeUnlockError.accessUnavailable }
+        if let responseID = status.episodeId, String(responseID) != episode.id {
+            throw EpisodeUnlockError.accessUnavailable
+        }
         if status.canWatch == true {
             if status.watchAccessType == "vip", status.isVipActive != true {
                 throw EpisodeUnlockError.membershipUnavailable
             }
-            playback.authorizePlayback(episode)
+            let validUntil = try PlaybackAccessPolicy.validUntil(for: status, now: Date())
+            playback.authorizePlayback(episode, validUntil: validUntil)
             try await playback.refreshPlayableEpisode(episode)
             return .unlocked(coins: 0)
         }
@@ -122,6 +134,7 @@ final class EpisodeUnlockCoordinator {
         if status.isVipActive == true || profile.hasVIP || membership.isActive {
             throw EpisodeUnlockError.membershipUnavailable
         }
+        if automatically, playback.requiresExplicitConfirmation(episode) { return .needsConfirmation }
         if automatically, !profile.hasLoadedProfile {
             await profile.reloadProfile()
             try Task.checkCancellation()

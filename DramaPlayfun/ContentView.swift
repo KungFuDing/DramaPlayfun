@@ -15,6 +15,7 @@ struct ContentView: View {
                 }
             }
         }
+        .environment(\.remoteImageURLRefresher, app.imageURLs)
         .task { await app.guestSession.signInIfNeeded() }
         .onChange(of: LocalizationStore.shared.language) { _, language in
             router.resetForLanguageChange()

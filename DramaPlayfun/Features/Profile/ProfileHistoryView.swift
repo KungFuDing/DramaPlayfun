@@ -77,7 +77,7 @@ private struct ProfileHistoryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            CachedRemoteImage(url: item.drama.coverURL) {
+            CachedRemoteImage(url: item.drama.coverURL, source: .dramaCover(item.drama.id)) {
                 Rectangle().fill(Theme.surface)
                     .overlay { Image(systemName: "film").foregroundStyle(Color(white: 0.5)) }
             }

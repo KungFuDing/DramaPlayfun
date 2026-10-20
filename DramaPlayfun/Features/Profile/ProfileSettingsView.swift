@@ -90,6 +90,7 @@ struct ProfileSettingsView: View {
     private func clearCache() async {
         guard !clearingCache else { return }
         clearingCache = true
+        app.imageURLs.clear()
         await app.playbackDetails.clear()
         ImageCache.default.clearMemoryCache()
         await withCheckedContinuation { continuation in

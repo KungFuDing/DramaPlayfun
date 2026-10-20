@@ -326,7 +326,7 @@ private struct HomeBannerPage: View {
         Button { router.openPlayback(banner.drama) } label: {
             ZStack(alignment: .bottomLeading) {
                 if let imageURL = banner.imageURL {
-                    CachedRemoteImage(url: imageURL) { HomeBannerArtwork() }
+                    CachedRemoteImage(url: imageURL, source: .homeBanner(banner.id)) { HomeBannerArtwork() }
                 } else {
                     HomeBannerArtwork()
                 }

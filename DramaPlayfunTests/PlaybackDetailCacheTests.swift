@@ -69,22 +69,122 @@ final class PlaybackDetailCacheTests: XCTestCase {
         XCTAssertEqual(Set(stub.requests), [101, 102, 104])
     }
 
-    func testDiskSurvivesCacheRecreationAndExpiresAtTTL() async throws {
+    func testMetadataIsFreshForThirtyMinutesButAccessExpiresAfterFiveMinutes() async throws {
         let stub = Stub()
         let network = try stub.network()
         let directory = directory()
         var date = Date(timeIntervalSince1970: 1_800_000_000)
-        let first = PlaybackDetailCache(network: network, directory: directory, maxAge: 300, now: { date })
-        _ = try await first.load(dramaID: "101")
-        let size = await first.diskSize()
-        XCTAssertGreaterThan(size, 0)
+        let cache = PlaybackDetailCache(network: network, directory: directory, now: { date })
+        let initial = try await cache.loadSnapshot(dramaID: "101")
+        XCTAssertFalse(initial.requiresAccessValidation)
         date.addTimeInterval(299)
-        let restored = PlaybackDetailCache(network: network, directory: directory, maxAge: 300, now: { date })
-        _ = try await restored.load(dramaID: "101")
-        XCTAssertEqual(stub.requests.count, 1)
+        let recent = try await cache.loadSnapshot(dramaID: "101")
+        XCTAssertFalse(recent.requiresAccessValidation)
         date.addTimeInterval(1)
-        _ = try await restored.load(dramaID: "101")
-        XCTAssertEqual(stub.requests.count, 2, "Reading cache must not extend its original TTL")
+        let restored = PlaybackDetailCache(network: network, directory: directory, now: { date })
+        let accessStale = try await restored.loadSnapshot(dramaID: "101")
+        XCTAssertTrue(accessStale.requiresAccessValidation)
+        XCTAssertEqual(accessStale.storedAt, initial.storedAt)
+        date.addTimeInterval(1499)
+        let metadataFresh = try await restored.revalidate(dramaID: "101")
+        XCTAssertTrue(metadataFresh.requiresAccessValidation)
+        XCTAssertEqual(stub.requests.count, 1, "Access validation does not require reloading metadata")
+    }
+
+    func testStaleMetadataReturnsImmediatelyThenSharesBackgroundRefresh() async throws {
+        let stub = Stub()
+        stub.response = { id, attempt in Stub.payload(dramaID: id, title: "\(attempt)") }
+        var date = Date()
+        let cache = PlaybackDetailCache(network: try stub.network(), directory: directory(), now: { date })
+        let initial = try await cache.loadSnapshot(dramaID: "101")
+        date.addTimeInterval(1800)
+        stub.delay = 0.1
+        let stale = try await cache.loadSnapshot(dramaID: "101")
+        XCTAssertEqual(stale.response.dramaTitle, "1")
+        XCTAssertEqual(stale.storedAt, initial.storedAt)
+        XCTAssertTrue(stale.requiresAccessValidation)
+        let secondStale = try await cache.loadSnapshot(dramaID: "101")
+        XCTAssertEqual(secondStale.response.dramaTitle, "1")
+        let fresh = try await cache.revalidate(dramaID: "101")
+        XCTAssertEqual(fresh.response.dramaTitle, "2")
+        XCTAssertEqual(fresh.storedAt, date)
+        XCTAssertFalse(fresh.requiresAccessValidation)
+        XCTAssertEqual(stub.requests.count, 2)
+    }
+
+    func testDiskRetainsStaleDataForOneDayThenRequiresNetworkEvenDuringBackoff() async throws {
+        let stub = Stub()
+        stub.delay = 0.05
+        stub.response = { id, attempt in
+            attempt == 2 ? #"{"code":503,"message":"retry"}"# : Stub.payload(dramaID: id, title: "\(attempt)")
+        }
+        let network = try stub.network()
+        let directory = directory()
+        var date = Date(timeIntervalSince1970: 1_800_000_000)
+        let cache = PlaybackDetailCache(network: network, directory: directory, now: { date })
+        _ = try await cache.load(dramaID: "101")
+        date.addTimeInterval(86_399)
+        let restored = PlaybackDetailCache(network: network, directory: directory, now: { date })
+        let retained = try await restored.loadSnapshot(dramaID: "101")
+        XCTAssertEqual(retained.response.dramaTitle, "1")
+        do { _ = try await restored.revalidate(dramaID: "101"); XCTFail("Expected refresh failure") }
+        catch {}
+        XCTAssertEqual(stub.requests.count, 2)
+        date.addTimeInterval(1)
+        let expired = try await restored.loadSnapshot(dramaID: "101")
+        XCTAssertEqual(expired.response.dramaTitle, "3")
+        XCTAssertFalse(expired.requiresAccessValidation)
+        XCTAssertEqual(stub.requests.count, 3, "Hard expiry must not serve the old authorization or obey its retry backoff")
+    }
+
+    func testBackgroundFailureRetainsOldDataAndBacksOffForThirtySeconds() async throws {
+        let stub = Stub()
+        stub.response = { id, attempt in
+            attempt == 2 ? #"{"code":503,"message":"retry"}"# : Stub.payload(dramaID: id, title: "\(attempt)")
+        }
+        stub.delay = 0.05
+        var date = Date()
+        let cache = PlaybackDetailCache(network: try stub.network(), directory: directory(), now: { date })
+        let initial = try await cache.loadSnapshot(dramaID: "101")
+        date.addTimeInterval(1800)
+        _ = try await cache.loadSnapshot(dramaID: "101")
+        do { _ = try await cache.revalidate(dramaID: "101"); XCTFail("Expected refresh failure") }
+        catch {}
+        for _ in 0..<3 {
+            let stale = try await cache.loadSnapshot(dramaID: "101")
+            XCTAssertEqual(stale.response.dramaTitle, "1")
+            XCTAssertEqual(stale.storedAt, initial.storedAt)
+            _ = try await cache.revalidate(dramaID: "101")
+        }
+        XCTAssertEqual(stub.requests.count, 2)
+        date.addTimeInterval(29)
+        _ = try await cache.revalidate(dramaID: "101")
+        XCTAssertEqual(stub.requests.count, 2)
+        date.addTimeInterval(1)
+        let fresh = try await cache.revalidate(dramaID: "101")
+        XCTAssertEqual(fresh.response.dramaTitle, "3")
+        XCTAssertEqual(stub.requests.count, 3)
+    }
+
+    func testStalePrefetchHoldsItsSlotUntilRefreshCompletes() async throws {
+        let stub = Stub()
+        var date = Date()
+        let cache = PlaybackDetailCache(network: try stub.network(), directory: directory(), now: { date })
+        for id in ["101", "102", "103"] { _ = try await cache.load(dramaID: id) }
+        date.addTimeInterval(1800)
+        stub.delay = 0.1
+        let first = _Concurrency.Task { await cache.prefetch(dramaID: "101") }
+        let second = _Concurrency.Task { await cache.prefetch(dramaID: "102") }
+        try await waitForRequest(stub, count: 5)
+        first.cancel()
+        second.cancel()
+        let third = _Concurrency.Task { await cache.prefetch(dramaID: "103") }
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(15))
+        XCTAssertEqual(stub.requests.count, 5)
+        await first.value
+        await second.value
+        await third.value
+        XCTAssertEqual(stub.requests.count, 6)
     }
 
     func testTokenAccountDeviceAndEnvironmentScopeIsolation() async throws {
@@ -156,8 +256,42 @@ final class PlaybackDetailCacheTests: XCTestCase {
             _ = try await cache.load(dramaID: "101")
             XCTFail("A failed response must throw")
         } catch {}
-        for _ in 0..<6 { _ = try await cache.load(dramaID: "101") }
+        for _ in 0..<4 { _ = try await cache.load(dramaID: "101") }
+        _ = try await cache.load(dramaID: "101")
+        _ = try await cache.load(dramaID: "101")
         XCTAssertEqual(stub.requests.count, 6)
+    }
+
+    func testColdLockedEpisodesWithoutURLsAreReturnedWithoutCaching() async throws {
+        let stub = Stub()
+        stub.response = { _, _ in
+            #"{"code":200,"data":{"dramaId":101,"episodes":[{"episodeId":1001,"episodeNo":1,"isUnlocked":false,"unlockCoin":25}]}}"#
+        }
+        let cache = try cache(stub)
+        for _ in 0..<2 {
+            let response = try await cache.load(dramaID: "101")
+            XCTAssertEqual(response.episodes?.first?.episodeId, 1001)
+            XCTAssertEqual(response.episodes?.first?.unlockCoin, 25)
+            XCTAssertNil(response.episodes?.first?.videoUrl)
+        }
+        XCTAssertEqual(stub.requests.count, 2, "The player may show locked rows but the incomplete response must be retried")
+        let size = await cache.diskSize()
+        XCTAssertEqual(size, 0)
+    }
+
+    func testColdResponseForAnotherDramaIsRejectedRatherThanDelivered() async throws {
+        let stub = Stub()
+        stub.response = { _, _ in Stub.payload(dramaID: 999) }
+        let cache = try cache(stub)
+        for _ in 0..<2 {
+            do {
+                _ = try await cache.load(dramaID: "101")
+                XCTFail("Never display another drama's episodes")
+            } catch {}
+        }
+        XCTAssertEqual(stub.requests.count, 2)
+        let size = await cache.diskSize()
+        XCTAssertEqual(size, 0)
     }
 
     func testCancelledWaiterDoesNotCancelSharedPrefetchOrReceiveData() async throws {
@@ -244,6 +378,43 @@ final class PlaybackDetailCacheTests: XCTestCase {
         XCTAssertEqual(stub.requests.count, 2)
     }
 
+    func testPendingStaleRefreshCannotRestoreClearedInvalidatedOrChangedScopeData() async throws {
+        for change in ["clear", "invalidate", "scope"] {
+            let stub = Stub()
+            stub.response = { id, attempt in Stub.payload(dramaID: id, title: "\(attempt)") }
+            let network = try stub.network()
+            network.setAccessToken("first")
+            var date = Date()
+            let cache = PlaybackDetailCache(network: network, directory: directory(), now: { date })
+            _ = try await cache.load(dramaID: "101")
+            date.addTimeInterval(1800)
+            stub.delay = 0.1
+            let stale = try await cache.loadSnapshot(dramaID: "101")
+            XCTAssertEqual(stale.response.dramaTitle, "1")
+            let started = expectation(description: "Awaiting stale refresh before \(change)")
+            let pending = _Concurrency.Task {
+                started.fulfill()
+                return try await cache.revalidate(dramaID: "101")
+            }
+            await fulfillment(of: [started], timeout: 2)
+            try await waitForRequest(stub, count: 2)
+            switch change {
+            case "clear": await cache.clear()
+            case "invalidate": cache.invalidate(dramaID: "101")
+            default: network.setAccessToken("second")
+            }
+            do { _ = try await pending.value; XCTFail("Superseded background work must not reach playback") }
+            catch { XCTAssertTrue(error is CancellationError) }
+            if change != "scope" {
+                let size = await cache.diskSize()
+                XCTAssertEqual(size, 0, "A late refresh must not refill removed disk data")
+            }
+            let fresh = try await cache.loadSnapshot(dramaID: "101")
+            XCTAssertEqual(fresh.response.dramaTitle, "3")
+            XCTAssertFalse(fresh.requiresAccessValidation)
+        }
+    }
+
     func testCapacityEvictsOldEntriesFromMemoryAndDisk() async throws {
         let stub = Stub()
         let network = try stub.network()
@@ -263,28 +434,50 @@ final class PlaybackDetailCacheTests: XCTestCase {
         XCTAssertEqual(files.filter { $0.pathExtension == "json" }.count, 2)
     }
 
-    func testURLRenewalPreservesTTLAndOnlyChangesMatchingSnapshot() async throws {
+    func testFailedForceRefreshKeepsValidMemoryAndDiskResponse() async throws {
+        let stub = Stub()
+        let network = try stub.network()
+        let directory = directory()
+        let cache = PlaybackDetailCache(network: network, directory: directory)
+        let initial = try await cache.loadSnapshot(dramaID: "101")
+        stub.response = { _, _ in #"{"code":200,"data":{"episodes":[]}}"# }
+        do { _ = try await cache.loadSnapshot(dramaID: "101", forceRefresh: true); XCTFail("Expected invalid refresh failure") }
+        catch {}
+        let retained = try await cache.loadSnapshot(dramaID: "101")
+        XCTAssertEqual(retained.storedAt, initial.storedAt)
+        XCTAssertEqual(retained.response.dramaTitle, initial.response.dramaTitle)
+        let restored = PlaybackDetailCache(network: network, directory: directory)
+        let persisted = try await restored.loadSnapshot(dramaID: "101")
+        XCTAssertEqual(persisted.storedAt, initial.storedAt)
+        XCTAssertEqual(stub.requests.count, 2)
+        stub.response = { id, _ in Stub.payload(dramaID: id, title: "forced") }
+        let forced = try await cache.loadSnapshot(dramaID: "101", forceRefresh: true)
+        XCTAssertEqual(forced.response.dramaTitle, "forced", "Explicit refresh bypasses retry backoff")
+    }
+
+    func testURLRenewalPreservesRetentionAndAccessAge() async throws {
         let stub = Stub()
         let network = try stub.network()
         let directory = directory()
         var date = Date()
-        let cache = PlaybackDetailCache(network: network, directory: directory, maxAge: 300, now: { date })
-        let loaded = try await cache.load(dramaID: "101")
-        let old = try XCTUnwrap(loaded.episodes?.first?.videoUrl.flatMap(URL.init(string:)))
+        let cache = PlaybackDetailCache(network: network, directory: directory, maxAge: 86_400, now: { date })
+        let initial = try await cache.loadSnapshot(dramaID: "101")
+        let old = try XCTUnwrap(initial.response.episodes?.first?.videoUrl.flatMap(URL.init(string:)))
         let replacement = try XCTUnwrap(URL(string: "https://example.invalid/renewed.m3u8"))
-        date.addTimeInterval(299)
+        date.addTimeInterval(6 * 3600)
         await cache.updatePlaybackURLs(dramaID: "101", replacing: ["1011": old], with: ["1011": replacement])
-        let renewed = try await cache.load(dramaID: "101")
-        XCTAssertEqual(renewed.episodes?.first?.videoUrl, replacement.absoluteString)
+        let renewed = try await cache.loadSnapshot(dramaID: "101")
+        XCTAssertEqual(renewed.response.episodes?.first?.videoUrl, replacement.absoluteString)
+        XCTAssertEqual(renewed.storedAt, initial.storedAt)
+        XCTAssertTrue(renewed.requiresAccessValidation)
         await cache.updatePlaybackURLs(dramaID: "101", replacing: ["1011": old], with: ["1011": old])
-        let unchanged = try await cache.load(dramaID: "101")
-        XCTAssertEqual(unchanged.episodes?.first?.videoUrl, replacement.absoluteString)
-        let restored = PlaybackDetailCache(network: network, directory: directory, maxAge: 300, now: { date })
-        let persisted = try await restored.load(dramaID: "101")
-        XCTAssertEqual(persisted.episodes?.first?.videoUrl, replacement.absoluteString)
-        date.addTimeInterval(1)
+        let restored = PlaybackDetailCache(network: network, directory: directory, maxAge: 86_400, now: { date })
+        let persisted = try await restored.loadSnapshot(dramaID: "101")
+        XCTAssertEqual(persisted.response.episodes?.first?.videoUrl, replacement.absoluteString)
+        XCTAssertEqual(persisted.storedAt, initial.storedAt)
+        date.addTimeInterval(18 * 3600)
         _ = try await restored.load(dramaID: "101")
-        XCTAssertEqual(stub.requests.count, 2)
+        XCTAssertEqual(stub.requests.count, 2, "URL renewal cannot extend the 24-hour retention period")
         await restored.clear()
         await restored.updatePlaybackURLs(dramaID: "101", replacing: ["1011": old], with: ["1011": replacement])
         let size = await restored.diskSize()
@@ -301,9 +494,9 @@ final class PlaybackDetailCacheTests: XCTestCase {
         return result
     }
 
-    private func waitForRequest(_ stub: Stub) async throws {
+    private func waitForRequest(_ stub: Stub, count: Int = 1) async throws {
         for _ in 0..<100 {
-            if !stub.requests.isEmpty { return }
+            if stub.requests.count >= count { return }
             try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(5))
         }
         XCTFail("Expected detail request to begin")

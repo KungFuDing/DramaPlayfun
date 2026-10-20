@@ -18,6 +18,7 @@ struct PlayerView: View {
     @State private var unlockToast: String?
     @State private var membershipDestination: MembershipCategory?
     @State private var accessRevision = 0
+    @State private var accessFailureID: String?
     @State private var isMounted = false
     @State private var feedbackEpisode: Episode?
     @State private var isSubmittingFeedback = false
@@ -153,15 +154,27 @@ struct PlayerView: View {
         .onChange(of: selectedID) { _, _ in
             pendingUnlock = nil
             unlockToast = nil
+            accessFailureID = nil
             updatePlayback()
         }
         .task(id: accessTaskID) {
             guard canResolveAccess, let episode = currentItem?.firstEpisode,
-                  episode.requiresCoinUnlock else { return }
+                  !episode.canPlayWithoutValidation else { return }
             do { try await Task.sleep(for: .milliseconds(220)) }
             catch { return }
             await resolveAccess(episode, automatically: true)
         }
+        .task(id: isReady) {
+            guard isReady else { return }
+            await store.revalidateDetails()
+        }
+        .task(id: accessExpirationID) {
+            guard canResolveAccess, let deadline = store.accessDeadline(for: currentItem?.firstEpisode?.id) else { return }
+            do { try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow))) }
+            catch { return }
+            updatePlayback()
+        }
+        .onChange(of: store.contentRevision) { _, _ in updatePlayback() }
         .onChange(of: isVisible) { _, _ in updatePlayback() }
         .onChange(of: isPreparationActive) { _, _ in updatePlayback() }
         .onChange(of: playback.states[selectedID ?? ""]) { _, state in
@@ -255,7 +268,8 @@ struct PlayerView: View {
     }
 
     private func episodePage(_ item: TheaterFeedItem) -> some View {
-        let locked = item.firstEpisode?.requiresCoinUnlock == true
+        let validating = item.firstEpisode?.requiresAccessValidation == true
+        let locked = item.firstEpisode?.canPlayWithoutValidation == false
         let showsUnlockLayer = locked && pendingUnlock?.id != item.firstEpisode?.id
         return ZStack {
             TheaterVideoPage(item: item, playback: playback,
@@ -270,16 +284,28 @@ struct PlayerView: View {
             if showsUnlockLayer {
                 Color.black.opacity(0.35).allowsHitTesting(false)
                 if selectedID == item.id, let episode = item.firstEpisode {
-                    PlayerUnlockDialog(episode: episode,
-                        isUnlocking: unlockCoordinator.unlockingEpisodeIDs.contains(episode.id),
-                        onUnlock: { pendingUnlock = episode })
+                    if validating {
+                        VStack(spacing: 16) {
+                            if accessFailureID == episode.id {
+                                Text(L10n.text("暂时无法确认本集播放权限，请稍后重试。"))
+                                    .multilineTextAlignment(.center)
+                                Button(L10n.tr("重试")) { retry(item) }
+                            } else {
+                                ProgressView(L10n.tr("正在加载剧集…"))
+                            }
+                        }.padding(28)
+                    } else {
+                        PlayerUnlockDialog(episode: episode,
+                            isUnlocking: unlockCoordinator.unlockingEpisodeIDs.contains(episode.id),
+                            onUnlock: { pendingUnlock = episode })
+                    }
                 }
             }
         }
         .clipped()
     }
 
-    private var isVisible: Bool { isMounted && selectedDetail == nil && scenePhase == .active && app.appUpdate.notice == nil && !showEpisodes && optionsKind == nil && shareItem == nil && currentItem?.firstEpisode?.requiresCoinUnlock != true && pendingUnlock == nil && membershipDestination == nil && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
+    private var isVisible: Bool { isMounted && selectedDetail == nil && scenePhase == .active && app.appUpdate.notice == nil && !showEpisodes && optionsKind == nil && shareItem == nil && currentItem?.firstEpisode?.canPlayWithoutValidation == true && pendingUnlock == nil && membershipDestination == nil && feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted }
     private var isPreparationActive: Bool {
         isMounted && isReady && selectedDetail == nil && scenePhase == .active &&
             app.appUpdate.notice == nil && membershipDestination == nil && shareItem == nil
@@ -346,6 +372,7 @@ struct PlayerView: View {
 
     private func updatePlayback() {
         guard isMounted else { playback.suspend(); return }
+        if store.expireAccessIfNeeded() { accessRevision += 1 }
         playback.update(items: store.items, selectedID: selectedID, visible: isVisible,
             preparationActive: isPreparationActive)
         if playback.states[selectedID ?? ""] == .ready { applyMediaOptions() }
@@ -353,6 +380,10 @@ struct PlayerView: View {
 
     private var accessTaskID: String {
         "\(canResolveAccess)-\(selectedID ?? "")-\(accessRevision)"
+    }
+
+    private var accessExpirationID: String {
+        "\(canResolveAccess)-\(selectedID ?? "")-\(store.accessDeadline(for: currentItem?.firstEpisode?.id)?.timeIntervalSince1970 ?? 0)"
     }
 
     private var canResolveAccess: Bool {
@@ -364,14 +395,18 @@ struct PlayerView: View {
         await app.profile.reloadProfile()
         await app.wallet.reloadBalance()
         await app.membership.refresh()
-        await store.load()
+        await store.load(forceRefresh: true)
         guard !Task.isCancelled, isMounted else { return }
         accessRevision += 1
         updatePlayback()
     }
 
     private func retry(_ item: TheaterFeedItem) {
-        if let episode = item.firstEpisode, episode.requiresCoinUnlock {
+        store.expireAccessIfNeeded()
+        if let episode = store.items.first(where: { $0.id == item.id })?.firstEpisode,
+           episode.requiresAccessValidation {
+            Task { await resolveAccess(episode, automatically: true) }
+        } else if let episode = item.firstEpisode, episode.requiresCoinUnlock {
             pendingUnlock = episode
         } else if let episode = item.firstEpisode, item.videoURL == nil {
             Task {
@@ -414,6 +449,7 @@ struct PlayerView: View {
     private func resolveAccess(_ episode: Episode, automatically: Bool) async {
         guard canResolveAccess, selectedID == episode.id else { return }
         if automatically && pendingUnlock != nil { return }
+        accessFailureID = nil
         do {
             let outcome = try await unlockCoordinator.resolve(episode, automatically: automatically)
             guard !Task.isCancelled, isMounted, selectedID == episode.id else { return }
@@ -430,6 +466,7 @@ struct PlayerView: View {
         } catch is CancellationError {
         } catch {
             guard !Task.isCancelled, isMounted, selectedID == episode.id else { return }
+            if currentItem?.firstEpisode?.requiresAccessValidation == true { accessFailureID = episode.id }
             unlockError = error.appLocalizedDescription
             updatePlayback()
         }

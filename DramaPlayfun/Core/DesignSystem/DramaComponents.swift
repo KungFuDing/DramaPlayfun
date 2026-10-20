@@ -8,7 +8,7 @@ struct DramaPoster: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Rectangle().fill(LinearGradient(colors: [.indigo.opacity(0.75), Theme.surface, .black], startPoint: .topLeading, endPoint: .bottomTrailing))
-            CachedRemoteImage(url: drama.coverURL) {
+            CachedRemoteImage(url: drama.coverURL, source: .dramaCover(drama.id)) {
                 VStack(spacing: 12) {
                     Image(systemName: "film.stack").font(.largeTitle).foregroundStyle(Theme.accent)
                     Text(drama.title).font(.headline).multilineTextAlignment(.center)

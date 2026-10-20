@@ -455,7 +455,7 @@ struct TheaterVideoBackdrop: View {
             LinearGradient(colors: [Color(red: 0.22, green: 0.18, blue: 0.2), .black],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
             if let url = drama.coverURL {
-                CachedRemoteImage(url: url) { Color.clear }
+                CachedRemoteImage(url: url, source: .dramaCover(drama.id)) { Color.clear }
             }
         }.clipped()
     }

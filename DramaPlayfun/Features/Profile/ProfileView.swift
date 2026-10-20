@@ -98,7 +98,7 @@ struct ProfileView: View {
 
     private var identity: some View {
         HStack(spacing: 10) {
-            CachedRemoteImage(url: app.profile.profile.avatarUrl.flatMap(URL.init(string:))) {
+            CachedRemoteImage(url: app.profile.profile.avatarUrl.flatMap(URL.init(string:)), source: .profileAvatar) {
                 Image("ProfileAvatar").resizable().scaledToFit()
             }.frame(width: 50, height: 50).clipShape(Circle())
             VStack(alignment: .leading, spacing: 8) {
@@ -294,7 +294,7 @@ struct ProfileDramaCard: View {
     var body: some View {
         Button { router.openPlayback(item.drama, position: item.playbackPosition) } label: {
             VStack(alignment: .leading, spacing: 0) {
-                CachedRemoteImage(url: drama.coverURL) {
+                CachedRemoteImage(url: drama.coverURL, source: .dramaCover(drama.id)) {
                     Rectangle().fill(Theme.surface).overlay { Image(systemName: "film").foregroundStyle(Theme.accent) }
                 }.aspectRatio(0.77, contentMode: .fit)
                 VStack(alignment: .leading, spacing: 7) {

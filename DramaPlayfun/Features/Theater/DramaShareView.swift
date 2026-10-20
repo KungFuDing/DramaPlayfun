@@ -76,9 +76,16 @@ struct DramaShareView: View {
         .presentationBackground(.clear)
         .task(id: attempt) {
             loadError = nil
-            do { content = try await DramaShareContent.load(item: item, network: app.network) }
+            do {
+                let result = try await DramaShareContent.load(item: item, network: app.network, imageURLs: app.imageURLs)
+                try Task.checkCancellation()
+                content = result
+            }
             catch is CancellationError { }
-            catch { loadError = L10n.errorMessage(error, fallback: "无法处理分享图片，请稍后重试。") }
+            catch {
+                guard !Task.isCancelled else { return }
+                loadError = L10n.errorMessage(error, fallback: "无法处理分享图片，请稍后重试。")
+            }
         }
         .sheet(item: $activity) { payload in
             SystemImageShareView(image: payload.image) { type, completed, error in

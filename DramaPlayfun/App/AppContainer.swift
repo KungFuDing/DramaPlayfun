@@ -19,6 +19,7 @@ final class AppContainer {
     let appUpdate: AppUpdateStore
     let repository: any DramaRepository
     let playbackDetails: PlaybackDetailCache
+    let imageURLs: RemoteImageURLRefresher
     private(set) var catalog: CatalogStore
     private(set) var homeCategories: DramaTabFeedStore
     private(set) var rankings: DramaTabFeedStore
@@ -89,6 +90,7 @@ final class AppContainer {
         welfare = WelfareStore(network: self.network, wallet: wallet)
         let playbackDetails = PlaybackDetailCache(network: self.network)
         self.playbackDetails = playbackDetails
+        imageURLs = RemoteImageURLRefresher(network: self.network)
         let repository = repository ?? APIDramaRepository(network: self.network,
             fallback: DemoDramaRepository(), detailCache: playbackDetails)
         self.repository = repository

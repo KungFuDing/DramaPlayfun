@@ -1,6 +1,5 @@
 import SwiftUI
 import CoreImage.CIFilterBuiltins
-import Kingfisher
 import Photos
 
 @MainActor
@@ -8,7 +7,8 @@ struct DramaShareContent {
     let cover: UIImage
     let qrCode: UIImage
 
-    static func load(item: TheaterFeedItem, network: APIClient) async throws -> Self {
+    static func load(item: TheaterFeedItem, network: APIClient,
+                     imageURLs: RemoteImageURLRefresher? = nil) async throws -> Self {
         guard let episodeID = (item.firstEpisode?.id).flatMap(Int64.init) else {
             throw TheaterInteractionError.invalidEpisode
         }
@@ -22,8 +22,8 @@ struct DramaShareContent {
             return Self(cover: cover, qrCode: qrCode)
         }
         #endif
-        guard let url = item.drama.coverURL else { throw TheaterInteractionError.missingCover }
-        let cover = try await KingfisherManager.shared.retrieveImage(with: url).image
+        let cover = try await RemoteImageLoader.load(url: item.drama.coverURL,
+            source: .dramaCover(item.drama.id), refresher: imageURLs ?? RemoteImageURLRefresher(network: network))
         try Task.checkCancellation()
         return Self(cover: cover, qrCode: qrCode)
     }

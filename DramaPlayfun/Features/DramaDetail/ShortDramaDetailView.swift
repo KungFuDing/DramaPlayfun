@@ -139,7 +139,7 @@ struct ShortDramaDetailView: View {
 private struct ShortDramaHero: View {
     let drama: Drama
     var body: some View {
-        CachedRemoteImage(url: drama.coverURL) {
+        CachedRemoteImage(url: drama.coverURL, source: .dramaCover(drama.id)) {
             LinearGradient(colors: [.indigo.opacity(0.6), Theme.surface], startPoint: .top, endPoint: .bottom)
         }
         .overlay(alignment: .top) {

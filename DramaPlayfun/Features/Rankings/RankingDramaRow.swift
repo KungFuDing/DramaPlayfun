@@ -11,7 +11,7 @@ struct RankingDramaRow: View {
     var body: some View {
         Button { router.openPlayback(drama) } label: {
             HStack(alignment: .top, spacing: 10 * scale) {
-                CachedRemoteImage(url: drama.coverURL) {
+                CachedRemoteImage(url: drama.coverURL, source: .dramaCover(drama.id)) {
                     ZStack {
                         LinearGradient(colors: [.indigo.opacity(0.6), Theme.surface], startPoint: .top, endPoint: .bottom)
                         Image(systemName: "film.stack").font(.title).foregroundStyle(Theme.accent)

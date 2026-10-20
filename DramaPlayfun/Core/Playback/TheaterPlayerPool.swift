@@ -148,7 +148,7 @@ final class TheaterPlayerPool {
     func update(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID?, visible: Bool,
                 preparationActive: Bool = false) {
         let previousID = currentID
-        let wasLocked = self.items.first(where: { $0.id == selectedID })?.firstEpisode?.requiresCoinUnlock == true
+        let wasLocked = self.items.first(where: { $0.id == selectedID })?.firstEpisode?.canPlayWithoutValidation == false
         if previousID != selectedID || !visible { resetScrubbing() }
         if previousID != selectedID {
             saveProgress()
@@ -516,7 +516,7 @@ final class TheaterPlayerPool {
     }
 
     private func canPlay(_ id: TheaterFeedItem.ID) -> Bool {
-        items.first(where: { $0.id == id })?.firstEpisode?.requiresCoinUnlock == false
+        items.first(where: { $0.id == id })?.firstEpisode?.canPlayWithoutValidation == true
     }
 
     private func canPrepare(_ id: TheaterFeedItem.ID) -> Bool {

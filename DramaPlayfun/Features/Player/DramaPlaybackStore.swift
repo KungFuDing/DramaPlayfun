@@ -17,18 +17,26 @@ final class DramaPlaybackStore {
     private let repository: any DramaRepository
     private let library: LibraryStore
     private let detailCache: PlaybackDetailCache?
+    private let now: () -> Date
+    private var snapshotDate: Date?
+    private var accessDeadlines: [String: Date] = [:]
+    private var validations: [String: Task<Void, Error>] = [:]
+    private var generation = UUID()
+    private(set) var contentRevision = 0
     // These grants come from the server, and exist only for this playback session.
     private var authorizedEpisodeIDs: Set<String> = []
+    private var explicitConfirmationIDs: Set<String> = []
     let drama: Drama
 
     init(drama: Drama, network: APIClient, repository: any DramaRepository, library: LibraryStore,
-         detailCache: PlaybackDetailCache? = nil) {
+         detailCache: PlaybackDetailCache? = nil, now: @escaping () -> Date = Date.init) {
         self.drama = drama
         self.network = network
         urlRefresher = PlaybackURLRefresher(network: network)
         self.repository = repository
         self.library = library
         self.detailCache = detailCache
+        self.now = now
     }
 
     func refreshPlaybackURLs(for item: TheaterFeedItem) async throws -> [TheaterFeedItem] {
@@ -45,25 +53,43 @@ final class DramaPlaybackStore {
             if let episodeID = item.firstEpisode?.id, let url = item.videoURL { values[episodeID] = url }
         }
         await detailCache?.updatePlaybackURLs(dramaID: drama.id, replacing: previousURLs, with: urls)
+        contentRevision += 1
         return items
     }
 
     func load(forceRefresh: Bool = false) async {
         guard !isLoading else { return }
         isLoading = true
+        generation = UUID()
+        for task in validations.values { task.cancel() }
+        validations.removeAll()
+        expireAccessIfNeeded()
         loadError = nil
         defer { isLoading = false }
         do {
             let loaded: [TheaterFeedItem]
             if let id = Int64(drama.id) {
                 let response: APIModels.V1GetDramaEpisodeListRes
+                let storedAt: Date
+                let requiresValidation: Bool
                 if let detailCache {
-                    response = try await detailCache.load(dramaID: drama.id, forceRefresh: forceRefresh)
+                    let snapshot = try await detailCache.loadSnapshot(dramaID: drama.id, forceRefresh: forceRefresh)
+                    response = snapshot.response
+                    storedAt = snapshot.storedAt
+                    requiresValidation = snapshot.requiresAccessValidation
                 } else {
                     response = try await network.request(AppAPI.v1ClientDramaEpisodeList,
                         body: .init(dramaId: id), unwrapEnvelope: true)
+                    storedAt = now()
+                    requiresValidation = false
                 }
-                loaded = Self.makeItems(response, fallback: drama, authorizedEpisodeIDs: authorizedEpisodeIDs)
+                snapshotDate = storedAt
+                loaded = Self.makeItems(response, fallback: drama, authorizedEpisodeIDs: authorizedEpisodeIDs,
+                    requiresAccessValidation: requiresValidation)
+                for item in loaded {
+                    guard let episode = item.firstEpisode, !authorizedEpisodeIDs.contains(episode.id) else { continue }
+                    accessDeadlines[episode.id] = storedAt.addingTimeInterval(PlaybackAccessPolicy.maxAge)
+                }
             } else {
                 let episodes = try await repository.fetchEpisodes(dramaID: drama.id)
                 var mapped: [TheaterFeedItem] = []
@@ -77,13 +103,15 @@ final class DramaPlaybackStore {
             }
             try Task.checkCancellation()
             items = loaded
+            contentRevision += 1
             if loaded.isEmpty { loadError = DramaPlaybackError.noPlayableEpisodes }
         } catch is CancellationError {
         } catch { loadError = error }
     }
 
     static func makeItems(_ response: APIModels.V1GetDramaEpisodeListRes, fallback: Drama,
-                          authorizedEpisodeIDs: Set<String> = []) -> [TheaterFeedItem] {
+                          authorizedEpisodeIDs: Set<String> = [],
+                          requiresAccessValidation: Bool = false) -> [TheaterFeedItem] {
         let drama = Drama(id: fallback.id, title: response.dramaTitle ?? fallback.title,
             summary: response.dramaDesc ?? fallback.summary, category: fallback.category,
             episodeCount: response.episodePassed ?? max(response.episodes?.count ?? 0, fallback.episodeCount),
@@ -97,7 +125,8 @@ final class DramaPlaybackStore {
                   seen.insert(String(id)).inserted else { return nil }
             let episode = Episode(id: String(id), number: number, title: "",
                 requiresMembership: false, unlockCoin: raw.unlockCoin ?? 0,
-                isUnlocked: raw.isUnlocked == true || authorizedEpisodeIDs.contains(String(id)), looked: raw.looked)
+                isUnlocked: raw.isUnlocked == true || authorizedEpisodeIDs.contains(String(id)), looked: raw.looked,
+                requiresAccessValidation: requiresAccessValidation && !authorizedEpisodeIDs.contains(String(id)))
             let url = raw.videoUrl.flatMap(URL.init(string:)).flatMap { url -> URL? in
                 url.scheme?.lowercased() == "https" && url.host?.isEmpty == false &&
                     url.user == nil && url.password == nil ? url : nil
@@ -107,6 +136,130 @@ final class DramaPlaybackStore {
                 isFavorited: response.isFavorited ?? false, playbackID: episode.id,
                 favoriteCount: response.favoriteCount)
         }.sorted { ($0.firstEpisode?.number ?? 0) < ($1.firstEpisode?.number ?? 0) }
+    }
+
+    /// Publish newer metadata only if no interaction or authorization changed during
+    /// the fetch. The shared cache is updated regardless, for the next visit.
+    func revalidateDetails() async {
+        guard let detailCache, Int64(drama.id) != nil, !items.isEmpty, validations.isEmpty else { return }
+        let revision = contentRevision
+        let loadGeneration = generation
+        do {
+            let snapshot = try await detailCache.revalidate(dramaID: drama.id)
+            try Task.checkCancellation()
+            guard generation == loadGeneration, contentRevision == revision, validations.isEmpty,
+                  snapshotDate.map({ snapshot.storedAt > $0 }) ?? true else { return }
+            let refreshed = Self.makeItems(snapshot.response, fallback: drama,
+                authorizedEpisodeIDs: authorizedEpisodeIDs,
+                requiresAccessValidation: snapshot.requiresAccessValidation)
+            // Preserve prepared players when the resource only received a new token.
+            items = refreshed.map { item in
+                var item = item
+                if let previous = items.first(where: { $0.id == item.id }) {
+                    if previous.firstEpisode?.requiresAccessValidation == true,
+                       item.firstEpisode?.requiresCoinUnlock == true, let episodeID = item.firstEpisode?.id {
+                        explicitConfirmationIDs.insert(episodeID)
+                    }
+                    if let oldURL = previous.videoURL, let newURL = item.videoURL,
+                       MediaResourceURL.contentKey(for: oldURL) == MediaResourceURL.contentKey(for: newURL) {
+                        item.videoURL = oldURL
+                    }
+                }
+                return item
+            }
+            snapshotDate = snapshot.storedAt
+            for item in items {
+                guard let episode = item.firstEpisode, !authorizedEpisodeIDs.contains(episode.id) else { continue }
+                accessDeadlines[episode.id] = snapshot.storedAt.addingTimeInterval(PlaybackAccessPolicy.maxAge)
+            }
+            contentRevision += 1
+            expireAccessIfNeeded()
+        } catch { /* Retained metadata remains usable; access is validated separately. */ }
+    }
+
+    func accessDeadline(for episodeID: String?) -> Date? {
+        guard let episodeID, let item = items.first(where: { $0.firstEpisode?.id == episodeID }),
+              item.firstEpisode?.requiresAccessValidation == false else { return nil }
+        return accessDeadlines[episodeID]
+    }
+
+    @discardableResult
+    func expireAccessIfNeeded() -> Bool {
+        var expired = false
+        for index in items.indices {
+            guard var episode = items[index].firstEpisode,
+                  let deadline = accessDeadlines[episode.id], deadline <= now() else { continue }
+            authorizedEpisodeIDs.remove(episode.id)
+            guard !episode.requiresAccessValidation else { continue }
+            episode.requiresAccessValidation = true
+            replaceEpisode(at: index, with: episode)
+            contentRevision += 1
+            expired = true
+        }
+        return expired
+    }
+
+    /// This read-only path can never submit a coin transaction.
+    func validateCachedAccess(_ requested: Episode) async throws {
+        expireAccessIfNeeded()
+        guard let episode = items.first(where: { $0.firstEpisode?.id == requested.id })?.firstEpisode,
+              episode.requiresAccessValidation else { return }
+        if let task = validations[episode.id] { return try await task.value }
+        // A metadata response started earlier must not overrule this access check.
+        contentRevision += 1
+        let loadGeneration = generation
+        let scope = network.playbackCacheScope
+        let task = Task {
+            let status = try await unlockStatus(episode)
+            try Task.checkCancellation()
+            guard generation == loadGeneration, scope == network.playbackCacheScope else { throw CancellationError() }
+            if let responseID = status.episodeId, String(responseID) != episode.id {
+                throw EpisodeUnlockError.accessUnavailable
+            }
+            if status.canWatch == true {
+                let deadline = try PlaybackAccessPolicy.validUntil(for: status, now: now())
+                authorizePlayback(episode, validUntil: deadline)
+                try await refreshPlayableEpisode(episode)
+            } else {
+                guard status.canWatch == false else { throw EpisodeUnlockError.accessUnavailable }
+                // The API uses unlockCoin=0 for an old grant too. Obtain the real
+                // current price before showing a purchase confirmation.
+                let response = try await freshEpisodeList()
+                try Task.checkCancellation()
+                guard generation == loadGeneration, scope == network.playbackCacheScope else { throw CancellationError() }
+                guard let fresh = Self.makeItems(response, fallback: drama).first(where: { $0.id == episode.id }),
+                      let current = fresh.firstEpisode, current.requiresCoinUnlock,
+                      let index = items.firstIndex(where: { $0.id == episode.id }) else {
+                    throw EpisodeUnlockError.accessUnavailable
+                }
+                authorizedEpisodeIDs.remove(episode.id)
+                explicitConfirmationIDs.insert(episode.id)
+                replaceEpisode(at: index, with: current)
+                items[index].videoURL = fresh.videoURL
+                accessDeadlines[episode.id] = now().addingTimeInterval(PlaybackAccessPolicy.maxAge)
+                contentRevision += 1
+            }
+        }
+        validations[episode.id] = task
+        defer {
+            if generation == loadGeneration { validations[episode.id] = nil }
+        }
+        try await task.value
+        try Task.checkCancellation()
+    }
+
+    private func freshEpisodeList() async throws -> APIModels.V1GetDramaEpisodeListRes {
+        guard let id = Int64(drama.id) else { throw CatalogError.notFound }
+        if let detailCache { return try await detailCache.load(dramaID: drama.id, forceRefresh: true) }
+        return try await network.request(AppAPI.v1ClientDramaEpisodeList, body: .init(dramaId: id), unwrapEnvelope: true)
+    }
+
+    private func replaceEpisode(at index: Int, with episode: Episode) {
+        let current = items[index]
+        items[index] = TheaterFeedItem(drama: current.drama, firstEpisode: episode,
+            videoURL: current.videoURL, firstEpisodeLikeCount: current.firstEpisodeLikeCount,
+            isFirstEpisodeLiked: current.isFirstEpisodeLiked, isFavorited: current.isFavorited,
+            playbackID: current.playbackID, favoriteCount: current.favoriteCount)
     }
 
     func initialID(request: PlaybackRequest) -> String? {
@@ -135,6 +288,7 @@ final class DramaPlaybackStore {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].isFirstEpisodeLiked = response.isLiked ?? liked
         items[index].firstEpisodeLikeCount = response.likeCount ?? max(0, item.firstEpisodeLikeCount + (liked ? 1 : -1))
+        contentRevision += 1
     }
 
     func toggleFavorite() async throws {
@@ -153,9 +307,11 @@ final class DramaPlaybackStore {
             }
         }
         library.setFavorite(drama.id, isFavorite: value)
+        contentRevision += 1
     }
 
     func applyFavorite(_ id: Drama.ID, isFavorite: Bool, count: Int?) {
+        contentRevision += 1
         detailCache?.invalidate(dramaID: id)
         for index in items.indices where items[index].drama.id == id {
             items[index].isFavorited = isFavorite
@@ -175,21 +331,28 @@ final class DramaPlaybackStore {
         let response = try await network.request(AppAPI.v1DramaEpisodeUnlock,
             body: .init(dramaId: dramaID, episodeId: episodeID), unwrapEnvelope: true)
         guard response.canWatch == true || response.unlocked == true else { throw CatalogError.episodeLocked }
+        detailCache?.invalidate(dramaID: drama.id)
         authorizePlayback(episode)
         return response
     }
 
     func hasAuthorizedPlayback(_ episode: Episode) -> Bool {
-        authorizedEpisodeIDs.contains(episode.id)
+        expireAccessIfNeeded()
+        return authorizedEpisodeIDs.contains(episode.id)
+    }
+
+    func requiresExplicitConfirmation(_ episode: Episode) -> Bool {
+        explicitConfirmationIDs.contains(episode.id)
     }
 
     /// Preserve the confirmed grant even if fetching the signed URL subsequently fails.
     /// A retry then fetches the URL without submitting another coin transaction.
-    func authorizePlayback(_ episode: Episode) {
+    func authorizePlayback(_ episode: Episode, validUntil: Date? = nil) {
         authorizedEpisodeIDs.insert(episode.id)
-        detailCache?.invalidate(dramaID: drama.id)
+        explicitConfirmationIDs.remove(episode.id)
+        accessDeadlines[episode.id] = validUntil ?? now().addingTimeInterval(PlaybackAccessPolicy.maxAge)
         guard let index = items.firstIndex(where: { $0.firstEpisode?.id == episode.id }),
-              let currentEpisode = items[index].firstEpisode, !currentEpisode.isUnlocked else { return }
+              let currentEpisode = items[index].firstEpisode else { return }
         let current = items[index]
         let authorizedEpisode = Episode(id: currentEpisode.id, number: currentEpisode.number,
             title: currentEpisode.title, requiresMembership: currentEpisode.requiresMembership,
@@ -200,12 +363,17 @@ final class DramaPlaybackStore {
             videoURL: current.videoURL, firstEpisodeLikeCount: current.firstEpisodeLikeCount,
             isFirstEpisodeLiked: current.isFirstEpisodeLiked, isFavorited: current.isFavorited,
             playbackID: current.playbackID, favoriteCount: current.favoriteCount)
+        contentRevision += 1
     }
 
     func refreshPlayableEpisode(_ episode: Episode) async throws {
+        expireAccessIfNeeded()
         if let current = items.first(where: { $0.firstEpisode?.id == episode.id }),
-           current.firstEpisode?.requiresCoinUnlock == false, current.videoURL != nil {
+           current.firstEpisode?.canPlayWithoutValidation == true, current.videoURL != nil {
             return
+        }
+        if items.first(where: { $0.firstEpisode?.id == episode.id })?.firstEpisode?.requiresAccessValidation == true {
+            throw EpisodeUnlockError.accessUnavailable
         }
         guard let dramaID = Int64(drama.id) else { throw CatalogError.notFound }
         let response: APIModels.V1GetDramaEpisodeListRes
@@ -218,7 +386,7 @@ final class DramaPlaybackStore {
         try Task.checkCancellation()
         let refreshed = Self.makeItems(response, fallback: drama, authorizedEpisodeIDs: authorizedEpisodeIDs)
         guard let item = refreshed.first(where: { $0.firstEpisode?.id == episode.id }),
-              item.videoURL != nil, item.firstEpisode?.requiresCoinUnlock == false else {
+              item.videoURL != nil, item.firstEpisode?.canPlayWithoutValidation == true else {
             throw EpisodeUnlockError.playbackUnavailable
         }
         // Keep neighboring signed URLs, players and interaction state intact.
@@ -228,6 +396,10 @@ final class DramaPlaybackStore {
                 videoURL: item.videoURL, firstEpisodeLikeCount: previous.firstEpisodeLikeCount,
                 isFirstEpisodeLiked: previous.isFirstEpisodeLiked, isFavorited: previous.isFavorited,
                 playbackID: item.playbackID, favoriteCount: previous.favoriteCount)
+            if !authorizedEpisodeIDs.contains(episode.id) {
+                accessDeadlines[episode.id] = now().addingTimeInterval(PlaybackAccessPolicy.maxAge)
+            }
+            contentRevision += 1
         }
     }
 

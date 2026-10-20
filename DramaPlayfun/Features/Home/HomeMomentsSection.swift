@@ -78,10 +78,17 @@ private struct HomeMomentCard: View {
     let isLarge: Bool
     var usesLandscapeImage = false
 
+    private var usesLandscapeCover: Bool {
+        (!isLarge || usesLandscapeImage) && moment.landscapeURL != nil
+    }
+
     var body: some View {
         Button { router.openPlayback(moment.drama) } label: {
             ZStack(alignment: .bottomLeading) {
-                CachedRemoteImage(url: isLarge && !usesLandscapeImage ? moment.drama.coverURL : moment.landscapeURL ?? moment.drama.coverURL) {
+                CachedRemoteImage(
+                    url: usesLandscapeCover ? moment.landscapeURL : moment.drama.coverURL,
+                    source: usesLandscapeCover ? .dramaLandscape(moment.drama.id) : .dramaCover(moment.drama.id)
+                ) {
                     ZStack {
                         LinearGradient(colors: [.indigo.opacity(0.6), Theme.surface], startPoint: .topLeading, endPoint: .bottomTrailing)
                         Image(systemName: "film.stack").font(.title).foregroundStyle(Theme.accent)

@@ -102,9 +102,16 @@ struct Episode: Identifiable, Hashable, Codable, Sendable {
     let unlockCoin: Int64
     let isUnlocked: Bool
     let looked: Bool?
+    var requiresAccessValidation: Bool = false
+
+    // Runtime validation state is derived from the cache timestamp on every load.
+    private enum CodingKeys: String, CodingKey {
+        case id, number, title, requiresMembership, unlockCoin, isUnlocked, looked
+    }
 
     init(id: String, number: Int, title: String, requiresMembership: Bool,
-         unlockCoin: Int64 = 0, isUnlocked: Bool = true, looked: Bool? = nil) {
+         unlockCoin: Int64 = 0, isUnlocked: Bool = true, looked: Bool? = nil,
+         requiresAccessValidation: Bool = false) {
         self.id = id
         self.number = number
         self.title = title
@@ -112,10 +119,12 @@ struct Episode: Identifiable, Hashable, Codable, Sendable {
         self.unlockCoin = unlockCoin
         self.isUnlocked = isUnlocked
         self.looked = looked
+        self.requiresAccessValidation = requiresAccessValidation
     }
 
     var displayTitle: String { title.isEmpty ? L10n.tr("第%d集", number) : title }
     var requiresCoinUnlock: Bool { unlockCoin > 0 && !isUnlocked }
+    var canPlayWithoutValidation: Bool { !requiresAccessValidation && !requiresCoinUnlock }
 }
 
 struct WatchProgress: Codable, Equatable {

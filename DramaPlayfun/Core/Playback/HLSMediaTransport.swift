@@ -19,6 +19,9 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         var rangeStart: Int64 = 0
         var validator: String?
         var retries = 0
+        var isResuming = false
+        var retryableStatus: Int?
+        let failureID = UUID()
         let authorization: HLSAuthorizationState
         let cacheScope: String?
         var cacheWriter: HLSMediaCache.Writer?
@@ -42,6 +45,28 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         let reader: HLSMediaCache.Reader
         init(group: UUID, connection: NWConnection, reader: HLSMediaCache.Reader) {
             self.group = group; self.connection = connection; self.reader = reader
+        }
+    }
+
+    private final class ManifestRequest: @unchecked Sendable {
+        private let lock = NSLock()
+        private var task: URLSessionDataTask?
+        private var cancelled = false
+
+        func install(_ task: URLSessionDataTask) {
+            lock.lock()
+            self.task = task
+            let shouldCancel = cancelled
+            lock.unlock()
+            if shouldCancel { task.cancel() }
+        }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            let task = task
+            lock.unlock()
+            task?.cancel()
         }
     }
 
@@ -101,14 +126,13 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
             serveCached(reader, group: group, connection: connection)
             return
         }
-        let task = session.dataTask(with: request)
         lock.lock()
         guard sessions[group] === session else {
             lock.unlock()
-            task.cancel()
             connection.cancel()
             return
         }
+        let task = session.dataTask(with: request)
         transfers[ObjectIdentifier(task)] = Transfer(group: group, connection: connection, task: task,
                                                 authorization: authorization, cacheScope: cacheScope)
         lock.unlock()
@@ -123,8 +147,50 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
     }
 
     func data(for request: URLRequest, group: UUID) async throws -> (Data, URLResponse) {
-        guard let session = session(for: group) else { throw URLError(.cancelled) }
-        return try await session.data(for: request)
+        for attempt in 0...2 {
+            do {
+                let result = try await manifestData(for: request, group: group)
+                if let http = result.1 as? HTTPURLResponse,
+                   HLSAuthorizationState.isTransient(status: http.statusCode), attempt < 2 {
+                    trace("manifest retry attempt=\(attempt + 1)")
+                    try await Task.sleep(for: .milliseconds(200 * (attempt + 1)))
+                    continue
+                }
+                return result
+            } catch {
+                guard HLSAuthorizationState.isTransient(error), attempt < 2 else { throw error }
+                trace("manifest retry attempt=\(attempt + 1)")
+                try await Task.sleep(for: .milliseconds(200 * (attempt + 1)))
+            }
+        }
+        throw URLError(.badServerResponse)
+    }
+
+    private func manifestData(for request: URLRequest, group: UUID) async throws -> (Data, URLResponse) {
+        let pending = ManifestRequest()
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                // Group removal and task creation use the same lock. Never create
+                // a task on a session that cancel(group:) has already invalidated.
+                lock.lock()
+                guard let session = sessions[group] else {
+                    lock.unlock()
+                    continuation.resume(throwing: URLError(.cancelled))
+                    return
+                }
+                let task = session.dataTask(with: request) { data, response, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else if let data, let response { continuation.resume(returning: (data, response)) }
+                    else { continuation.resume(throwing: URLError(.badServerResponse)) }
+                }
+                pending.install(task)
+                lock.unlock()
+                task.resume()
+            }
+        } onCancel: {
+            pending.cancel()
+        }
     }
 
     func cancel(group: UUID) {
@@ -222,13 +288,18 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         }
         transfer.authorization.record(status: http.statusCode)
         trace("media status=\(http.statusCode) length=\(http.expectedContentLength) retries=\(transfer.retries)")
-        if transfer.retries > 0 {
+        if HLSAuthorizationState.isTransient(status: http.statusCode) {
+            transfer.retryableStatus = http.statusCode
+            completionHandler(.cancel)
+            return
+        }
+        if transfer.isResuming {
             let start = transfer.rangeStart + Int64(transfer.receivedBytes)
             let end = transfer.rangeStart + transfer.expectedBytes - 1
             let range = http.value(forHTTPHeaderField: "Content-Range") ?? ""
             guard http.statusCode == 206, range.hasPrefix("bytes \(start)-\(end)/"),
                   http.expectedContentLength == transfer.expectedBytes - Int64(transfer.receivedBytes) else {
-                logger.info("media resume rejected status=\(http.statusCode)")
+                logger.info("media resume rejected status=\(http.statusCode) length=\(http.expectedContentLength) expected=\(transfer.expectedBytes - Int64(transfer.receivedBytes)) range=\(range, privacy: .public)")
                 completionHandler(.cancel)
                 return
             }
@@ -299,20 +370,34 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let transfer = transfer(for: task) else { return }
-        trace("media end code=\(error.map { ($0 as NSError).code } ?? 0) bytes=\(transfer.receivedBytes) expected=\(transfer.expectedBytes) retries=\(transfer.retries)")
-        if let error, resumeIfPossible(transfer, after: error) { return }
+        let status = transfer.retryableStatus
+        transfer.retryableStatus = nil
+        let failure: Error? = status.map {
+            NSError(domain: NSURLErrorDomain, code: URLError.badServerResponse.rawValue,
+                    userInfo: ["HTTPStatusCode": $0]) as Error
+        } ?? error
+        let hasCompleteBody = transfer.expectedBytes > 0 && Int64(transfer.receivedBytes) == transfer.expectedBytes
+        trace("media end code=\(failure.map { ($0 as NSError).code } ?? 0) bytes=\(transfer.receivedBytes) expected=\(transfer.expectedBytes) retries=\(transfer.retries)")
+        if let failure, !hasCompleteBody {
+            // AVPlayer can abandon a damaged stream before the Range retry finishes.
+            // Retain the real upstream failure so the player can classify that case.
+            transfer.authorization.recordTransientFailure(failure, requestID: transfer.failureID)
+            if retryIfPossible(transfer, after: failure) { return }
+        }
         lock.lock()
         transfers[ObjectIdentifier(task)] = nil
         lock.unlock()
         if transfer.rejected { return }
         let connection = transfer.connection
-        let hasCompleteBody = transfer.expectedBytes > 0 && Int64(transfer.receivedBytes) == transfer.expectedBytes
-        if error == nil || hasCompleteBody { transfer.cacheWriter?.finish(expectedLength: transfer.expectedBytes) }
+        if failure == nil || hasCompleteBody {
+            transfer.authorization.clearTransientFailure(requestID: transfer.failureID)
+            transfer.cacheWriter?.finish(expectedLength: transfer.expectedBytes)
+        }
         else { transfer.cacheWriter?.discard() }
-        if let error, !hasCompleteBody {
+        if let error = failure, !hasCompleteBody {
             logger.info("media failed code=\((error as NSError).code) bytes=\(transfer.receivedBytes)")
             if !transfer.sentHeaders {
-                let header = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                let header = "HTTP/1.1 \(status ?? 502) Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                 connection.send(content: Data(header.utf8), completion: .contentProcessed { _ in connection.cancel() })
             } else { connection.cancel() }
         } else {
@@ -322,32 +407,37 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         }
     }
 
-    private func resumeIfPossible(_ transfer: Transfer, after error: Error) -> Bool {
-        let code = (error as NSError).code
-        guard (error as NSError).domain == NSURLErrorDomain,
-              code == URLError.networkConnectionLost.rawValue || code == URLError.timedOut.rawValue,
-              transfer.retries == 0, transfer.sentHeaders, !transfer.rejected,
-              transfer.expectedBytes > 0, Int64(transfer.receivedBytes) < transfer.expectedBytes,
+    private func retryIfPossible(_ transfer: Transfer, after error: Error) -> Bool {
+        guard HLSAuthorizationState.isTransient(error),
+              transfer.retries < 2, !transfer.rejected,
               var request = transfer.task.originalRequest,
               let session = session(for: transfer.group) else { return false }
-        let start = transfer.rangeStart + Int64(transfer.receivedBytes)
-        let end = transfer.rangeStart + transfer.expectedBytes - 1
-        request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
-        if let validator = transfer.validator { request.setValue(validator, forHTTPHeaderField: "If-Range") }
-        let next = session.dataTask(with: request)
+        if transfer.sentHeaders {
+            guard transfer.expectedBytes > 0, Int64(transfer.receivedBytes) < transfer.expectedBytes else { return false }
+            let start = transfer.rangeStart + Int64(transfer.receivedBytes)
+            let end = transfer.rangeStart + transfer.expectedBytes - 1
+            request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
+            if let validator = transfer.validator { request.setValue(validator, forHTTPHeaderField: "If-Range") }
+        }
         lock.lock()
         guard sessions[transfer.group] === session else {
             lock.unlock()
-            next.cancel()
             return false
         }
+        let next = session.dataTask(with: request)
         transfers[ObjectIdentifier(transfer.task)] = nil
         transfer.task = next
         transfer.retries += 1
+        transfer.isResuming = transfer.sentHeaders
         transfers[ObjectIdentifier(next)] = transfer
         lock.unlock()
-        logger.info("media resume bytes=\(transfer.receivedBytes)")
-        next.resume()
+        logger.info("media retry attempt=\(transfer.retries) bytes=\(transfer.receivedBytes) range=\(transfer.isResuming)")
+        if transfer.isResuming { next.resume() }
+        else {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.2 * Double(transfer.retries)) {
+                next.resume()
+            }
+        }
         return true
     }
 }

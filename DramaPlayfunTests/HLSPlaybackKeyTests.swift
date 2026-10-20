@@ -4,6 +4,28 @@ import Network
 @testable import DramaPlayfun
 
 final class HLSPlaybackKeyTests: XCTestCase {
+    func testRecoveringOneTransferPreservesAnotherTransfersFailure() {
+        let state = HLSAuthorizationState()
+        let first = UUID()
+        let second = UUID()
+        state.recordTransientFailure(URLError(.networkConnectionLost), requestID: first)
+        state.recordTransientFailure(URLError(.timedOut), requestID: second)
+        state.clearTransientFailure(requestID: second)
+        XCTAssertEqual(state.recentTransientFailure?.code, URLError.networkConnectionLost.rawValue)
+        state.clearTransientFailure(requestID: first)
+        XCTAssertNil(state.recentTransientFailure)
+    }
+
+    func testRepeatedRetriesReplaceTheirOwnFailureAndClearTogether() {
+        let state = HLSAuthorizationState()
+        let requestID = UUID()
+        state.recordTransientFailure(URLError(.networkConnectionLost), requestID: requestID)
+        state.recordTransientFailure(URLError(.timedOut), requestID: requestID)
+        state.recordTransientFailure(URLError(.networkConnectionLost), requestID: requestID)
+        state.clearTransientFailure(requestID: requestID)
+        XCTAssertNil(state.recentTransientFailure, "Recovered retries must not leave stale failure records")
+    }
+
     @MainActor
     func testGatewayReusesEncryptedSegmentAfterTokenRotationAndServesCachedRange() async throws {
         let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
@@ -143,6 +165,8 @@ final class HLSPlaybackKeyTests: XCTestCase {
         let (_, response) = try await URLSession.shared.data(from: segmentURL)
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 403)
         XCTAssertTrue(HLSLocalGateway.authorizationExpired(for: asset))
+        XCTAssertNil(HLSLocalGateway.transientTransportFailure(for: asset),
+                     "An authorization failure must not trigger ordinary network recovery")
     }
     @MainActor
     func testScrubbingSeeksSavesProgressAndPreservesPauseState() async throws {
@@ -217,9 +241,14 @@ final class HLSPlaybackKeyTests: XCTestCase {
     }
 
     @MainActor
-    private func assertInterruptedSegment(prefixCount: Int) async throws {
+    func testGatewayResumesTwiceWithoutDuplicatingBytes() async throws {
+        try await assertInterruptedSegment(prefixCount: 4096, disconnectCount: 2)
+    }
+
+    @MainActor
+    private func assertInterruptedSegment(prefixCount: Int, disconnectCount: Int = 1) async throws {
         let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
-        let server = try HLSFixtureServer(directory: directory, disconnectMediaOnce: true,
+        let server = try HLSFixtureServer(directory: directory, disconnectMediaCount: disconnectCount,
                                          disconnectMediaPrefix: prefixCount)
         let ready = expectation(description: "Interrupted segment fixture ready")
         server.listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
@@ -247,8 +276,128 @@ final class HLSPlaybackKeyTests: XCTestCase {
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
         let expected = try Data(contentsOf: directory.appendingPathComponent("seg_00000.mpegts"))
         XCTAssertEqual(body, expected)
-        XCTAssertEqual(server.requestedPaths.filter { $0.contains("seg_00000.ts") }.count, 2)
+        XCTAssertEqual(server.requestedPaths.filter { $0.contains("seg_00000.ts") }.count, disconnectCount + 1)
         XCTAssertTrue(server.unauthorizedPaths.isEmpty)
+        for _ in 0..<50 where HLSLocalGateway.transientTransportFailure(for: asset) != nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNil(HLSLocalGateway.transientTransportFailure(for: asset),
+                     "A completed Range recovery must clear its failure signal")
+    }
+
+    @MainActor
+    func testGatewayRetriesTransientManifestAndMediaResponsesBeforeForwardingHeaders() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8"))
+            .deletingLastPathComponent()
+        let server = try HLSFixtureServer(directory: directory,
+            mediaFailureStatuses: [503], manifestFailureStatuses: [503])
+        let (asset, segmentURL) = try await segmentFromFixture(server)
+        defer { server.listener.cancel(); withExtendedLifetime(asset) {} }
+        let (body, response) = try await URLSession.shared.data(from: segmentURL)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertEqual(body, try Data(contentsOf: directory.appendingPathComponent("seg_00000.mpegts")))
+        XCTAssertEqual(server.requestedPaths.filter { $0.hasPrefix("/master.m3u8") }.count, 2)
+        XCTAssertEqual(server.requestedPaths.filter { $0 == "/seg_00000.ts" }.count, 2)
+        XCTAssertFalse(HLSLocalGateway.authorizationExpired(for: asset))
+    }
+
+    @MainActor
+    func testGatewayRetriesMediaConnectionLostBeforeHeaders() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8"))
+            .deletingLastPathComponent()
+        let server = try HLSFixtureServer(directory: directory, disconnectBeforeMediaHeadersCount: 1)
+        let (asset, segmentURL) = try await segmentFromFixture(server)
+        defer { server.listener.cancel(); withExtendedLifetime(asset) {} }
+        let (body, response) = try await URLSession.shared.data(from: segmentURL)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertEqual(body, try Data(contentsOf: directory.appendingPathComponent("seg_00000.mpegts")))
+        XCTAssertGreaterThanOrEqual(server.requestedPaths.filter { $0 == "/seg_00000.ts" }.count, 2)
+    }
+
+    @MainActor
+    func testGatewayLimitsTransientRetriesAndReportsFailureForPlayerRecovery() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8"))
+            .deletingLastPathComponent()
+        let server = try HLSFixtureServer(directory: directory, mediaFailureStatuses: [503, 503, 503, 503])
+        let (asset, segmentURL) = try await segmentFromFixture(server)
+        defer { server.listener.cancel(); withExtendedLifetime(asset) {} }
+        let (body, response) = try await URLSession.shared.data(from: segmentURL)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 503)
+        XCTAssertTrue(body.isEmpty)
+        XCTAssertEqual(server.requestedPaths.filter { $0 == "/seg_00000.ts" }.count, 3)
+        XCTAssertEqual(HLSLocalGateway.transientTransportFailure(for: asset)?.userInfo["HTTPStatusCode"] as? Int, 503)
+        XCTAssertFalse(HLSLocalGateway.authorizationExpired(for: asset))
+    }
+
+    @MainActor
+    func testGatewayReportsRepeatedInterruptedSegmentAfterRetryBudgetIsExhausted() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8"))
+            .deletingLastPathComponent()
+        let server = try HLSFixtureServer(directory: directory,
+            disconnectMediaCount: 3, disconnectMediaPrefix: 4096)
+        let (asset, segmentURL) = try await segmentFromFixture(server)
+        defer { server.listener.cancel(); withExtendedLifetime(asset) {} }
+        do {
+            _ = try await URLSession.shared.data(from: segmentURL)
+            XCTFail("An incomplete segment must fail after the bounded Range retries")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, NSURLErrorDomain)
+        }
+        XCTAssertEqual(server.requestedPaths.filter { $0 == "/seg_00000.ts" }.count, 3)
+        XCTAssertEqual(HLSLocalGateway.transientTransportFailure(for: asset)?.code,
+                       URLError.networkConnectionLost.rawValue)
+        XCTAssertFalse(HLSLocalGateway.authorizationExpired(for: asset))
+    }
+
+    @MainActor
+    func testCancellingGroupDuringManifestRetryDelayDoesNotStartAnotherRequest() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8"))
+            .deletingLastPathComponent()
+        let server = try HLSFixtureServer(directory: directory, manifestFailureStatuses: [503])
+        let ready = expectation(description: "Manifest cancellation fixture ready")
+        server.listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+        server.listener.start(queue: server.queue)
+        defer { server.listener.cancel() }
+        await fulfillment(of: [ready], timeout: 5)
+        let port = try XCTUnwrap(server.listener.port).rawValue
+        let transport = HLSMediaTransport()
+        let group = UUID()
+        transport.register(group: group)
+        defer { transport.cancel(group: group) }
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/master.m3u8")!)
+        request.setValue("fixture-token", forHTTPHeaderField: "X-Media-Token")
+        let loading = Task { try await transport.data(for: request, group: group) }
+        for _ in 0..<500 where !transport.debugEvents.contains("manifest retry attempt=1") {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertTrue(transport.debugEvents.contains("manifest retry attempt=1"))
+        transport.cancel(group: group)
+        do {
+            _ = try await loading.value
+            XCTFail("A released asset must cancel its pending manifest retry")
+        } catch {
+            XCTAssertEqual((error as NSError).code, URLError.cancelled.rawValue)
+        }
+        XCTAssertEqual(server.requestedPaths, ["/master.m3u8"])
+    }
+
+    @MainActor
+    private func segmentFromFixture(_ server: HLSFixtureServer) async throws -> (AVURLAsset, URL) {
+        let ready = expectation(description: "Retry fixture ready")
+        server.listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+        server.listener.start(queue: server.queue)
+        await fulfillment(of: [ready], timeout: 5)
+        let port = try XCTUnwrap(server.listener.port).rawValue
+        let asset = try await HLSLocalGateway.shared.asset(
+            remoteURL: URL(string: "http://127.0.0.1:\(port)/master.m3u8?X-Media-Token=fixture-token")!,
+            identity: HLSKeyIdentity(rootDramaID: 107, episodeID: 2531), secret: Data("test-secret".utf8))
+        let (master, _) = try await URLSession.shared.data(from: asset.url)
+        let playlistURL = try XCTUnwrap(String(decoding: master, as: UTF8.self).components(separatedBy: .newlines)
+            .first { $0.hasPrefix("http://") }.flatMap(URL.init(string:)))
+        let (playlist, _) = try await URLSession.shared.data(from: playlistURL)
+        let segmentURL = try XCTUnwrap(String(decoding: playlist, as: UTF8.self).components(separatedBy: .newlines)
+            .first { $0.hasPrefix("http://") }.flatMap(URL.init(string:)))
+        return (asset, segmentURL)
     }
 
     func testGatewayPreservesRangesWithChunkedMediaResponses() async throws {
@@ -504,8 +653,10 @@ private final class HLSFixtureServer {
     private var unauthorized: [String] = []
     private let mediaTailDelay: TimeInterval
     private let chunkedMedia: Bool
-    private let disconnectMediaOnce: Bool
-    private var disconnectedMedia = false
+    private var remainingMediaDisconnects: Int
+    private var disconnectBeforeMediaHeadersCount: Int
+    private var mediaFailureStatuses: [Int]
+    private var manifestFailureStatuses: [Int]
     private var sentMediaTail = false
     private let rejectMedia: Bool
     private let acceptedTokens: Set<String>
@@ -532,13 +683,18 @@ private final class HLSFixtureServer {
     }
 
     init(directory: URL, mediaTailDelay: TimeInterval = 0, chunkedMedia: Bool = false,
-         disconnectMediaOnce: Bool = false, rejectMedia: Bool = false,
+         disconnectMediaCount: Int = 0, rejectMedia: Bool = false,
          acceptedTokens: Set<String> = ["fixture-token"], signedMediaReferences: Bool = false,
-         disconnectMediaPrefix: Int? = nil, mediaBodyOverride: Data? = nil) throws {
+         disconnectMediaPrefix: Int? = nil, mediaBodyOverride: Data? = nil,
+         mediaFailureStatuses: [Int] = [], manifestFailureStatuses: [Int] = [],
+         disconnectBeforeMediaHeadersCount: Int = 0) throws {
         self.directory = directory
         self.mediaTailDelay = mediaTailDelay
         self.chunkedMedia = chunkedMedia
-        self.disconnectMediaOnce = disconnectMediaOnce
+        self.remainingMediaDisconnects = disconnectMediaCount
+        self.disconnectBeforeMediaHeadersCount = disconnectBeforeMediaHeadersCount
+        self.mediaFailureStatuses = mediaFailureStatuses
+        self.manifestFailureStatuses = manifestFailureStatuses
         self.rejectMedia = rejectMedia
         self.acceptedTokens = acceptedTokens
         self.signedMediaReferences = signedMediaReferences
@@ -566,6 +722,24 @@ private final class HLSFixtureServer {
                                "subtitle-master.m3u8", "subtitle-zh.m3u8", "subtitle-en.m3u8",
                                "subtitle-zh.vtt", "subtitle-en.vtt"]
                 let path = String(name.dropFirst()).components(separatedBy: "?")[0]
+                if authorized {
+                    self.lock.lock()
+                    let disconnectBeforeHeaders = path.hasSuffix(".ts") && self.disconnectBeforeMediaHeadersCount > 0
+                    if disconnectBeforeHeaders { self.disconnectBeforeMediaHeadersCount -= 1 }
+                    let failureStatus: Int?
+                    if path.hasSuffix(".ts"), !self.mediaFailureStatuses.isEmpty {
+                        failureStatus = self.mediaFailureStatuses.removeFirst()
+                    } else if path.hasSuffix(".m3u8"), !self.manifestFailureStatuses.isEmpty {
+                        failureStatus = self.manifestFailureStatuses.removeFirst()
+                    } else { failureStatus = nil }
+                    self.lock.unlock()
+                    if disconnectBeforeHeaders { connection.cancel(); return }
+                    if let failureStatus {
+                        let header = "HTTP/1.1 \(failureStatus) Temporary Failure\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        connection.send(content: Data(header.utf8), completion: .contentProcessed { _ in connection.cancel() })
+                        return
+                    }
+                }
                 let fixtureName = path.hasSuffix(".ts")
                     ? path.replacingOccurrences(of: ".ts", with: ".mpegts") : path
                 let file = authorized && allowed.contains(path)
@@ -595,8 +769,8 @@ private final class HLSFixtureServer {
                 if let contentRange { header += "Content-Range: \(contentRange)\r\n" }
                 header += "Connection: close\r\n\r\n"
                 self.lock.lock()
-                let disconnect = self.disconnectMediaOnce && !self.disconnectedMedia && path.hasSuffix(".ts") && file != nil
-                if disconnect { self.disconnectedMedia = true }
+                let disconnect = self.remainingMediaDisconnects > 0 && path.hasSuffix(".ts") && file != nil
+                if disconnect { self.remainingMediaDisconnects -= 1 }
                 self.lock.unlock()
                 if disconnect {
                     let prefix = min(self.disconnectMediaPrefix ?? body.count / 2, body.count - 1)

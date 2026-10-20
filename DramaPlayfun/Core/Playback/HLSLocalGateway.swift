@@ -8,6 +8,7 @@ import OSLog
 nonisolated final class HLSAuthorizationState: @unchecked Sendable {
     private let lock = NSLock()
     private var expired = false
+    private var transientFailures: [UUID: (error: NSError, recordedAt: Date)] = [:]
     var isExpired: Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -18,6 +19,50 @@ nonisolated final class HLSAuthorizationState: @unchecked Sendable {
         lock.lock()
         expired = true
         lock.unlock()
+    }
+
+    var recentTransientFailure: NSError? {
+        lock.lock()
+        defer { lock.unlock() }
+        pruneTransientFailures()
+        return transientFailures.values.max { $0.recordedAt < $1.recordedAt }?.error
+    }
+
+    func recordTransientFailure(_ error: Error, requestID: UUID) {
+        guard Self.isTransient(error) else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        pruneTransientFailures()
+        // Retries retain their request ID, replacing their own evidence. One
+        // successful stream must never erase a different stream's failure.
+        transientFailures[requestID] = (error as NSError, Date())
+        if transientFailures.count > 32,
+           let oldest = transientFailures.min(by: { $0.value.recordedAt < $1.value.recordedAt })?.key {
+            transientFailures[oldest] = nil
+        }
+    }
+
+    func clearTransientFailure(requestID: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+        transientFailures[requestID] = nil
+    }
+
+    private func pruneTransientFailures() {
+        let now = Date()
+        transientFailures = transientFailures.filter { now.timeIntervalSince($0.value.recordedAt) < 30 }
+    }
+
+    static func isTransient(status: Int) -> Bool {
+        [408, 429, 500, 502, 503, 504].contains(status)
+    }
+
+    static func isTransient(_ error: Error) -> Bool {
+        let error = error as NSError
+        guard error.domain == NSURLErrorDomain else { return false }
+        if let status = error.userInfo["HTTPStatusCode"] as? Int { return isTransient(status: status) }
+        return [URLError.networkConnectionLost.rawValue, URLError.timedOut.rawValue,
+                URLError.cannotConnectToHost.rawValue, URLError.dnsLookupFailed.rawValue].contains(error.code)
     }
 }
 
@@ -97,6 +142,10 @@ final class HLSLocalGateway: @unchecked Sendable {
 
     static func authorizationExpired(for asset: AVAsset) -> Bool {
         (objc_getAssociatedObject(asset, &leaseKey) as? Lease)?.authorization.isExpired == true
+    }
+
+    static func transientTransportFailure(for asset: AVAsset) -> NSError? {
+        (objc_getAssociatedObject(asset, &leaseKey) as? Lease)?.authorization.recentTransientFailure
     }
 
     static func mediaToken(from url: URL) -> String? {
@@ -234,6 +283,7 @@ final class HLSLocalGateway: @unchecked Sendable {
                                  authorization: route.authorization, cacheScope: route.cacheScope)
             return
         }
+        let requestID = UUID()
         do {
             let started = Date()
             upstream.timeoutInterval = 20
@@ -243,6 +293,9 @@ final class HLSLocalGateway: @unchecked Sendable {
             route.authorization.record(status: http.statusCode)
             logger.debug("manifest status=\(http.statusCode) bytes=\(body.count) ms=\(Int(Date().timeIntervalSince(started) * 1000))")
             guard (200..<300).contains(http.statusCode) else {
+                route.authorization.recordTransientFailure(NSError(domain: NSURLErrorDomain,
+                    code: URLError.badServerResponse.rawValue, userInfo: ["HTTPStatusCode": http.statusCode]),
+                    requestID: requestID)
                 send(Data(), status: http.statusCode, contentType: "text/plain", to: connection)
                 return
             }
@@ -253,6 +306,7 @@ final class HLSLocalGateway: @unchecked Sendable {
             send(Data(rewritten.utf8), status: 200,
                  contentType: "application/vnd.apple.mpegurl", to: connection)
         } catch {
+            route.authorization.recordTransientFailure(error, requestID: requestID)
             logger.info("manifest failed code=\((error as NSError).code)")
             trace("upstream failed")
             send(Data(), status: 502, contentType: "text/plain", to: connection)

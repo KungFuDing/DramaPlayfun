@@ -130,6 +130,35 @@ final class PlaybackRenewalTests: XCTestCase {
         guard case .unavailable = pool.states["1"] else { return XCTFail("Network failure must be surfaced") }
     }
 
+    func testTransientStartupFailureRetriesOnlyOnceWithoutRefreshingAuthorization() async throws {
+        var requests = 0
+        var loads = 0
+        let pool = TheaterPlayerPool(library: LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            cache: .shared, assetLoader: { _ in loads += 1; throw URLError(.networkConnectionLost) },
+            refreshURLs: { item in requests += 1; return [item] })
+        defer { pool.reset() }
+        pool.update(items: [item()], selectedID: "1", visible: true)
+        for _ in 0..<100 where loads < 2 { try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(loads, 2)
+        XCTAssertEqual(requests, 0)
+        guard case .unavailable = pool.states["1"] else {
+            return XCTFail("A repeated transient failure must stop instead of looping")
+        }
+    }
+
+    func testCancellationDoesNotRetryOrRefreshAuthorization() async throws {
+        var requests = 0
+        var loads = 0
+        let pool = TheaterPlayerPool(library: LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            cache: .shared, assetLoader: { _ in loads += 1; throw URLError(.cancelled) },
+            refreshURLs: { item in requests += 1; return [item] })
+        defer { pool.reset() }
+        pool.update(items: [item()], selectedID: "1", visible: true)
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(50))
+        XCTAssertEqual(loads, 1)
+        XCTAssertEqual(requests, 0)
+    }
+
     func testClosingDuringRenewalDiscardsLateResponse() async throws {
         var requests = 0
         var loads = 0

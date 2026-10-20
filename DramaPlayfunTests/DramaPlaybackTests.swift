@@ -225,6 +225,316 @@ final class DramaPlaybackTests: XCTestCase {
         XCTAssertEqual(restoredPlayer.rate, 0)
     }
 
+    func testTransientFailureNotificationRebuildsSameSourceAndPreservesPausedPosition() async throws {
+        let fixture = try XCTUnwrap(Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4"))
+        var loadedURLs: [URL?] = []
+        var refreshes = 0
+        let pool = TheaterPlayerPool(
+            library: LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            cache: .shared, assetLoader: { item in
+                loadedURLs.append(item.videoURL)
+                return AVURLAsset(url: fixture)
+            }, refreshURLs: { item in refreshes += 1; return [item] })
+        defer { pool.reset() }
+        let item = makePlaybackItem(number: 1)
+        pool.update(items: [item], selectedID: item.id, visible: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        pool.toggle()
+        XCTAssertTrue(pool.isPaused)
+        let finished = await player.seek(to: CMTime(seconds: 24, preferredTimescale: 600),
+                                         toleranceBefore: .zero, toleranceAfter: .zero)
+        XCTAssertTrue(finished)
+        let originalItem = try XCTUnwrap(player.currentItem)
+        XCTAssertEqual(originalItem.preferredPeakBitRate, 0, "Normal foreground playback keeps automatic bitrate")
+
+        postTransientFailure(for: originalItem)
+        try await waitForReplacement(in: pool, id: item.id, previousItem: originalItem)
+        XCTAssertEqual(loadedURLs, [item.videoURL, item.videoURL])
+        XCTAssertEqual(refreshes, 0, "A dropped connection must not renew otherwise valid authorization")
+        XCTAssertTrue(pool.player(for: item.id) === player)
+        XCTAssertTrue(pool.isPaused, "Recovery must honor a user pause")
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertEqual(player.currentTime().seconds, 24, accuracy: 0.1,
+                       "Recovery must keep progress even without an explicit initial position")
+        XCTAssertEqual(player.currentItem?.preferredPeakBitRate, 800_000,
+                       "A recovered item must start with a conservative bitrate")
+
+        postTransientFailure(for: originalItem)
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(100))
+        XCTAssertEqual(loadedURLs.count, 2, "A late notification from the discarded item must be ignored")
+        XCTAssertEqual(pool.states[item.id], .ready)
+
+        postTransientFailure(for: try XCTUnwrap(player.currentItem))
+        let deadline = Date().addingTimeInterval(2)
+        while pool.states[item.id] == .ready, Date() < deadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        guard case .unavailable = pool.states[item.id] else {
+            return XCTFail("A second failure without healthy playback must stop automatic recovery")
+        }
+        XCTAssertEqual(loadedURLs.count, 2)
+        XCTAssertEqual(refreshes, 0)
+    }
+
+    func testRecoveryBitrateLimitSurvivesPauseScrubbingAndReturningToEpisode() async throws {
+        let (pool, first) = try makePositionedPool(PlaybackPosition(episodeNumber: 1, seconds: 5), savedSeconds: 0)
+        defer { pool.reset() }
+        let second = makePlaybackItem(number: 2)
+        let items = [first, second]
+        pool.update(items: items, selectedID: first.id, visible: true)
+        let player = try await preparedPlayer(in: pool, for: first.id)
+        let originalItem = try XCTUnwrap(player.currentItem)
+        postTransientFailure(for: originalItem)
+        try await waitForReplacement(in: pool, id: first.id, previousItem: originalItem)
+        pool.toggle()
+        XCTAssertTrue(pool.isPaused)
+        XCTAssertTrue(pool.beginScrubbing(first.id))
+        pool.endScrubbing(first.id, fraction: 0.2)
+        let deadline = Date().addingTimeInterval(5)
+        while pool.isScrubbing, Date() < deadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        XCTAssertFalse(pool.isScrubbing)
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertEqual(player.currentItem?.preferredPeakBitRate, 800_000)
+
+        pool.update(items: items, selectedID: second.id, visible: true)
+        let secondPlayer = try await preparedPlayer(in: pool, for: second.id)
+        XCTAssertEqual(secondPlayer.currentItem?.preferredPeakBitRate, 0,
+                       "Recovery must not limit an unrelated episode")
+        pool.update(items: items, selectedID: first.id, visible: true)
+        XCTAssertEqual(player.currentItem?.preferredPeakBitRate, 800_000,
+                       "Returning to a retained episode must keep its recovery limit")
+        pool.reset()
+        pool.update(items: [first], selectedID: first.id, visible: true)
+        let freshPlayer = try await preparedPlayer(in: pool, for: first.id)
+        XCTAssertEqual(freshPlayer.currentItem?.preferredPeakBitRate, 0,
+                       "Releasing the episode clears its temporary recovery policy")
+    }
+
+    func testRecoveryBitrateRequiresContinuousHealthyPlaybackBeforeReturningToAutomatic() async throws {
+        var now = Date(timeIntervalSince1970: 1_000)
+        var samples = 0
+        let (pool, item) = try makePositionedPool(PlaybackPosition(episodeNumber: 1, seconds: 0), savedSeconds: 0,
+            recoveryClock: { samples += 1; return now })
+        defer { pool.reset() }
+        pool.update(items: [item], selectedID: item.id, visible: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        let originalItem = try XCTUnwrap(player.currentItem)
+        postTransientFailure(for: originalItem)
+        try await waitForReplacement(in: pool, id: item.id, previousItem: originalItem)
+        let recoveredItem = try XCTUnwrap(player.currentItem)
+        let resolution = CGSize(width: 1280, height: 720)
+        recoveredItem.preferredMaximumResolution = resolution
+        try await waitForRecoverySample { samples > 0 }
+
+        pool.toggle()
+        now += 60
+        pool.toggle()
+        var previousSamples = samples
+        try await waitForRecoverySample { samples > previousSamples }
+        XCTAssertEqual(recoveredItem.preferredPeakBitRate, 800_000,
+                       "Time spent paused must not count as healthy playback")
+
+        now += 14
+        previousSamples = samples
+        try await waitForRecoverySample { samples > previousSamples }
+        XCTAssertEqual(recoveredItem.preferredPeakBitRate, 800_000)
+        now += 1
+        previousSamples = samples
+        try await waitForRecoverySample { samples > previousSamples }
+        XCTAssertEqual(recoveredItem.preferredPeakBitRate, 0,
+                       "Fifteen continuous healthy seconds with a full buffer restore automatic bitrate")
+        XCTAssertEqual(recoveredItem.preferredMaximumResolution, resolution,
+                       "The user's resolution setting must remain independent from recovery bitrate")
+    }
+
+    private func waitForRecoverySample(_ predicate: () -> Bool,
+                                       file: StaticString = #filePath, line: UInt = #line) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while !predicate(), Date() < deadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(predicate(), "Healthy playback must be sampled", file: file, line: line)
+    }
+
+    func testTransientFailureRecoveryResumesForegroundPlayback() async throws {
+        let (pool, item) = try makePositionedPool(PlaybackPosition(episodeNumber: 2, seconds: 17),
+                                                 savedSeconds: 40)
+        defer { pool.reset() }
+        pool.update(items: [item], selectedID: item.id, visible: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        let originalItem = try XCTUnwrap(player.currentItem)
+        postTransientFailure(for: originalItem)
+        try await waitForReplacement(in: pool, id: item.id, previousItem: originalItem)
+        let deadline = Date().addingTimeInterval(2)
+        while player.timeControlStatus != .playing, Date() < deadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(player.timeControlStatus, .playing)
+        XCTAssertFalse(pool.isPaused)
+        XCTAssertGreaterThanOrEqual(player.currentTime().seconds, 17)
+    }
+
+    func testClosingDuringTransientRecoveryDiscardsLateAsset() async throws {
+        let fixture = try XCTUnwrap(Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4"))
+        var loads = 0
+        let pool = TheaterPlayerPool(
+            library: LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            cache: .shared, assetLoader: { _ in
+                loads += 1
+                if loads == 2 { try? await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(200)) }
+                return AVURLAsset(url: fixture)
+            })
+        defer { pool.reset() }
+        let item = makePlaybackItem(number: 1)
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        postTransientFailure(for: try XCTUnwrap(player.currentItem))
+        let deadline = Date().addingTimeInterval(2)
+        while loads < 2, Date() < deadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(loads, 2)
+        pool.reset()
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(250))
+        XCTAssertTrue(pool.states.isEmpty)
+        XCTAssertEqual(pool.playerCount, 0)
+        XCTAssertNil(pool.currentID)
+    }
+
+    func testManualRetryKeepsProgressWhenAutomaticRecoveryCannotPrepare() async throws {
+        let fixture = try XCTUnwrap(Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4"))
+        var loads = 0
+        let pool = TheaterPlayerPool(
+            library: LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            cache: .shared, assetLoader: { _ in
+                loads += 1
+                if loads == 2 { throw URLError(.notConnectedToInternet) }
+                return AVURLAsset(url: fixture)
+            }, refreshURLs: { [$0] })
+        defer { pool.reset() }
+        let item = makePlaybackItem(number: 1)
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        let finished = await player.seek(to: CMTime(seconds: 24, preferredTimescale: 600),
+                                         toleranceBefore: .zero, toleranceAfter: .zero)
+        XCTAssertTrue(finished)
+        postTransientFailure(for: try XCTUnwrap(player.currentItem))
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if case .unavailable = pool.states[item.id] { break }
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(loads, 2)
+        XCTAssertNil(player.currentItem)
+        pool.retry(item.id)
+        _ = try await preparedPlayer(in: pool, for: item.id)
+        XCTAssertEqual(loads, 3)
+        XCTAssertEqual(player.currentTime().seconds, 24, accuracy: 0.1,
+                       "A failed rebuild must not replace the last playback position with zero")
+    }
+
+    func testCoreMediaFailureWithoutTransportEvidenceDoesNotAutomaticallyRebuild() async throws {
+        let (pool, item) = try makePositionedPool(PlaybackPosition(episodeNumber: 2, seconds: 17),
+                                                 savedSeconds: 40)
+        defer { pool.reset() }
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        let playerItem = try XCTUnwrap(player.currentItem)
+        let error = NSError(domain: AVFoundationErrorDomain, code: AVError.unknown.rawValue,
+            userInfo: [NSUnderlyingErrorKey: NSError(domain: "CoreMediaErrorDomain", code: -16046)])
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: playerItem,
+            userInfo: [AVPlayerItemFailedToPlayToEndTimeErrorKey: error])
+        let deadline = Date().addingTimeInterval(2)
+        while pool.states[item.id] == .ready, Date() < deadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        guard case .unavailable = pool.states[item.id] else {
+            return XCTFail("A CoreMedia error alone does not prove a recoverable network failure")
+        }
+        XCTAssertTrue(player.currentItem === playerItem)
+    }
+
+    func testPlayerSegmentTimeoutNotificationRecoversBeforeTransportTimeout() async throws {
+        var refreshes = 0
+        let (pool, item) = try makePositionedPool(PlaybackPosition(episodeNumber: 2, seconds: 17), savedSeconds: 0,
+            refreshURLs: { refreshes += 1; return [$0] })
+        defer { pool.reset() }
+        pool.update(items: [item], selectedID: item.id, visible: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        let originalItem = try XCTUnwrap(player.currentItem)
+        let error = NSError(domain: AVFoundationErrorDomain, code: AVError.unknown.rawValue,
+            userInfo: [NSUnderlyingErrorKey: NSError(domain: "CoreMediaErrorDomain", code: -12889)])
+        XCTAssertNil(HLSLocalGateway.transientTransportFailure(for: originalItem.asset))
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: originalItem,
+            userInfo: [AVPlayerItemFailedToPlayToEndTimeErrorKey: error])
+        try await waitForReplacement(in: pool, id: item.id, previousItem: originalItem)
+        XCTAssertEqual(refreshes, 0)
+        XCTAssertGreaterThanOrEqual(player.currentTime().seconds, 17)
+        XCTAssertEqual(player.currentItem?.preferredPeakBitRate, 800_000)
+    }
+
+    func testPlayerErrorLogRecoveryRequiresRecentNetworkEvidence() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        func recoverable(_ domain: String = "CoreMediaErrorDomain", code: Int = -12889,
+                         age: TimeInterval? = 1, latest: Bool = true) -> Bool {
+            TheaterPlayerPool.isRecentTransientPlaybackLog(domain: domain, code: code,
+                date: age.map { now.addingTimeInterval(-$0) }, isLatest: latest, now: now)
+        }
+        XCTAssertTrue(recoverable(latest: false), "A recent segment timeout can precede the final parser error")
+        XCTAssertTrue(recoverable(NSURLErrorDomain, code: URLError.networkConnectionLost.rawValue))
+        XCTAssertFalse(recoverable(age: 31), "An old recovered timeout cannot justify an unrelated later failure")
+        XCTAssertFalse(recoverable(age: -1))
+        XCTAssertTrue(recoverable(age: nil))
+        XCTAssertFalse(recoverable(age: nil, latest: false))
+        XCTAssertFalse(recoverable(code: -16046))
+        XCTAssertFalse(recoverable(code: -15628))
+        XCTAssertFalse(recoverable(NSURLErrorDomain, code: -12889))
+        XCTAssertFalse(recoverable(NSURLErrorDomain, code: URLError.cancelled.rawValue))
+    }
+
+    func testTransientFailureDoesNotStartLockedEpisode() async throws {
+        let fixture = try XCTUnwrap(Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4"))
+        var loads = 0
+        let pool = TheaterPlayerPool(
+            library: LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            cache: .shared, assetLoader: { _ in loads += 1; return AVURLAsset(url: fixture) })
+        defer { pool.reset() }
+        let item = TheaterFeedItem(drama: makeDrama(),
+            firstEpisode: Episode(id: "1006", number: 6, title: "", requiresMembership: false,
+                                  unlockCoin: 20, isUnlocked: false),
+            videoURL: URL(string: "https://example.invalid/6.m3u8"), firstEpisodeLikeCount: 0,
+            isFirstEpisodeLiked: false, isFavorited: false, playbackID: "1006")
+        pool.update(items: [item], selectedID: item.id, visible: false, preparationActive: true)
+        let player = try await preparedPlayer(in: pool, for: item.id)
+        postTransientFailure(for: try XCTUnwrap(player.currentItem))
+        try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(100))
+        XCTAssertEqual(loads, 1)
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertTrue(player.isMuted)
+        guard case .unavailable = pool.states[item.id] else {
+            return XCTFail("Recovery must not start a player whose access is unconfirmed")
+        }
+    }
+
+    private func postTransientFailure(for item: AVPlayerItem) {
+        let error = NSError(domain: AVFoundationErrorDomain, code: AVError.unknown.rawValue,
+            userInfo: [NSUnderlyingErrorKey: URLError(.networkConnectionLost)])
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: item,
+            userInfo: [AVPlayerItemFailedToPlayToEndTimeErrorKey: error])
+    }
+
+    private func waitForReplacement(in pool: TheaterPlayerPool, id: String, previousItem: AVPlayerItem,
+                                    file: StaticString = #filePath, line: UInt = #line) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while (pool.states[id] != .ready || pool.player(for: id)?.currentItem === previousItem), Date() < deadline {
+            try await _Concurrency.Task<Never, Never>.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(pool.states[id], .ready, file: file, line: line)
+        XCTAssertFalse(pool.player(for: id)?.currentItem === previousItem, file: file, line: line)
+    }
+
     func testSessionPositionSurvivesResetAfterSelectingAnotherEpisode() async throws {
         let (pool, target) = try makePositionedPool(PlaybackPosition(episodeNumber: 2, seconds: 17),
                                                    savedSeconds: 40)
@@ -290,7 +600,8 @@ final class DramaPlaybackTests: XCTestCase {
     }
 
     private func makePositionedPool(_ position: PlaybackPosition, savedSeconds: Double,
-                                   refreshURLs: ((TheaterFeedItem) async throws -> [TheaterFeedItem])? = nil) throws
+                                   refreshURLs: ((TheaterFeedItem) async throws -> [TheaterFeedItem])? = nil,
+                                   recoveryClock: @escaping () -> Date = Date.init) throws
         -> (TheaterPlayerPool, TheaterFeedItem) {
         let item = makePlaybackItem(number: position.episodeNumber)
         let library = LibraryStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
@@ -298,7 +609,8 @@ final class DramaPlaybackTests: XCTestCase {
             episodeNumber: position.episodeNumber, seconds: savedSeconds, duration: 60, updatedAt: Date()))
         let url = try XCTUnwrap(Bundle.main.url(forResource: "PlaybackProgressFixture", withExtension: "mp4"))
         let pool = TheaterPlayerPool(library: library, cache: .shared, resumesProgress: false,
-            initialPosition: position, assetLoader: { _ in AVURLAsset(url: url) }, refreshURLs: refreshURLs)
+            initialPosition: position, assetLoader: { _ in AVURLAsset(url: url) }, refreshURLs: refreshURLs,
+            recoveryClock: recoveryClock)
         return (pool, item)
     }
 

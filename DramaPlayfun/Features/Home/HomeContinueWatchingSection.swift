@@ -34,6 +34,7 @@ struct HomeContinueWatchingSection: View {
                                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cornerRadius))
                             }
                             .buttonStyle(.plain)
+                            .playbackPrefetchCandidate(dramaID: item.drama.id, enabled: item.isOnline)
                             .accessibilityIdentifier("history-\(item.id)")
                             .disabled(!item.isOnline)
                             .onAppear {
@@ -50,6 +51,7 @@ struct HomeContinueWatchingSection: View {
                         }
                     }
                 }
+                .playbackPrefetchClipped()
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("home-continue-watching")

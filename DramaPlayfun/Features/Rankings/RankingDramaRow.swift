@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct RankingDramaRow: View {
+    @Environment(AppRouter.self) private var router
     let drama: Drama
     let rank: Int
     let posterWidth: CGFloat
@@ -8,7 +9,7 @@ struct RankingDramaRow: View {
     private var scale: CGFloat { posterWidth / 95 }
 
     var body: some View {
-        NavigationLink(value: AppRoute.drama(drama)) {
+        Button { router.openPlayback(drama) } label: {
             HStack(alignment: .top, spacing: 10 * scale) {
                 CachedRemoteImage(url: drama.coverURL) {
                     ZStack {

@@ -2,6 +2,7 @@ import Foundation
 import Moya
 import Alamofire
 import CleanJSON
+import CryptoKit
 
 nonisolated struct APIEndpoint<Request: Encodable, Response: Decodable>: Sendable {
     let path: String
@@ -79,6 +80,7 @@ final class APIClient {
     private var serverEncryptionEnabled: Bool?
     private var encryptionConfigurationTask: _Concurrency.Task<Bool, Error>?
     private var accessToken: String?
+    private var accountID: String?
     private var deviceIdentifier: String?
 
     var appVersion: String { clientMetadata.appVersion }
@@ -107,7 +109,21 @@ final class APIClient {
 
     func setDeviceIdentifier(_ identifier: String) { deviceIdentifier = identifier }
 
-    func setAccessToken(_ token: String) { accessToken = token }
+    func setAccessToken(_ token: String, accountID: String? = nil) {
+        accessToken = token
+        self.accountID = token.isEmpty ? nil : accountID
+    }
+
+    /// A stable server account survives token renewal; older servers fall back to
+    /// the credential itself. Credentials never appear in cache filenames.
+    var playbackCacheScope: String {
+        let baseURL = (try? configuration ?? APIConfiguration.fromBundle())?.baseURL.absoluteString ?? ""
+        let authorization = headers(for: AppAPI.v1ClientDramaEpisodeList.path, networkLocation: nil)
+            .first { $0.key.lowercased() == "authorization" }?.value ?? ""
+        let identity = accountID.flatMap { $0.isEmpty ? nil : "account:\($0)" } ?? "credential:\(authorization)"
+        let data = (try? JSONEncoder().encode([baseURL, identity, deviceIdentifier ?? "", AppLanguage.current.rawValue])) ?? Data()
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
 
     func reloadTransportEncryptionConfiguration() async throws {
         guard usesServerEncryptionConfiguration else { return }

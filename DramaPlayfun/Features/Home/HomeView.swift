@@ -5,6 +5,7 @@ struct HomeView: View {
     @Environment(AppRouter.self) private var router
     @State private var scrollOffset: CGFloat = 0
     @State private var categoryContentY: CGFloat = .greatestFiniteMagnitude
+    @State private var controlsHeight: CGFloat = 52
 
     var body: some View {
         @Bindable var categories = app.homeCategories
@@ -99,7 +100,14 @@ struct HomeView: View {
             ) {
                 router.paths[.home, default: []].append(.welfare)
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
         }
+        .playbackDetailPrefetch(
+            active: router.selectedTab == .home && router.paths[.home, default: []].isEmpty
+                && !router.membershipPresented,
+            categoryID: categories.selectedID,
+            obscuredTop: controlsHeight
+        )
     }
 }
 
@@ -149,6 +157,7 @@ private struct HomeCategoryPager: View {
                 HStack(alignment: .top, spacing: 0) {
                     ForEach(tabs) { category in
                         HomeCategoryContent(category: category, layout: layout)
+                            .playbackPrefetchEligible(category.id == selection)
                             .frame(width: geometry.size.width, alignment: .topLeading)
                             .fixedSize(horizontal: false, vertical: true)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
@@ -165,6 +174,7 @@ private struct HomeCategoryPager: View {
             .scrollIndicators(.hidden)
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: pagePosition, anchor: .leading)
+            .playbackPrefetchClipped()
             .accessibilityIdentifier("home-category-pages")
             .accessibilityValue(tabs.first(where: { $0.id == selection })?.displayTitle ?? "")
         }
@@ -265,6 +275,7 @@ private struct HomeBannerCarousel: View {
                 TabView(selection: $selectedIndex) {
                     ForEach(Array(banners.enumerated()), id: \.element.id) { index, banner in
                         HomeBannerPage(banner: banner, height: layout.bannerVisualHeight)
+                            .playbackPrefetchCandidate(dramaID: banner.drama.id, enabled: index == selectedIndex)
                             .tag(index)
                     }
                 }
@@ -292,6 +303,7 @@ private struct HomeBannerCarousel: View {
         }
         .frame(width: layout.bannerWidth, height: layout.bannerVisualHeight)
         .clipped()
+        .playbackPrefetchClipped()
         .onChange(of: banners.map(\.id), initial: true) { _, _ in
             selectedIndex = 0
         }
@@ -439,10 +451,12 @@ private struct HomeDramaShelf: View {
                 LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(dramas) { drama in
                         DramaCard(drama: drama, onSelect: { router.openPlayback(drama) }).frame(width: cardWidth)
+                            .playbackPrefetchCandidate(dramaID: drama.id)
                             .accessibilityIdentifier("home-shelf-item-\(drama.id)")
                     }
                 }
             }
+            .playbackPrefetchClipped()
         }
     }
 }
@@ -508,6 +522,7 @@ private struct HomeWaterfallCard: View {
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cornerRadius))
         }
         .buttonStyle(.plain)
+        .playbackPrefetchCandidate(dramaID: drama.id)
         .accessibilityIdentifier("home-drama-item-\(drama.id)")
     }
 }

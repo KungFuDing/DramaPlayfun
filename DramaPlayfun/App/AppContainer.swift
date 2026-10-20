@@ -18,6 +18,7 @@ final class AppContainer {
     let guestSession: GuestSessionStore
     let appUpdate: AppUpdateStore
     let repository: any DramaRepository
+    let playbackDetails: PlaybackDetailCache
     private(set) var catalog: CatalogStore
     private(set) var homeCategories: DramaTabFeedStore
     private(set) var rankings: DramaTabFeedStore
@@ -86,15 +87,17 @@ final class AppContainer {
         let wallet = WalletStore(network: self.network, profile: profile)
         self.wallet = wallet
         welfare = WelfareStore(network: self.network, wallet: wallet)
+        let playbackDetails = PlaybackDetailCache(network: self.network)
+        self.playbackDetails = playbackDetails
         let repository = repository ?? APIDramaRepository(network: self.network,
-                                                          fallback: DemoDramaRepository())
+            fallback: DemoDramaRepository(), detailCache: playbackDetails)
         self.repository = repository
         catalog = CatalogStore(repository: repository)
         homeCategories = DramaTabFeedStore(network: self.network, source: .homeTags)
         rankings = DramaTabFeedStore(network: self.network, source: .rankings)
         watchHistory = WatchHistoryStore(network: self.network)
         homeFeed = HomeFeedStore(network: self.network)
-        let theaterFeed = TheaterFeedStore(network: self.network)
+        let theaterFeed = TheaterFeedStore(network: self.network, detailCache: playbackDetails)
         self.theaterFeed = theaterFeed
         library = LibraryStore(defaults: defaults)
         #if DEBUG
@@ -118,6 +121,7 @@ final class AppContainer {
         membership = MembershipStore(service: subscriptionService)
         purchaseBackend.didUpdateAssets = { [weak self] balance in
             guard let self else { return }
+            await self.playbackDetails.clear()
             if let balance { self.wallet.updateBalance(balance) }
             await self.profile.reloadProfile()
             await self.wallet.reloadBalance()
@@ -135,7 +139,7 @@ final class AppContainer {
         rankings = DramaTabFeedStore(network: network, source: .rankings)
         watchHistory = WatchHistoryStore(network: network)
         homeFeed = HomeFeedStore(network: network)
-        theaterFeed = TheaterFeedStore(network: network)
+        theaterFeed = TheaterFeedStore(network: network, detailCache: playbackDetails)
         profile = ProfileStore(network: network)
         wallet = WalletStore(network: network, profile: profile)
         welfare = WelfareStore(network: network, wallet: wallet)

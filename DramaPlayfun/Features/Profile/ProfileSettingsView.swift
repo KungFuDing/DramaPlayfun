@@ -83,12 +83,14 @@ struct ProfileSettingsView: View {
     private func updateCacheSize() async {
         let imageBytes = (try? await ImageCache.default.diskStorageSize) ?? 0
         let mediaBytes = await Task.detached(priority: .utility) { HLSMediaCache.shared.diskSize }.value
-        cacheBytes = imageBytes + mediaBytes
+        let detailBytes = await app.playbackDetails.diskSize()
+        cacheBytes = imageBytes + mediaBytes + detailBytes
     }
 
     private func clearCache() async {
         guard !clearingCache else { return }
         clearingCache = true
+        await app.playbackDetails.clear()
         ImageCache.default.clearMemoryCache()
         await withCheckedContinuation { continuation in
             ImageCache.default.clearDiskCache { continuation.resume() }

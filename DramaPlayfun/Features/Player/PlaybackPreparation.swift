@@ -17,7 +17,7 @@ final class PlaybackPreparation {
 
     convenience init(drama: Drama, app: AppContainer) {
         let store = DramaPlaybackStore(drama: drama, network: app.network,
-            repository: app.repository, library: app.library)
+            repository: app.repository, library: app.library, detailCache: app.playbackDetails)
         let playback = TheaterPlayerPool(library: app.library, cache: app.hlsCache,
             progressReporter: TheaterProgressReporter(network: app.network), resumesProgress: false,
             refreshURLs: { item in try await store.refreshPlaybackURLs(for: item) })

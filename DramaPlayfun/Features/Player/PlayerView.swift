@@ -50,7 +50,7 @@ struct PlayerView: View {
             return
         }
         let store = DramaPlaybackStore(drama: request.drama, network: app.network,
-            repository: app.repository, library: app.library)
+            repository: app.repository, library: app.library, detailCache: app.playbackDetails)
         _store = State(initialValue: store)
         _unlockCoordinator = State(initialValue: EpisodeUnlockCoordinator(playback: store,
             wallet: app.wallet, profile: app.profile, membership: app.membership))
@@ -142,7 +142,7 @@ struct PlayerView: View {
                 if store.items.isEmpty && !Task.isCancelled { await store.load() }
             } else {
                 playback.reset()
-                await store.load()
+                await store.load(forceRefresh: attempt > 0)
             }
             guard !Task.isCancelled else { return }
             selectedID = store.initialID(request: request)

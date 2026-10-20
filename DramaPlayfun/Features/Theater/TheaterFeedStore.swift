@@ -41,13 +41,15 @@ final class TheaterFeedStore {
     private(set) var favoritingIDs: Set<Drama.ID> = []
 
     private let network: APIClient
+    private let detailCache: PlaybackDetailCache?
     private let urlRefresher: PlaybackURLRefresher
     private let pageSize = 20
     private var page = 0
     private var generation = 0
 
-    init(network: APIClient) {
+    init(network: APIClient, detailCache: PlaybackDetailCache? = nil) {
         self.network = network
+        self.detailCache = detailCache
         urlRefresher = PlaybackURLRefresher(network: network)
     }
 
@@ -129,6 +131,7 @@ final class TheaterFeedStore {
         let liked = !item.isFirstEpisodeLiked
         let response = try await network.request(AppAPI.v1ClientDramaLike,
             body: .init(episodeId: episodeID, like: liked), unwrapEnvelope: true)
+        detailCache?.invalidate(dramaID: item.drama.id)
         guard let index = items.firstIndex(where: { $0.id == id && $0.firstEpisode?.id == item.firstEpisode?.id }) else { return }
         items[index].isFirstEpisodeLiked = response.isLiked ?? liked
         items[index].firstEpisodeLikeCount = response.likeCount ?? max(0, item.firstEpisodeLikeCount + (liked ? 1 : -1))
@@ -145,12 +148,14 @@ final class TheaterFeedStore {
         let favorite = !item.isFavorited
         let response = try await network.request(AppAPI.v1ClientDramaFavorite,
             body: .init(dramaId: dramaID, favorite: favorite), unwrapEnvelope: true)
+        detailCache?.invalidate(dramaID: id)
         let value = response.isFavorited ?? favorite
         if let index = items.firstIndex(where: { $0.id == id }) { items[index].isFavorited = value }
         library.setFavorite(id, isFavorite: value)
     }
 
     func applyFavorite(_ id: Drama.ID, isFavorite: Bool, count: Int?) {
+        detailCache?.invalidate(dramaID: id)
         for index in items.indices where items[index].drama.id == id {
             items[index].isFavorited = isFavorite
             if let count { items[index].favoriteCount = count }

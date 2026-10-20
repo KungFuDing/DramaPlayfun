@@ -329,6 +329,7 @@ final class ShortDramaDetailStore {
             let favorite = !isFavorited
             let response = try await app.network.request(AppAPI.v1ClientDramaFavorite,
                 body: .init(dramaId: id, favorite: favorite), unwrapEnvelope: true)
+            app.playbackDetails.invalidate(dramaID: drama.id)
             let value = response.isFavorited ?? favorite
             favoriteCount = response.favoriteCount ?? favoriteCount.map {
                 max(0, $0 + (value == isFavorited ? 0 : (value ? 1 : -1)))

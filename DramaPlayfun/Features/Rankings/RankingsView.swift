@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RankingsView: View {
     @Environment(AppContainer.self) private var app
+    @Environment(AppRouter.self) private var router
     @State private var viewportHeight: CGFloat = 700
     @State private var viewportWidth: CGFloat = 375
     @State private var isRetrying = false
@@ -50,6 +51,11 @@ struct RankingsView: View {
                 .background { RankingBackground().ignoresSafeArea() }
             }
         }
+        .playbackDetailPrefetch(
+            active: router.selectedTab == .rankings && router.paths[.rankings, default: []].isEmpty
+                && !router.membershipPresented && !showsNetworkFailure,
+            categoryID: selectedID
+        )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
         .toolbar(.hidden, for: .navigationBar)
@@ -182,6 +188,7 @@ private struct RankingCategoryPager: View {
                         RankingCategoryContent(state: feed.page(for: tab.id), scale: scale) {
                             await feed.refreshSelected()
                         }
+                        .playbackPrefetchEligible(tab.id == selection)
                         .frame(width: geometry.size.width, alignment: .topLeading)
                         .fixedSize(horizontal: false, vertical: true)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heights[tab.id] = $0 }
@@ -196,6 +203,7 @@ private struct RankingCategoryPager: View {
             .scrollIndicators(.hidden)
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: position, anchor: .leading)
+            .playbackPrefetchClipped()
             .accessibilityIdentifier("ranking-category-pages")
             .accessibilityValue(feed.tabs.first(where: { $0.id == selection })?.displayTitle ?? "")
         }.frame(height: height)
@@ -215,6 +223,7 @@ private struct RankingCategoryContent: View {
             VStack(spacing: 12 * scale) {
                 ForEach(Array(state.dramas.enumerated()), id: \.element.id) { index, drama in
                     RankingDramaRow(drama: drama, rank: index + 1, posterWidth: 95 * scale)
+                        .playbackPrefetchCandidate(dramaID: drama.id)
                 }
             }
             .padding(.top, 4 * scale)

@@ -16,16 +16,19 @@ final class DramaPlaybackStore {
     private let urlRefresher: PlaybackURLRefresher
     private let repository: any DramaRepository
     private let library: LibraryStore
+    private let detailCache: PlaybackDetailCache?
     // These grants come from the server, and exist only for this playback session.
     private var authorizedEpisodeIDs: Set<String> = []
     let drama: Drama
 
-    init(drama: Drama, network: APIClient, repository: any DramaRepository, library: LibraryStore) {
+    init(drama: Drama, network: APIClient, repository: any DramaRepository, library: LibraryStore,
+         detailCache: PlaybackDetailCache? = nil) {
         self.drama = drama
         self.network = network
         urlRefresher = PlaybackURLRefresher(network: network)
         self.repository = repository
         self.library = library
+        self.detailCache = detailCache
     }
 
     func refreshPlaybackURLs(for item: TheaterFeedItem) async throws -> [TheaterFeedItem] {
@@ -38,10 +41,14 @@ final class DramaPlaybackStore {
                   snapshot.contains(where: { $0.id == items[index].id && $0.videoURL == items[index].videoURL }) else { continue }
             items[index].videoURL = url
         }
+        let previousURLs = snapshot.reduce(into: [String: URL]()) { values, item in
+            if let episodeID = item.firstEpisode?.id, let url = item.videoURL { values[episodeID] = url }
+        }
+        await detailCache?.updatePlaybackURLs(dramaID: drama.id, replacing: previousURLs, with: urls)
         return items
     }
 
-    func load() async {
+    func load(forceRefresh: Bool = false) async {
         guard !isLoading else { return }
         isLoading = true
         loadError = nil
@@ -49,8 +56,13 @@ final class DramaPlaybackStore {
         do {
             let loaded: [TheaterFeedItem]
             if let id = Int64(drama.id) {
-                let response = try await network.request(AppAPI.v1ClientDramaEpisodeList,
-                    body: .init(dramaId: id), unwrapEnvelope: true)
+                let response: APIModels.V1GetDramaEpisodeListRes
+                if let detailCache {
+                    response = try await detailCache.load(dramaID: drama.id, forceRefresh: forceRefresh)
+                } else {
+                    response = try await network.request(AppAPI.v1ClientDramaEpisodeList,
+                        body: .init(dramaId: id), unwrapEnvelope: true)
+                }
                 loaded = Self.makeItems(response, fallback: drama, authorizedEpisodeIDs: authorizedEpisodeIDs)
             } else {
                 let episodes = try await repository.fetchEpisodes(dramaID: drama.id)
@@ -119,6 +131,7 @@ final class DramaPlaybackStore {
         let liked = !item.isFirstEpisodeLiked
         let response = try await network.request(AppAPI.v1ClientDramaLike,
             body: .init(episodeId: episodeID, like: liked), unwrapEnvelope: true)
+        detailCache?.invalidate(dramaID: drama.id)
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].isFirstEpisodeLiked = response.isLiked ?? liked
         items[index].firstEpisodeLikeCount = response.likeCount ?? max(0, item.firstEpisodeLikeCount + (liked ? 1 : -1))
@@ -131,6 +144,7 @@ final class DramaPlaybackStore {
         let favorite = !first.isFavorited
         let response = try await network.request(AppAPI.v1ClientDramaFavorite,
             body: .init(dramaId: id, favorite: favorite), unwrapEnvelope: true)
+        detailCache?.invalidate(dramaID: drama.id)
         let value = response.isFavorited ?? favorite
         for index in items.indices {
             items[index].isFavorited = value
@@ -142,6 +156,7 @@ final class DramaPlaybackStore {
     }
 
     func applyFavorite(_ id: Drama.ID, isFavorite: Bool, count: Int?) {
+        detailCache?.invalidate(dramaID: id)
         for index in items.indices where items[index].drama.id == id {
             items[index].isFavorited = isFavorite
             if let count { items[index].favoriteCount = count }
@@ -172,6 +187,7 @@ final class DramaPlaybackStore {
     /// A retry then fetches the URL without submitting another coin transaction.
     func authorizePlayback(_ episode: Episode) {
         authorizedEpisodeIDs.insert(episode.id)
+        detailCache?.invalidate(dramaID: drama.id)
         guard let index = items.firstIndex(where: { $0.firstEpisode?.id == episode.id }),
               let currentEpisode = items[index].firstEpisode, !currentEpisode.isUnlocked else { return }
         let current = items[index]
@@ -192,8 +208,13 @@ final class DramaPlaybackStore {
             return
         }
         guard let dramaID = Int64(drama.id) else { throw CatalogError.notFound }
-        let response = try await network.request(AppAPI.v1ClientDramaEpisodeList,
-            body: .init(dramaId: dramaID), unwrapEnvelope: true)
+        let response: APIModels.V1GetDramaEpisodeListRes
+        if let detailCache {
+            response = try await detailCache.load(dramaID: drama.id, forceRefresh: true)
+        } else {
+            response = try await network.request(AppAPI.v1ClientDramaEpisodeList,
+                body: .init(dramaId: dramaID), unwrapEnvelope: true)
+        }
         try Task.checkCancellation()
         let refreshed = Self.makeItems(response, fallback: drama, authorizedEpisodeIDs: authorizedEpisodeIDs)
         guard let item = refreshed.first(where: { $0.firstEpisode?.id == episode.id }),

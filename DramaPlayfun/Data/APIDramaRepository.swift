@@ -5,6 +5,7 @@ import Foundation
 struct APIDramaRepository: DramaRepository {
     let network: APIClient
     let fallback: any DramaRepository
+    var detailCache: PlaybackDetailCache? = nil
 
     func fetchDramas() async throws -> [Drama] {
         try await fallback.fetchDramas()
@@ -12,8 +13,7 @@ struct APIDramaRepository: DramaRepository {
 
     func fetchEpisodes(dramaID: Drama.ID) async throws -> [Episode] {
         guard let id = Int64(dramaID) else { return try await fallback.fetchEpisodes(dramaID: dramaID) }
-        let result = try await network.request(AppAPI.v1ClientDramaEpisodeList,
-            body: .init(dramaId: id), unwrapEnvelope: true)
+        let result = try await episodeList(dramaID: id)
         return (result.episodes ?? []).compactMap { item -> Episode? in
             guard let episodeID = item.episodeId, let number = item.episodeNo else { return nil }
             return Episode(id: String(episodeID), number: number, title: "",
@@ -30,8 +30,7 @@ struct APIDramaRepository: DramaRepository {
         guard let id = Int64(dramaID), let numericEpisodeID = Int(episodeID) else {
             return try await fallback.playbackSource(dramaID: dramaID, episodeID: episodeID)
         }
-        let result = try await network.request(AppAPI.v1ClientDramaEpisodeList,
-            body: .init(dramaId: id), unwrapEnvelope: true)
+        let result = try await episodeList(dramaID: id)
         guard let item = result.episodes?.first(where: { $0.episodeId == numericEpisodeID }) else {
             throw CatalogError.notFound
         }
@@ -43,5 +42,11 @@ struct APIDramaRepository: DramaRepository {
             throw CatalogError.mediaNotConfigured
         }
         return PlaybackSource(url: url, rootDramaID: result.rootDramaId)
+    }
+
+    private func episodeList(dramaID: Int64) async throws -> APIModels.V1GetDramaEpisodeListRes {
+        if let detailCache { return try await detailCache.load(dramaID: String(dramaID)) }
+        return try await network.request(AppAPI.v1ClientDramaEpisodeList,
+            body: .init(dramaId: dramaID), unwrapEnvelope: true)
     }
 }

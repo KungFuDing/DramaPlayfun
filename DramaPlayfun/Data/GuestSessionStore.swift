@@ -39,7 +39,7 @@ final class GuestSessionStore {
                   !token.contains(where: { $0.isWhitespace || $0.isNewline }) else {
                 throw GuestSessionError.missingToken
             }
-            network.setAccessToken(token)
+            network.setAccessToken(token, accountID: result.user?.userNo)
             isReady = true
         } catch is CancellationError {
         } catch {

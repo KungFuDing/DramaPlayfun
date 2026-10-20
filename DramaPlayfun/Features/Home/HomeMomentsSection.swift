@@ -103,6 +103,7 @@ private struct HomeMomentCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+        .playbackPrefetchCandidate(dramaID: moment.drama.id)
         .accessibilityIdentifier("home-moment-\(moment.id)")
     }
 }

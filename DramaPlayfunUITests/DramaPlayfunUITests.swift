@@ -403,7 +403,11 @@ final class DramaPlayfunUITests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
         app.staticTexts["榜单测试21"].tap()
-        XCTAssertTrue(app.navigationBars["劇集詳情"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))
+        app.buttons["返回"].tap()
+        XCTAssertTrue(app.staticTexts["榜单测试21"].waitForExistence(timeout: 5))
+        app.staticTexts["榜单测试21"].tap()
+        XCTAssertTrue(app.scrollViews["player-episode-feed"].waitForExistence(timeout: 5))
     }
 
     @MainActor

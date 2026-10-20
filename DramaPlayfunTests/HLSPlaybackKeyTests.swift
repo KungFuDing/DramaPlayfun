@@ -86,6 +86,142 @@ final class HLSPlaybackKeyTests: XCTestCase {
     }
 
     @MainActor
+    func testEncryptedHLSReopensAfterOriginalRoutesAreReleasedAndTokenChanges() async throws {
+        let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8"))
+            .deletingLastPathComponent()
+        let server = try HLSFixtureServer(directory: directory,
+            acceptedTokens: ["fixture-token", "renewed-token"], signedMediaReferences: true)
+        let ready = expectation(description: "Replay fixture ready")
+        server.listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+        server.listener.start(queue: server.queue)
+        defer { server.listener.cancel() }
+        await fulfillment(of: [ready], timeout: 5)
+        let port = try XCTUnwrap(server.listener.port).rawValue
+        let identity = HLSKeyIdentity(rootDramaID: 107, episodeID: 2531)
+        let secret = Data("test-secret".utf8)
+        let expectedKey = try HLSPlaybackKey.derive(identity, secret: secret)
+        let scope = identity.material.base64EncodedString() + ":" + expectedKey.base64EncodedString()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let client = URLSession(configuration: configuration)
+        defer { client.invalidateAndCancel() }
+
+        func makeAsset(token: String) async throws -> AVURLAsset {
+            try await HLSLocalGateway.shared.asset(
+                remoteURL: URL(string: "http://127.0.0.1:\(port)/master.m3u8?X-Media-Token=\(token)")!,
+                identity: identity, secret: secret)
+        }
+        func keyURL(for asset: AVURLAsset) async throws -> URL {
+            let (master, _) = try await client.data(from: asset.url)
+            let playlistURL = try XCTUnwrap(String(decoding: master, as: UTF8.self).components(separatedBy: .newlines)
+                .first { $0.hasPrefix("http://") }.flatMap(URL.init(string:)))
+            let (playlist, _) = try await client.data(from: playlistURL)
+            let keyLine = try XCTUnwrap(String(decoding: playlist, as: UTF8.self).components(separatedBy: .newlines)
+                .first { $0.hasPrefix("#EXT-X-KEY:") })
+            return try XCTUnwrap(keyLine.components(separatedBy: "\"").dropFirst().first.flatMap(URL.init(string:)))
+        }
+        func hasCachedSegment(_ name: String) -> Bool {
+            let request = URLRequest(url: URL(string:
+                "http://127.0.0.1:\(port)/\(name)?X-Media-Token=renewed-token")!)
+            guard let reader = HLSMediaCache.shared.reader(for: request, scope: scope) else { return false }
+            reader.close()
+            return true
+        }
+        func assertPlaybackAdvances(_ player: AVPlayer) async throws {
+            let item = try XCTUnwrap(player.currentItem)
+            // Simulator audio devices may have no usable clock. Drive this
+            // fixture from the host clock so elapsed media time is deterministic.
+            player.sourceClock = CMClockGetHostTimeClock()
+            player.automaticallyWaitsToMinimizeStalling = false
+            for _ in 0..<100 {
+                if item.status != .unknown { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            player.playImmediately(atRate: 1)
+            for _ in 0..<200 {
+                if item.status == .failed || player.currentTime().seconds > 1 { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            XCTAssertEqual(item.status, .readyToPlay,
+                "Encrypted replay must decode successfully: \(String(describing: item.error))")
+            XCTAssertGreaterThan(player.currentTime().seconds, 1,
+                "Playback must advance into the second encrypted segment, not merely become ready")
+        }
+
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        try AVAudioSession.sharedInstance().setActive(true)
+        let layer = AVPlayerLayer()
+        layer.frame = CGRect(x: 0, y: 0, width: 160, height: 240)
+        let window = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first(where: \.isKeyWindow))
+        window.layer.addSublayer(layer)
+        defer {
+            layer.player?.pause()
+            layer.player?.replaceCurrentItem(with: nil)
+            layer.player = nil
+            layer.removeFromSuperlayer()
+        }
+
+        var firstAsset: AVURLAsset? = try await makeAsset(token: "fixture-token")
+        weak let releasedAsset = firstAsset
+        let originalManifestURL = try XCTUnwrap(firstAsset?.url)
+        let originalKeyURL = try await keyURL(for: XCTUnwrap(firstAsset))
+        var firstPlayer: AVPlayer? = AVPlayer(playerItem: AVPlayerItem(asset: try XCTUnwrap(firstAsset)))
+        weak let releasedPlayer = firstPlayer
+        layer.player = firstPlayer
+        try await assertPlaybackAdvances(XCTUnwrap(firstPlayer))
+        // Transport completion commits the cache after delivering its final bytes.
+        for _ in 0..<100 {
+            if hasCachedSegment("seg_00000.ts") && hasCachedSegment("seg_00001.ts") { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(hasCachedSegment("seg_00000.ts"))
+        XCTAssertTrue(hasCachedSegment("seg_00001.ts"))
+        let downloadedSegments = server.requestedPaths.filter { $0.contains(".ts") }
+        XCTAssertTrue(downloadedSegments.contains { $0.hasPrefix("/seg_00000.ts") })
+        XCTAssertTrue(downloadedSegments.contains { $0.hasPrefix("/seg_00001.ts") })
+
+        firstPlayer?.pause()
+        firstPlayer?.replaceCurrentItem(with: nil)
+        layer.player = nil
+        firstPlayer = nil
+        firstAsset = nil
+        for _ in 0..<100 {
+            if releasedPlayer == nil && releasedAsset == nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertNil(releasedPlayer, "Reopening must not rely on the first AVPlayer")
+        XCTAssertNil(releasedAsset, "Reopening must not retain the first gateway lease")
+        let (_, releasedManifestResponse) = try await client.data(from: originalManifestURL)
+        let (_, releasedKeyResponse) = try await client.data(from: originalKeyURL)
+        XCTAssertEqual((releasedManifestResponse as? HTTPURLResponse)?.statusCode, 404)
+        XCTAssertEqual((releasedKeyResponse as? HTTPURLResponse)?.statusCode, 404,
+            "The previous session's local key route must actually be gone before replay")
+
+        let requestsBeforeReplay = server.requestedPaths.count
+        let secondAsset = try await makeAsset(token: "renewed-token")
+        let renewedKeyURL = try await keyURL(for: secondAsset)
+        XCTAssertNotEqual(secondAsset.url, originalManifestURL)
+        XCTAssertNotEqual(renewedKeyURL, originalKeyURL)
+        let (renewedKey, renewedKeyResponse) = try await client.data(from: renewedKeyURL)
+        XCTAssertEqual((renewedKeyResponse as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertEqual(renewedKey, expectedKey, "Each playback session must recreate its own local key route")
+        let secondPlayer = AVPlayer(playerItem: AVPlayerItem(asset: secondAsset))
+        layer.player = secondPlayer
+        try await assertPlaybackAdvances(secondPlayer)
+
+        let replayRequests = Array(server.requestedPaths.dropFirst(requestsBeforeReplay))
+        XCTAssertTrue(replayRequests.contains("/master.m3u8?X-Media-Token=renewed-token"),
+            "Reopening must fetch a fresh manifest with current authorization")
+        XCTAssertTrue(replayRequests.contains("/index.m3u8"))
+        XCTAssertEqual(server.requestedPaths.filter { $0.contains(".ts") }, downloadedSegments,
+            "A new player and token must reuse the complete encrypted media already on disk")
+        XCTAssertFalse(server.requestedPaths.contains("/key.key"))
+        XCTAssertTrue(server.unauthorizedPaths.isEmpty)
+    }
+
+    @MainActor
     func testExpiredManifestRenewsAndPreservesPositionAndPauseState() async throws {
         let directory = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "master", withExtension: "m3u8")).deletingLastPathComponent()
         let server = try HLSFixtureServer(directory: directory)

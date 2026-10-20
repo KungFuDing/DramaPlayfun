@@ -31,25 +31,19 @@ final class PlaybackSession {
         hasEnded = false
         defer { isLoading = false }
         do {
-            let cachedIdentity = HLSKeyIdentity(drama: request.drama, episode: request.episode)
+            let source = try await repository.playbackSource(dramaID: request.drama.id,
+                                                             episodeID: request.episode.id)
+            guard let episodeID = Int64(request.episode.id) else { throw HLSKeyError.invalidIdentity }
+            let identity = HLSKeyIdentity(rootDramaID: source.rootDramaID
+                ?? request.drama.rootDramaID ?? 0, episodeID: episodeID)
+            guard identity.isValid else { throw HLSKeyError.invalidIdentity }
             let asset: AVURLAsset
-            if let cachedIdentity,
-               let cached = try cache?.cachedAsset(for: request.episode.id, identity: cachedIdentity) {
-                asset = cached
+            if let cache {
+                asset = try await cache.asset(for: request.episode.id, remoteURL: source.url,
+                                              identity: identity)
             } else {
-                let source = try await repository.playbackSource(dramaID: request.drama.id,
-                                                                 episodeID: request.episode.id)
-                guard let episodeID = Int64(request.episode.id) else { throw HLSKeyError.invalidIdentity }
-                let identity = HLSKeyIdentity(rootDramaID: source.rootDramaID
-                    ?? request.drama.rootDramaID ?? 0, episodeID: episodeID)
-                guard identity.isValid else { throw HLSKeyError.invalidIdentity }
-                if let cache {
-                    asset = try await cache.asset(for: request.episode.id, remoteURL: source.url,
-                                                  identity: identity)
-                } else {
-                    asset = try await HLSLocalGateway.shared.asset(remoteURL: source.url,
-                        identity: identity, secret: HLSPlaybackKey.configuredSecret())
-                }
+                asset = try await HLSLocalGateway.shared.asset(remoteURL: source.url,
+                    identity: identity, secret: HLSPlaybackKey.configuredSecret())
             }
             try Task.checkCancellation()
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
@@ -69,8 +63,6 @@ final class PlaybackSession {
             try Task.checkCancellation()
             isLoading = false
             player.play()
-            cache?.downloadIfNeeded(episodeID: request.episode.id, asset: asset,
-                                    title: request.drama.title)
             while !Task.isCancelled {
                 try await Task.sleep(for: .seconds(2))
                 if item.status == .failed { throw item.error ?? PlaybackError.failed }

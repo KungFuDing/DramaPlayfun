@@ -37,7 +37,6 @@ final class TheaterPlayerPool {
     @ObservationIgnored private var pendingBufferedStartID: TheaterFeedItem.ID?
     @ObservationIgnored private var preloadDirection = 1
     @ObservationIgnored private var audioSessionReady = false
-    @ObservationIgnored private let cacheOwner = UUID()
     @ObservationIgnored private let logger = Logger(subsystem: "com.video.test.DramaPlayfun.playback", category: "player")
     @ObservationIgnored private var visible = false
     @ObservationIgnored private var preparationActive = false
@@ -67,7 +66,6 @@ final class TheaterPlayerPool {
     // Explicit list entry ignores old local history, but keeps new progress across player rebuilds.
     private var sessionPositions: [String: Double] = [:]
     private let library: LibraryStore
-    private let cache: HLSOfflineCache
     private let progressReporter: TheaterProgressReporter?
     private let assetLoader: (TheaterFeedItem) async throws -> AVURLAsset
     private let refreshURLs: ((TheaterFeedItem) async throws -> [TheaterFeedItem])?
@@ -82,7 +80,6 @@ final class TheaterPlayerPool {
         self.initialPosition = initialPosition
         self.preservesSessionProgress = initialPosition != nil
         self.library = library
-        self.cache = cache
         self.progressReporter = progressReporter
         self.refreshURLs = refreshURLs
         self.recoveryClock = recoveryClock
@@ -147,7 +144,6 @@ final class TheaterPlayerPool {
         self.items = items
         currentID = selectedID
         preloadingID = selectedID
-        cache.setPlaybackActive(true, owner: cacheOwner)
         if players[selectedID] == nil { prepare(item) }
         else if interruptedPreloadIDs.remove(selectedID) != nil,
                 states[selectedID] == .ready, let player = players[selectedID],
@@ -183,7 +179,6 @@ final class TheaterPlayerPool {
         } else {
             release(id)
         }
-        cache.setPlaybackActive(preparationActive, owner: cacheOwner)
     }
 
     func update(items: [TheaterFeedItem], selectedID: TheaterFeedItem.ID?, visible: Bool,
@@ -212,7 +207,6 @@ final class TheaterPlayerPool {
         if !visible, let selectedID { renewalHealthySince[selectedID] = nil }
         self.preparationActive = preparationActive || visible
         if self.preparationActive { preloadingID = nil }
-        cache.setPlaybackActive(self.preparationActive || preloadingID != nil, owner: cacheOwner)
         currentID = selectedID
 
         guard let index = items.firstIndex(where: { $0.id == selectedID }) else {
@@ -259,7 +253,6 @@ final class TheaterPlayerPool {
         preloadingID = nil
         resetScrubbing()
         pauseAll()
-        cache.setPlaybackActive(false, owner: cacheOwner)
         isBuffering = false
         stallStartedAt = nil
         if let currentID { renewalHealthySince[currentID] = nil }
@@ -781,11 +774,6 @@ final class TheaterPlayerPool {
             } else {
                 pendingBufferedStartID = player.timeControlStatus == .playing ? nil : currentID
                 player.play()
-            }
-            if let item = items.first(where: { $0.id == currentID }),
-               let episodeID = item.firstEpisode?.id,
-               let asset = player.currentItem?.asset as? AVURLAsset {
-                cache.downloadIfNeeded(episodeID: episodeID, asset: asset, title: item.drama.title)
             }
             startSavingProgress()
         } catch {

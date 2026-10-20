@@ -262,6 +262,7 @@ struct TheaterVideoPage: View {
     let onDetail: () -> Void
     var isDetail = false
     var controlsVisible = true
+    var showsPlaybackControl = true
     var onVideoTap: (() -> Void)?
     var onLike: (() async throws -> Void)?
     var onFavorite: (() async throws -> Void)?
@@ -276,7 +277,7 @@ struct TheaterVideoPage: View {
     init(item: TheaterFeedItem, playback: TheaterPlayerPool, isActive: Bool,
          onRetry: @escaping () -> Void, onEpisodes: @escaping () -> Void,
          onShare: @escaping () -> Void, onDetail: @escaping () -> Void, isDetail: Bool = false,
-         controlsVisible: Bool = true, onVideoTap: (() -> Void)? = nil,
+         controlsVisible: Bool = true, showsPlaybackControl: Bool = true, onVideoTap: (() -> Void)? = nil,
          onLike: (() async throws -> Void)? = nil, onFavorite: (() async throws -> Void)? = nil) {
         self.item = item
         self.playback = playback
@@ -287,6 +288,7 @@ struct TheaterVideoPage: View {
         self.onDetail = onDetail
         self.isDetail = isDetail
         self.controlsVisible = controlsVisible
+        self.showsPlaybackControl = showsPlaybackControl
         self.onVideoTap = onVideoTap
         self.onLike = onLike
         self.onFavorite = onFavorite
@@ -351,7 +353,7 @@ struct TheaterVideoPage: View {
             .padding(.horizontal, 48)
         } else if isActive && (playback.states[item.id] != .ready || playback.isBuffering) {
             ProgressView().tint(.white)
-        } else if controlsVisible && isActive && (playback.isPaused || playback.hasEnded) {
+        } else if controlsVisible && showsPlaybackControl && isActive && (playback.isPaused || playback.hasEnded) {
             Button { togglePlayback() } label: {
                 if isDetail {
                     ZStack {

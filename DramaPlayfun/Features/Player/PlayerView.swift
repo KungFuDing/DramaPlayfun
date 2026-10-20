@@ -24,6 +24,7 @@ struct PlayerView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackSubmitted = false
     @State private var controlsVisible = true
+    @State private var hasRevealedControls = false
     @State private var controlsInteraction = 0
     @State private var rate: Float = 1
     @State private var optionsKind: PlayerOptionsKind?
@@ -112,7 +113,7 @@ struct PlayerView: View {
                     }
                     }
                 }
-                if controlsVisible && isVisible && !playback.isPaused && !playback.hasEnded {
+                if showsPlaybackControl && isVisible && !playback.isPaused && !playback.hasEnded {
                     Button { playback.toggle() } label: {
                         ZStack {
                             Image("PlayerPauseBackground").resizable().scaledToFit()
@@ -284,7 +285,8 @@ struct PlayerView: View {
                 isActive: selectedID == item.id && isVisible,
                 onRetry: { retry(item) }, onEpisodes: { showEpisodes = true },
                 onShare: { shareItem = item }, onDetail: { selectedDetail = item.drama }, isDetail: true,
-                controlsVisible: controlsVisible, onVideoTap: revealControls,
+                controlsVisible: controlsVisible, showsPlaybackControl: showsPlaybackControl,
+                onVideoTap: revealControls,
                 onLike: { try await store.toggleLike(item.id) },
                 onFavorite: { try await store.toggleFavorite() })
                 .blur(radius: showsUnlockLayer ? 8 : 0)
@@ -326,6 +328,10 @@ struct PlayerView: View {
         (subtitleGroup?.options ?? []).filter { $0.mediaType == .subtitle }
     }
 
+    private var showsPlaybackControl: Bool {
+        controlsVisible && (hasRevealedControls || isVoiceOverEnabled)
+    }
+
     private var canAutoHideControls: Bool {
         controlsVisible && !isVoiceOverEnabled && isReady && isVisible && playback.currentID == selectedID &&
             playback.states[selectedID ?? ""] == .ready && !playback.isPaused &&
@@ -338,7 +344,10 @@ struct PlayerView: View {
 
     private func revealControls() {
         controlsInteraction += 1
-        withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            controlsVisible = true
+            hasRevealedControls = true
+        }
     }
 
     private func hideControlsAfterPlayback() async {

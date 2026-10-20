@@ -8,6 +8,9 @@ final class PlayerControlsUITests: XCTestCase {
         let app = launchPlayer()
         let progress = app.sliders["player-progress-1"]
         waitForProgress(progress, above: 0)
+        XCTAssertFalse(app.buttons["player-pause"].exists, "进入播放详情页时不应显示中央暂停按钮")
+        XCTAssertFalse(app.buttons["播放影片"].exists, "进入播放详情页时不应显示中央播放按钮")
+        XCTAssertTrue(app.buttons["player-back"].isHittable)
         tapVideo(in: app)
 
         let prematureHide = XCTNSPredicateExpectation(

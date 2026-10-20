@@ -32,7 +32,7 @@ struct SearchView: View {
                     onBack: { dismiss() }, onSearch: submit)
                     .frame(width: layout.contentWidth)
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 5)
+                    .padding(.top, layout.searchTopInset)
 
                 RefreshLoadScrollView(
                     hasMore: isShowingResults ? store.hasMore : app.homeFeed.hasMoreHot,

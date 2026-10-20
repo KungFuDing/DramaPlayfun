@@ -10,6 +10,7 @@ struct BrowseLayout {
     }
 
     var isWide: Bool { availableWidth >= 600 }
+    var searchTopInset: CGFloat { 8 }
     var horizontalInset: CGFloat { isWide ? 24 : 16 }
     var contentWidth: CGFloat { min(max(0, availableWidth - horizontalInset * 2), 1_200) }
     var columnSpacing: CGFloat { 14 }

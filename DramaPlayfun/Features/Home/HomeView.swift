@@ -123,7 +123,7 @@ private struct HomeLayout {
     }
 
     // The root stays inside the system safe area, including top/side tab bars.
-    var searchTop: CGFloat { 8 }
+    var searchTop: CGFloat { browse.searchTopInset }
     var navbarHeight: CGFloat { searchTop + 44 }
     var pinnedCategoryTop: CGFloat { navbarHeight + 10 }
     var bannerWidth: CGFloat { browse.contentWidth + browse.horizontalInset * 2 }

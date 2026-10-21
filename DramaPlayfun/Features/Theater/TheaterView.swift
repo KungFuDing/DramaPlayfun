@@ -30,7 +30,9 @@ struct TheaterView: View {
                         }
                     }
                 } else {
-                    ScrollView(.vertical) {
+                    PullToRefreshScrollView(coordinateSpaceName: "theaterScroll",
+                                            refreshIndicatorTop: max(geometry.safeAreaInsets.top + 16, 76),
+                                            onRefresh: refreshFeed) {
                         LazyVStack(spacing: 0) {
                             ForEach(app.theaterFeed.items) { item in
                                 TheaterVideoPage(
@@ -54,17 +56,24 @@ struct TheaterView: View {
                         .scrollTargetLayout()
                     }
                     .scrollIndicators(.hidden)
+                    .scrollBounceBehavior(.always, axes: .vertical)
                     .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
                     .scrollPosition(id: $selectedID, anchor: .top)
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .clipped()
                     .accessibilityIdentifier("theater-feed")
                     .overlay(alignment: .bottom) {
-                        if let error = app.theaterFeed.loadMoreErrorMessage {
-                            Button(L10n.tr("加载更多失败，点击重试：%@", error)) {
-                                Task { await app.theaterFeed.loadMore() }
+                        if let error = app.theaterFeed.errorMessage ?? app.theaterFeed.loadMoreErrorMessage {
+                            let isRefreshError = app.theaterFeed.errorMessage != nil
+                            Button(isRefreshError ? "\(L10n.tr("加载失败，点击重试"))\n\(error)" :
+                                   L10n.tr("加载更多失败，点击重试：%@", error)) {
+                                Task {
+                                    if isRefreshError { await refreshFeed() }
+                                    else { await app.theaterFeed.loadMore() }
+                                }
                             }
                             .font(.caption)
+                            .multilineTextAlignment(.center)
                             .padding(10)
                             .background(.black.opacity(0.85), in: Capsule())
                             .padding(.bottom, 16)
@@ -104,7 +113,10 @@ struct TheaterView: View {
                 if hasActivatedPlayback { app.theaterPlayback.suspend() }
                 return
             }
-            guard let playbackID = selectedID ?? app.theaterFeed.items.first?.id else { return }
+            guard let playbackID = selectedID ?? app.theaterFeed.items.first?.id else {
+                if hasActivatedPlayback { app.theaterPlayback.suspend() }
+                return
+            }
             hasActivatedPlayback = true
             app.startupContent.handoff()
             app.theaterPlayback.update(items: app.theaterFeed.items,
@@ -209,6 +221,16 @@ struct TheaterView: View {
 
     private var playbackKey: String {
         "\(selectedID ?? "none")|\(isTheaterVisible)|\(app.theaterFeed.items.map(\.id).joined(separator: ","))"
+    }
+
+    private func refreshFeed() async {
+        await app.theaterFeed.reload()
+        guard !Task.isCancelled, app.theaterFeed.errorMessage == nil, isTheaterVisible else { return }
+        if !app.theaterFeed.items.contains(where: { $0.id == selectedID }) {
+            selectedID = app.theaterFeed.items.first?.id
+        }
+        // Refresh signed URLs even when the feed returns the same drama IDs.
+        app.theaterPlayback.update(items: app.theaterFeed.items, selectedID: selectedID, visible: true)
     }
 
     private func prepareContinuationIfNeeded() {

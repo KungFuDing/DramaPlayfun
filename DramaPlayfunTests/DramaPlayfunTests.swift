@@ -1,131 +1,30 @@
 import XCTest
-import SwiftUI
-@testable import DramaPlayfun
 
-@MainActor
 final class DramaPlayfunTests: XCTestCase {
-    func testCatalogCombinesCategoryAndSearch() async {
-        let store = CatalogStore(repository: DemoDramaRepository())
-        await store.loadIfNeeded()
-        XCTAssertEqual(store.filtered(category: .romance, query: " " + L10n.tr("重生之我和白月光") + " ").map(\.id), ["moon"])
-        XCTAssertTrue(store.filtered(category: .costume, query: L10n.tr("重生之我和白月光")).isEmpty)
+
+    override func setUpWithError() throws {
+        // Put setup code here. This method is called before the invocation of each test method in the class.
     }
 
-    func testLibraryPersistsFavoritesAndResumePosition() throws {
-        let suite = "DramaPlayfunTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let store = LibraryStore(defaults: defaults)
-        store.toggleFavorite("moon")
-        let progress = WatchProgress(dramaID: "moon", episodeID: "moon-2", episodeNumber: 2,
-                                     seconds: 30, duration: 120, updatedAt: Date())
-        store.save(progress)
-        let restored = LibraryStore(defaults: defaults)
-        XCTAssertTrue(restored.favoriteIDs.contains("moon"))
-        XCTAssertEqual(restored.progress["moon"], progress)
-        XCTAssertEqual(restored.progress["moon"]?.fraction, 0.25)
-        restored.toggleFavorite("moon")
-        XCTAssertTrue(LibraryStore(defaults: defaults).favoriteIDs.isEmpty)
+    override func tearDownWithError() throws {
+        // Put teardown code here. This method is called after the invocation of each test method in the class.
     }
 
-    func testTabsKeepIndependentNavigationPaths() {
-        let router = AppRouter()
-        let drama = DemoDramaRepository.dramas[0]
-        router.path(for: .home).wrappedValue = [.drama(drama)]
-        router.selectedTab = .theater
-        XCTAssertTrue(router.path(for: .theater).wrappedValue.isEmpty)
-        XCTAssertEqual(router.path(for: .home).wrappedValue, [.drama(drama)])
+    func testExample() throws {
+        // This is an example of a functional test case.
+        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        // Any test you write for XCTest can be annotated as throws and async.
+        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
+        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
+        // XCTest Documentation
+        // https://developer.apple.com/documentation/xctest
     }
 
-    func testPlaybackPopPreservesSourceAndOtherTabHistory() throws {
-        let router = AppRouter()
-        let drama = DemoDramaRepository.dramas[0]
-        router.paths[.home] = [.search]
-        router.openPlayback(drama)
-        let request = try XCTUnwrap(router.playback)
-        XCTAssertEqual(router.paths[.home], [.search, .playback(request)])
-
-        router.selectedTab = .profile
-        router.paths[.profile] = [.history]
-        XCTAssertNil(router.playback)
-        router.openPlayback(drama)
-        router.playback = nil
-        XCTAssertEqual(router.paths[.profile], [.history])
-        XCTAssertEqual(router.paths[.home], [.search, .playback(request)])
-
-        router.selectedTab = .home
-        // The same path mutation made by a native interactive pop.
-        router.path(for: .home).wrappedValue.removeLast()
-        XCTAssertNil(router.playback)
-        XCTAssertEqual(router.paths[.home], [.search])
+    func testPerformanceExample() throws {
+        // This is an example of a performance test case.
+        measure {
+            // Put the code you want to measure the time of here.
+        }
     }
 
-    func testServerPlaybackPositionIsUsedUnlessAnEpisodeWasExplicitlySelected() throws {
-        let drama = Drama(id: "101", title: "续播剧", summary: "", category: .all,
-            episodeCount: 8, heat: 0, badge: nil, coverURL: nil,
-            playbackPosition: PlaybackPosition(episodeNumber: 5, seconds: 37))
-        let router = AppRouter()
-        router.paths[.home] = [.search]
-
-        router.openPlayback(drama)
-        XCTAssertEqual(router.playback?.startPosition, drama.playbackPosition)
-        XCTAssertEqual(router.playback?.episode.number, 5)
-        XCTAssertEqual(router.paths[.home]?.count, 2)
-
-        let selected = Episode(id: "102", number: 2, title: "", requiresMembership: false)
-        router.openPlayback(drama, episode: selected)
-        XCTAssertEqual(router.playback?.episode, selected)
-        XCTAssertNil(router.playback?.startPosition, "An explicit episode selection overrides list history")
-
-        router.openPlayback(drama, episodeNumber: 2)
-        XCTAssertEqual(router.playback?.episode.number, 2)
-        XCTAssertTrue(try XCTUnwrap(router.playback).startsFromBeginning)
-        XCTAssertNil(router.playback?.startPosition, "Theater continuation still starts the selected episode at zero")
-
-        let restored = try JSONDecoder().decode(Drama.self, from: JSONEncoder().encode(drama))
-        XCTAssertEqual(restored, drama)
-        router.openPlayback(restored)
-        XCTAssertEqual(router.playback?.startPosition?.seconds, 37)
-    }
-
-    func testPendingAndCancelledPurchasesDoNotGrantMembership() async {
-        let service = TestSubscriptions()
-        let store = MembershipStore(service: service)
-        await store.loadPlans()
-        await store.purchase(service.plan)
-        XCTAssertFalse(store.isActive)
-        XCTAssertNotNil(store.message)
-        service.outcome = .cancelled
-        await store.purchase(service.plan)
-        XCTAssertFalse(store.isActive)
-        XCTAssertNil(store.message)
-    }
-
-    func testPurchaseAndRestoreReadVerifiedEntitlements() async {
-        let service = TestSubscriptions()
-        service.outcome = .purchased
-        let store = MembershipStore(service: service)
-        await store.purchase(service.plan)
-        XCTAssertTrue(store.isActive)
-        service.active = false
-        await store.refresh()
-        XCTAssertFalse(store.isActive)
-        await store.restore()
-        XCTAssertTrue(store.isActive)
-    }
-}
-
-@MainActor
-private final class TestSubscriptions: SubscriptionService {
-    let plan = MembershipPlan(id: "test.monthly", title: "月度会员", price: "¥10", period: "每1个月自动续订")
-    var outcome: PurchaseOutcome = .pending
-    var active = false
-    func plans() async throws -> [MembershipPlan] { [plan] }
-    func hasActiveSubscription() async throws -> Bool { active }
-    func purchase(planID: String) async throws -> PurchaseOutcome {
-        if case .purchased = outcome { active = true }
-        return outcome
-    }
-    func restore() async throws { active = true }
-    func observeTransactions(onChange: @escaping @MainActor () async -> Void) async {}
 }

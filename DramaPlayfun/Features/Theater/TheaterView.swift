@@ -515,20 +515,16 @@ struct TheaterVideoBackdrop: View {
 struct TheaterPlayerSurface: UIViewRepresentable {
     let player: AVPlayer
 
-    func makeUIView(context: Context) -> PlayerSurface {
-        let view = PlayerSurface()
-        view.layerPlayer.videoGravity = .resizeAspectFill
-        view.layerPlayer.player = player
+    func makeUIView(context: Context) -> CaptureProtectedPlayerView {
+        let view = CaptureProtectedPlayerView()
+        view.setPlayer(player)
         return view
     }
 
-    func updateUIView(_ view: PlayerSurface, context: Context) {
-        if view.layerPlayer.player !== player { view.layerPlayer.player = player }
+    func updateUIView(_ view: CaptureProtectedPlayerView, context: Context) {
+        view.setPlayer(player)
     }
-    static func dismantleUIView(_ view: PlayerSurface, coordinator: ()) { view.layerPlayer.player = nil }
-
-    final class PlayerSurface: UIView {
-        override class var layerClass: AnyClass { AVPlayerLayer.self }
-        var layerPlayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    static func dismantleUIView(_ view: CaptureProtectedPlayerView, coordinator: ()) {
+        view.setPlayer(nil)
     }
 }

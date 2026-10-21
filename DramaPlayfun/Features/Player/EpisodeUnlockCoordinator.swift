@@ -53,6 +53,8 @@ final class EpisodeUnlockCoordinator {
     /// can buy one episode with that preference disabled; VIP never uses the coin API.
     func resolve(_ episode: Episode, automatically: Bool) async throws -> EpisodeUnlockOutcome {
         try Task.checkCancellation()
+        playback.expireAccessIfNeeded()
+        let current = playback.items.first(where: { $0.firstEpisode?.id == episode.id })?.firstEpisode ?? episode
         if let existing = inFlight[episode.id] {
             if !existing.task.isCancelled { return try await existing.task.value }
             // A quick return to an episode can race the canceled request's cleanup.
@@ -67,8 +69,14 @@ final class EpisodeUnlockCoordinator {
             return try await resolve(episode, automatically: automatically)
         }
 
-        // Serialize different episodes too: a swipe must see the previous deduction
-        // before checking whether the next episode can be purchased.
+        if current.requiresAccessValidation || episode.requiresAccessValidation {
+            // A purchase of this same episode must settle first. Reads share the
+            // store's request without waiting for any unrelated page or payment.
+            return try await resolveCachedAccess(current)
+        }
+
+        // Keep coin-capable resolutions serialized: a swipe must see the previous
+        // deduction before checking whether the next episode can be purchased.
         let previous = previousResolution
         let task = Task {
             _ = try? await previous?.value
@@ -94,15 +102,21 @@ final class EpisodeUnlockCoordinator {
         }
     }
 
+    private func resolveCachedAccess(_ episode: Episode) async throws -> EpisodeUnlockOutcome {
+        try await playback.validateCachedAccess(episode)
+        try Task.checkCancellation()
+        let validated = playback.items.first(where: { $0.firstEpisode?.id == episode.id })?.firstEpisode
+        // An unknown cached grant never authorizes a transaction. A denial exposes
+        // the freshly fetched price for a subsequent confirmation, even if another
+        // waiter has already replaced the requested episode's stale state.
+        return validated?.canPlayWithoutValidation == true ? .unlocked(coins: 0) : .needsConfirmation
+    }
+
     private func performResolution(_ requested: Episode, automatically: Bool) async throws -> EpisodeUnlockOutcome {
         playback.expireAccessIfNeeded()
         let episode = playback.items.first(where: { $0.firstEpisode?.id == requested.id })?.firstEpisode ?? requested
         if episode.requiresAccessValidation || requested.requiresAccessValidation {
-            try await playback.validateCachedAccess(episode)
-            let validated = playback.items.first(where: { $0.firstEpisode?.id == episode.id })?.firstEpisode
-            // An unknown cached grant never authorizes a transaction. A denial
-            // exposes the freshly fetched price for a subsequent confirmation.
-            return validated?.canPlayWithoutValidation == true ? .unlocked(coins: 0) : .needsConfirmation
+            return try await resolveCachedAccess(episode)
         }
         if playback.hasAuthorizedPlayback(episode) || episode.canPlayWithoutValidation {
             if playback.items.first(where: { $0.firstEpisode?.id == episode.id })?.videoURL == nil {

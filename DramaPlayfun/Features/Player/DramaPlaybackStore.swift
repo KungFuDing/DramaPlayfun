@@ -20,7 +20,14 @@ final class DramaPlaybackStore {
     private let now: () -> Date
     private var snapshotDate: Date?
     private var accessDeadlines: [String: Date] = [:]
-    private var validations: [String: Task<Void, Error>] = [:]
+    private struct AccessValidation {
+        let id: UUID
+        let task: Task<Void, Never>
+        var waiters: [UUID: CheckedContinuation<Void, Error>]
+    }
+    private var validations: [String: AccessValidation] = [:]
+    private var activeAccessEpisodeID: String?
+    private let accessPriceRefresh = EpisodeAccessPriceRefresh()
     private var generation = UUID()
     private(set) var contentRevision = 0
     // These grants come from the server, and exist only for this playback session.
@@ -61,8 +68,8 @@ final class DramaPlaybackStore {
         guard !isLoading else { return }
         isLoading = true
         generation = UUID()
-        for task in validations.values { task.cancel() }
-        validations.removeAll()
+        cancelAccessValidations()
+        accessPriceRefresh.cancel()
         expireAccessIfNeeded()
         loadError = nil
         defer { isLoading = false }
@@ -183,6 +190,22 @@ final class DramaPlaybackStore {
         return accessDeadlines[episodeID]
     }
 
+    /// Unlike the UI's current-grant deadline, this remains stable while a grant
+    /// becomes stale so the prefetch task does not cancel its own request.
+    func accessPrefetchDeadline(for episodeID: String?) -> Date? {
+        episodeID.flatMap { accessDeadlines[$0] }
+    }
+
+    /// Transfer speculative work to the selected page before SwiftUI cancels the
+    /// previous page's task. A new foreground waiter may attach on the next turn.
+    func setActiveAccessEpisode(_ episodeID: String?) {
+        activeAccessEpisodeID = episodeID
+        for (id, flight) in validations where id != episodeID && flight.waiters.isEmpty {
+            validations[id] = nil
+            flight.task.cancel()
+        }
+    }
+
     @discardableResult
     func expireAccessIfNeeded() -> Bool {
         var expired = false
@@ -201,57 +224,144 @@ final class DramaPlaybackStore {
 
     /// This read-only path can never submit a coin transaction.
     func validateCachedAccess(_ requested: Episode) async throws {
+        try Task.checkCancellation()
         expireAccessIfNeeded()
         guard let episode = items.first(where: { $0.firstEpisode?.id == requested.id })?.firstEpisode,
               episode.requiresAccessValidation else { return }
-        if let task = validations[episode.id] { return try await task.value }
+        let waiterID = UUID()
+        let episodeID = episode.id
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                joinAccessValidation(episode, waiterID: waiterID, continuation: continuation)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelAccessWaiter(episodeID: episodeID, waiterID: waiterID)
+            }
+        }
+        try Task.checkCancellation()
+    }
+
+    /// Only the immediate next episode is checked, without entering the purchase
+    /// coordinator. Fresh grants are reused until their existing expiry.
+    func prevalidateNextEpisode(after selectedID: String) async {
+        guard let index = items.firstIndex(where: { $0.id == selectedID }),
+              items.indices.contains(index + 1), let episode = items[index + 1].firstEpisode else { return }
+        do {
+            if let deadline = accessDeadline(for: episode.id) {
+                try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSince(now()))))
+            }
+            try Task.checkCancellation()
+            try await validateCachedAccess(episode)
+        } catch {
+            // Speculative failures stay local; selecting the page can retry and
+            // show the foreground error without authorizing playback or a purchase.
+        }
+    }
+
+    private func joinAccessValidation(_ episode: Episode, waiterID: UUID,
+                                      continuation: CheckedContinuation<Void, Error>) {
+        if var existing = validations[episode.id] {
+            existing.waiters[waiterID] = continuation
+            validations[episode.id] = existing
+            return
+        }
         // A metadata response started earlier must not overrule this access check.
         contentRevision += 1
         let loadGeneration = generation
         let scope = network.playbackCacheScope
+        let validationID = UUID()
         let task = Task {
-            let status = try await unlockStatus(episode)
+            let result: Result<Void, Error>
+            do {
+                try await performAccessValidation(episode, validationID: validationID,
+                                                  loadGeneration: loadGeneration, scope: scope)
+                result = .success(())
+            } catch {
+                result = .failure(error)
+            }
+            finishAccessValidation(episodeID: episode.id, validationID: validationID, result: result)
+        }
+        validations[episode.id] = AccessValidation(id: validationID, task: task, waiters: [waiterID: continuation])
+    }
+
+    private func performAccessValidation(_ episode: Episode, validationID: UUID,
+                                         loadGeneration: UUID, scope: String) async throws {
+        let status = try await unlockStatus(episode)
+        try Task.checkCancellation()
+        guard generation == loadGeneration, scope == network.playbackCacheScope,
+              validations[episode.id]?.id == validationID else { throw CancellationError() }
+        // A payment or membership refresh may have granted this episode while
+        // the read was pending. Do not replace its newer authorization.
+        guard items.first(where: { $0.id == episode.id })?.firstEpisode?.requiresAccessValidation == true else { return }
+        if let responseID = status.episodeId, String(responseID) != episode.id {
+            throw EpisodeUnlockError.accessUnavailable
+        }
+        if status.canWatch == true {
+            let deadline = try PlaybackAccessPolicy.validUntil(for: status, now: now())
+            authorizePlayback(episode, validUntil: deadline)
+            try await refreshPlayableEpisode(episode)
+        } else {
+            guard status.canWatch == false else { throw EpisodeUnlockError.accessUnavailable }
+            // An old grant can report a zero price. Fetch the current price before
+            // exposing confirmation, including when this is a speculative check.
+            let response = try await freshEpisodeList()
             try Task.checkCancellation()
-            guard generation == loadGeneration, scope == network.playbackCacheScope else { throw CancellationError() }
-            if let responseID = status.episodeId, String(responseID) != episode.id {
+            guard generation == loadGeneration, scope == network.playbackCacheScope,
+                  validations[episode.id]?.id == validationID else { throw CancellationError() }
+            guard items.first(where: { $0.id == episode.id })?.firstEpisode?.requiresAccessValidation == true else { return }
+            guard let fresh = Self.makeItems(response, fallback: drama).first(where: { $0.id == episode.id }),
+                  let current = fresh.firstEpisode, current.requiresCoinUnlock,
+                  let index = items.firstIndex(where: { $0.id == episode.id }) else {
                 throw EpisodeUnlockError.accessUnavailable
             }
-            if status.canWatch == true {
-                let deadline = try PlaybackAccessPolicy.validUntil(for: status, now: now())
-                authorizePlayback(episode, validUntil: deadline)
-                try await refreshPlayableEpisode(episode)
-            } else {
-                guard status.canWatch == false else { throw EpisodeUnlockError.accessUnavailable }
-                // The API uses unlockCoin=0 for an old grant too. Obtain the real
-                // current price before showing a purchase confirmation.
-                let response = try await freshEpisodeList()
-                try Task.checkCancellation()
-                guard generation == loadGeneration, scope == network.playbackCacheScope else { throw CancellationError() }
-                guard let fresh = Self.makeItems(response, fallback: drama).first(where: { $0.id == episode.id }),
-                      let current = fresh.firstEpisode, current.requiresCoinUnlock,
-                      let index = items.firstIndex(where: { $0.id == episode.id }) else {
-                    throw EpisodeUnlockError.accessUnavailable
-                }
-                authorizedEpisodeIDs.remove(episode.id)
-                explicitConfirmationIDs.insert(episode.id)
-                replaceEpisode(at: index, with: current)
-                items[index].videoURL = fresh.videoURL
-                accessDeadlines[episode.id] = now().addingTimeInterval(PlaybackAccessPolicy.maxAge)
-                contentRevision += 1
-            }
+            authorizedEpisodeIDs.remove(episode.id)
+            explicitConfirmationIDs.insert(episode.id)
+            replaceEpisode(at: index, with: current)
+            items[index].videoURL = fresh.videoURL
+            accessDeadlines[episode.id] = now().addingTimeInterval(PlaybackAccessPolicy.maxAge)
+            contentRevision += 1
         }
-        validations[episode.id] = task
-        defer {
-            if generation == loadGeneration { validations[episode.id] = nil }
+    }
+
+    private func finishAccessValidation(episodeID: String, validationID: UUID, result: Result<Void, Error>) {
+        guard let flight = validations[episodeID], flight.id == validationID else { return }
+        validations[episodeID] = nil
+        for waiter in flight.waiters.values { waiter.resume(with: result) }
+    }
+
+    private func cancelAccessWaiter(episodeID: String, waiterID: UUID) {
+        guard var flight = validations[episodeID], let waiter = flight.waiters.removeValue(forKey: waiterID) else { return }
+        if flight.waiters.isEmpty && activeAccessEpisodeID != episodeID {
+            validations[episodeID] = nil
+            flight.task.cancel()
+        } else {
+            validations[episodeID] = flight
         }
-        try await task.value
-        try Task.checkCancellation()
+        waiter.resume(throwing: CancellationError())
+    }
+
+    private func cancelAccessValidations() {
+        let flights = validations.values
+        validations.removeAll()
+        for flight in flights {
+            flight.task.cancel()
+            for waiter in flight.waiters.values { waiter.resume(throwing: CancellationError()) }
+        }
     }
 
     private func freshEpisodeList() async throws -> APIModels.V1GetDramaEpisodeListRes {
         guard let id = Int64(drama.id) else { throw CatalogError.notFound }
-        if let detailCache { return try await detailCache.load(dramaID: drama.id, forceRefresh: true) }
-        return try await network.request(AppAPI.v1ClientDramaEpisodeList, body: .init(dramaId: id), unwrapEnvelope: true)
+        // Concurrent permission denials need one fresh price list. Separate
+        // forceRefresh calls would otherwise supersede and cancel each other.
+        return try await accessPriceRefresh.load { [self] in
+            if let detailCache { return try await detailCache.load(dramaID: drama.id, forceRefresh: true) }
+            return try await network.request(AppAPI.v1ClientDramaEpisodeList, body: .init(dramaId: id), unwrapEnvelope: true)
+        }
     }
 
     private func replaceEpisode(at index: Int, with episode: Episode) {

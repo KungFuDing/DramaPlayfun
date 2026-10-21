@@ -85,7 +85,7 @@ Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴�
 
 `AppContainer` 注入 `APIPayloadCipher`，对约定 password 的 UTF-8 字节计算 SHA-256 得到 32 字节密钥。启用加密时，每次请求生成随机 12 字节 nonce，将 `nonce + 密文 + 16 字节认证标签` 二进制数据编码为 Base64，直接作为 HTTP Body 发送，设置 `Content-Type: text/plain; charset=utf-8`、`Accept: text/plain`，不发送 `X-Payload-Encryption` 请求头；成功 HTTP 响应必须先解码 Base64，再通过 GCM 解密及完整性校验，最后按原来的 JSON、业务码及模型规则解析，校验失败不会降级接收明文。Debug 日志使用加密前、解密后的脱敏 JSON。`APIPayloadCipherTests`、`EncryptedNetworkTests` 和 `TransportEncryptionConfigTests` 覆盖跨实现向量、防篡改、Base64 传输、开关配置、并发合并、刷新、重试与取消；本地 JSON stub 可不注入 cipher，且不启用服务端配置读取。
 
-所有 API 请求的 `appVersion` 读取 App 的 `CFBundleShortVersionString`，游客登录及版本检查使用同一版本；`modelName` 在模拟器上为 `Simulator`，真机按硬件标识映射为设备名称，未收录型号保留硬件标识；`platform` 读取系统名称，`systemVersion` 为系统名称和版本号（如 `iOS 26.5`）。这些字段在 Debug/Release 中统一由运行时提供，不接受调试配置覆盖。
+所有 API 请求的 `appVersion` 读取 App 的 `CFBundleShortVersionString`，游客登录及版本检查使用同一版本；`modelName` 在模拟器上为 `Simulator`，真机按硬件标识映射为设备名称，未收录型号保留硬件标识；`platform` 固定为 `iOS`，`systemVersion` 为系统名称和版本号（如 `iOS 26.5`）。这些字段在 Debug/Release 中统一由客户端提供，不接受调试配置覆盖。
 
 `deviceId` 为首次生成并写入 Keychain 的 UUID，游客登录 Body 的 `deviceIdentifier` 使用同一个值，写入成功后才发起登录及其加密配置请求。已有 `guest.deviceIdentifier.v1` 会优先迁移，以保留后台识别的原身份；Keychain 已有 ID 时以 Keychain 为准。迁移成功后移除旧 UserDefaults 副本，新 ID 不再写入 UserDefaults，也不从 Debug 配置或 IDFV 取值。账号注销重登及缓存清理不会轮换设备 ID；Keychain 读取/写入失败时显示错误并允许重试，不使用临时 ID。Keychain 使用 `AfterFirstUnlockThisDeviceOnly`、不启用 iCloud 同步，避免将新 ID 带到另一台设备。
 
@@ -107,7 +107,7 @@ Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴�
 
 播放详情采用内存和磁盘缓存，最多 60 部：30 分钟内直接复用；30 分钟至 24 小时先显示缓存，再合并后台刷新；超过 24 小时重新请求。刷新失败保留旧资料，30 秒后允许重试，手动重试可强制刷新。缓存按 API 环境、账号、设备和语言隔离；登录返回 `userNo` 时同账号令牌更新仍可复用。失败、空或无效剧集列表不覆盖旧缓存；收藏、点赞、解锁和购买后失效相关缓存。设置页的缓存大小和清理包含这些接口数据。
 
-播放权限与资料缓存独立：超过 5 分钟的权限在播放前通过解锁状态接口只读校验，服务端给出的更早到期时间优先。未知权限可静默预热，但不能播放；旧权限被拒绝时重新获取真实价格，必须手动确认才能扣费。页面停留到期、切集及回前台均检查权限。地址续签不延长资料或权限有效期。`PlaybackDetailCacheTests`、`PlaybackCacheIntegrationTests`、`CachedPlaybackAccessTests`、`CachedRepositoryAccessTests` 和 `BrowsePlaybackPrefetchTests` 覆盖缓存分层、并发、身份隔离、权限和停留取消。
+播放权限与资料缓存独立：超过 5 分钟的权限在播放前通过解锁状态接口只读校验，服务端给出的更早到期时间优先。未知权限可静默预热，但不能播放；旧权限被拒绝时重新获取真实价格，必须手动确认才能扣费。页面停留到期、切集及回前台均检查权限。详情页停稳后只读预校验下一集，复用仍有效的权限，并在到期时重新校验；切到已预校验的集直接复用结果或在途请求。当前集的过期权限校验立即开始，不等待其他集的慢查询或扣费；同集购买和可能扣费的操作继续串行。页面切换与后台取消独立等待者，最后一个等待者离开时取消请求；预取升为当前页时先接管请求，防止切页误取消。并行权限拒绝共用一次价格刷新，迟到响应不能覆盖新授权。权限等待显示“正在确认播放权限…”，与媒体缓冲区分；预校验不能扣费，也不延长原有权限有效期。`PlaybackAccessLoadingTests` 覆盖过期连滑、预取交接、取消/重试、并发拒绝、迟到响应和扣费串行。地址续签不延长资料或权限有效期。`PlaybackDetailCacheTests`、`PlaybackCacheIntegrationTests`、`CachedPlaybackAccessTests`、`CachedRepositoryAccessTests` 和 `BrowsePlaybackPrefetchTests` 覆盖缓存分层、并发、身份隔离、权限和停留取消。
 
 图片与分享封面共用 Kingfisher 的内存、磁盘缓存，缓存键仅移除 `x-media-token`，保留其他内容参数。签名图片缓存未命中且返回 401/403 时，根据来源重新请求剧集详情、首页 Banner 或个人资料，取得新地址后仅重试一次；并发续签合并，失败退避 60 秒。普通网络错误不触发续签，新内容地址使用自己的缓存键。`RemoteImageRenewalTests` 和 `RemoteImageCacheTests` 覆盖这些恢复路径及缓存首帧。
 
@@ -116,5 +116,9 @@ Debug 构建在 Xcode 控制台输出 API 请求、响应和错误日志，鉴�
 上下滑动保留当前页及相邻两页的播放器与缓冲，快速回滑复用仍在窗口内的加载；前台缓冲安全后，优先预热最近滑动方向的邻页。续播预热保留已经准备好的邻页。启动和静默预热先准备约 2 秒的播放余量，已有至少 0.5 秒播放余量时立即起播，开始播放后再扩大前台缓冲；实际时长按倍速调整，弱网保留自动等待和卡顿恢复。HLS 网关按视频隔离网络回调队列，避免暂停邻页的背压阻塞当前视频。`PlaybackSwipeTests` 验证播放器复用、快速来回滑、旧页静音和三播放器上限；`HLSPlaybackKeyTests` 用真实本地慢消费者验证跨视频传输隔离。首帧与线上 CDN 延迟仍需在真机和实际网络下测量。
 
 播放详情页首次进入时不显示中央播放/暂停按钮，点击视频唤出控件后才显示。连续播放 5 秒后淡出顶部按钮、剧名简介、侧边操作、进度条及遮罩，只保留视频和底部选集、清晰度、倍速入口。使用中央按钮暂停或继续；暂停、缓冲、拖动进度及打开弹层时不计时。隐藏状态在自动续播、滑动切集和选集后保持。VoiceOver 开启时保持控件可见。`PlayerControlsUITests` 覆盖初始中央按钮隐藏、控件隐藏、唤出后继续播放及切集状态保持。
+
+剧场和播放详情页共用 `CaptureProtectedPlayerView`：真机使用公开的 [`AVSampleBufferDisplayLayer.preventsCapture`](https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer/preventscapture) 保护视频像素，视频下方固定为黑色，因此系统捕获排除视频后不会透出封面。界面控件仍可被截取，音频不做屏蔽。本机视频继续按原来的播放、暂停、进度与倍速状态运行，截屏和录屏不触发暂停。AVPlayer 保留解码、音频与时间轴，渲染组件按显示刷新取帧，处理视频方向、切集、播放器复用和退出释放。视频输出在 AVPlayerItem 绑定播放器前创建，并随 item 保留；页面退出只解除帧订阅，避免切页重新绑定输出中断加密 HLS。iOS 26.4 起需允许 ClearKey 视频取帧，所有取出的帧仅送入该视频图层，不再使用 AVPlayerLayer 显示。模拟器通过宿主显示捕获路径展示画面，启用 `preventsCapture` 会连正常预览一起变黑，因此仅在 `targetEnvironment(simulator)` 编译分支关闭该标记；真机的 Debug 和 Release 构建均启用防护。
+
+`PlaybackCaptureTests` 验证本地 MP4、AES-128 HLS 与独立音视频/字幕 fMP4 HLS 实际出帧、进度、暂停/拖动/倍速、换集与资源释放；`PlaybackCaptureUITests` 验证两个页面截图前后持续播放及交互，模拟器检查视频区域可见且非黑，真机检查截图像素为黑色。模拟器不能代替系统捕获验收：真机需分别在两个页面使用硬件截屏，以及先开始系统录屏再进入播放、播放中开始/结束录屏，检查相册产物的视频区域为黑色、本机画面持续、音频和进度正常；同时覆盖切集、横竖屏及返回重进。
 
 本地化资源通过 `L10n.tr`（可观察的 UI 文案）或 `L10n.text`（非主线程错误信息）读取；参数化文案使用格式占位符，新增文案需同时维护两套 Localizable 文件。选择语言后自动关闭弹窗，保留当前设置页；实际语言变化时统一替换各业务页的数据缓存、重建页面，清除旧语言的导航内容，当前页面立即重新请求，其他页面进入时加载新语言。旧请求只会写入已替换的 Store，不会覆盖新页面；会员商品和版本检查使用代次校验。登录会话、本地收藏/观看进度、会员权益及交易监听保持不变。`LocalizationTests` 和 `LocalizationUITests` 覆盖缓存失效、旧响应隔离、接口语言和页面切换。相册权限说明由两套 `InfoPlist.strings` 提供，系统权限弹窗遵循 iOS 应用语言。离线接口生成源与脚本位于本项目已忽略的 `接口文档/` 和 `Scripts/`，本地已同步标记语言列表接口废弃。

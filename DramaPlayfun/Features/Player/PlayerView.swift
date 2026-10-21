@@ -104,7 +104,7 @@ struct PlayerView: View {
                     }
                     .scrollIndicators(.hidden)
                     .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
-                    .scrollPosition(id: $selectedID, anchor: .top)
+                    .scrollPosition(id: Binding(get: { selectedID }, set: selectEpisode), anchor: .top)
                     .accessibilityIdentifier("player-episode-feed")
                     .accessibilityValue(L10n.tr("第%d集", currentItem?.firstEpisode?.number ?? 1))
                     .task {
@@ -155,7 +155,7 @@ struct PlayerView: View {
                 await store.load(forceRefresh: attempt > 0)
             }
             guard !Task.isCancelled else { return }
-            selectedID = store.initialID(request: request)
+            selectEpisode(store.initialID(request: request))
             isReady = true
             completedAttempt = attempt
             updatePlayback()
@@ -169,9 +169,20 @@ struct PlayerView: View {
         .task(id: accessTaskID) {
             guard canResolveAccess, let episode = currentItem?.firstEpisode,
                   !episode.canPlayWithoutValidation else { return }
+            // Read-only validation should start immediately. Keep the debounce
+            // for flows that could automatically purchase an episode while swiping.
+            if !episode.requiresAccessValidation {
+                do { try await Task.sleep(for: .milliseconds(220)) }
+                catch { return }
+            }
+            await resolveAccess(episode, automatically: true)
+        }
+        .task(id: nextAccessTaskID) {
+            guard canPrevalidateNextAccess, let selectedID, nextAccessEpisode != nil else { return }
+            // Only a settled page speculates on its immediate next episode.
             do { try await Task.sleep(for: .milliseconds(220)) }
             catch { return }
-            await resolveAccess(episode, automatically: true)
+            await store.prevalidateNextEpisode(after: selectedID)
         }
         .task(id: isReady) {
             guard isReady else { return }
@@ -194,11 +205,15 @@ struct PlayerView: View {
             guard ended, isVisible, app.profile.autoPlaysNext,
                   let index = store.items.firstIndex(where: { $0.id == selectedID }),
                   store.items.indices.contains(index + 1) else { return }
-            selectedID = store.items[index + 1].id
+            selectEpisode(store.items[index + 1].id)
         }
-        .onAppear { isMounted = true }
+        .onAppear {
+            isMounted = true
+            updatePlayback()
+        }
         .onDisappear {
             isMounted = false
+            store.setActiveAccessEpisode(nil)
             if selectedDetail == nil { playback.reset() } else { playback.suspend() }
         }
         .overlay {
@@ -211,7 +226,7 @@ struct PlayerView: View {
                 PlayerEpisodesSheet(drama: currentItem?.drama ?? request.drama,
                     episodes: store.items.compactMap(\.firstEpisode), selectedID: currentItem?.firstEpisode?.id,
                     onClose: { showEpisodes = false }, onSelect: { episode in
-                        selectedID = episode.id
+                        selectEpisode(episode.id)
                         showEpisodes = false
                     })
             }
@@ -302,7 +317,8 @@ struct PlayerView: View {
                                     .multilineTextAlignment(.center)
                                 Button(L10n.tr("重试")) { retry(item) }
                             } else {
-                                ProgressView(L10n.tr("正在加载剧集…"))
+                                ProgressView(L10n.tr("正在确认播放权限…"))
+                                    .accessibilityIdentifier("player-access-validation")
                             }
                         }.padding(28)
                     } else {
@@ -425,7 +441,15 @@ struct PlayerView: View {
             .background(Theme.background)
     }
 
+    private func selectEpisode(_ id: String?) {
+        // Promote a prefetched check before changing the task IDs. SwiftUI may
+        // cancel the old neighbor task before the new foreground task starts.
+        store.setActiveAccessEpisode(id)
+        selectedID = id
+    }
+
     private func updatePlayback() {
+        store.setActiveAccessEpisode(isPreparationActive ? selectedID : nil)
         guard isMounted else { playback.suspend(); return }
         if store.expireAccessIfNeeded() { accessRevision += 1 }
         playback.update(items: store.items, selectedID: selectedID, visible: isVisible,
@@ -439,6 +463,23 @@ struct PlayerView: View {
 
     private var accessExpirationID: String {
         "\(canResolveAccess)-\(selectedID ?? "")-\(store.accessDeadline(for: currentItem?.firstEpisode?.id)?.timeIntervalSince1970 ?? 0)"
+    }
+
+    private var nextAccessEpisode: Episode? {
+        guard let index = store.items.firstIndex(where: { $0.id == selectedID }),
+              store.items.indices.contains(index + 1) else { return nil }
+        return store.items[index + 1].firstEpisode
+    }
+
+    private var nextAccessTaskID: String {
+        let episode = nextAccessEpisode
+        let deadline = store.accessPrefetchDeadline(for: episode?.id)?.timeIntervalSince1970 ?? 0
+        return "\(canPrevalidateNextAccess)-\(selectedID ?? "")-\(episode?.id ?? "")-\(deadline)"
+    }
+
+    private var canPrevalidateNextAccess: Bool {
+        isPreparationActive && !showEpisodes && optionsKind == nil && pendingUnlock == nil &&
+            feedbackEpisode == nil && !isSubmittingFeedback && !feedbackSubmitted && unlockError == nil
     }
 
     private var canResolveAccess: Bool {

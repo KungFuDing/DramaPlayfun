@@ -367,6 +367,7 @@ final class TheaterPlayerPool {
         let version = UUID()
         prepareVersions[id] = version
         let player = players[id] ?? sparePlayers.popLast() ?? AVPlayer()
+        CaptureProtectedVideoOutput.configure(player)
         timeObservers[id] = nil
         bufferObservers[id] = nil
         if pendingBufferedStartID == id { pendingBufferedStartID = nil }
@@ -418,6 +419,7 @@ final class TheaterPlayerPool {
                 try Task.checkCancellation()
                 guard prepareVersions[id] == version, players[id] === player else { return }
                 let playerItem = AVPlayerItem(asset: asset)
+                CaptureProtectedVideoOutput.prepare(playerItem)
                 player.replaceCurrentItem(with: playerItem)
                 configureBuffer(player, isCurrent: id == currentID)
                 let deadline = Date().addingTimeInterval(20)

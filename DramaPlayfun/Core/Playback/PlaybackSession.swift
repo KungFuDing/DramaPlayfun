@@ -49,6 +49,8 @@ final class PlaybackSession {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             try AVAudioSession.sharedInstance().setActive(true)
             let item = AVPlayerItem(asset: asset)
+            CaptureProtectedVideoOutput.configure(player)
+            CaptureProtectedVideoOutput.prepare(item)
             player.replaceCurrentItem(with: item)
             let deadline = Date().addingTimeInterval(30)
             while item.status == .unknown {

@@ -232,6 +232,7 @@
 "正在前往…" = "Opening…";
 "正在加载剧场…" = "Loading theater…";
 "正在加载剧集…" = "Loading episodes…";
+"正在确认播放权限…" = "Checking playback access…";
 "正在加载商品…" = "Loading products…";
 "正在加载字幕…" = "Loading subtitles…";
 "正在播放" = "Playing";

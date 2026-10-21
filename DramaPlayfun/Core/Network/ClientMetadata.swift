@@ -33,7 +33,7 @@ nonisolated struct ClientMetadata: Sendable {
         }
         #endif
         return Self(appVersion: version.flatMap { $0.isEmpty ? nil : $0 } ?? "1.0",
-                    modelName: modelName, platform: device.systemName,
+                    modelName: modelName, platform: "iOS",
                     systemVersion: "\(device.systemName) \(device.systemVersion)")
     }
 }

@@ -3,12 +3,7 @@ import SwiftUI
 struct RankingsView: View {
     @Environment(AppContainer.self) private var app
     @Environment(AppRouter.self) private var router
-    @State private var viewportHeight: CGFloat = 700
-    @State private var viewportWidth: CGFloat = 375
     @State private var isRetrying = false
-
-    // Keep the phone proportions without magnifying every element on wide windows.
-    private var scale: CGFloat { min(viewportWidth / 375, 1.25) }
 
     private var showsNetworkFailure: Bool {
         let feed = app.rankings
@@ -21,34 +16,38 @@ struct RankingsView: View {
         @Bindable var feed = app.rankings
         let state = feed.selectedPage
         let selectedID = feed.selectedID
-        ZStack {
-            if showsNetworkFailure {
-                NetworkFailureView { await retryFailedRequest() }
-            } else {
-                RefreshLoadScrollView(
-                    hasMore: state.hasMore,
-                    isLoadingMore: state.isLoadingMore,
-                    loadError: state.loadMoreErrorMessage,
-                    onRefresh: {
-                        await feed.reloadTabs()
-                        await feed.refreshSelected()
-                    },
-                    onLoadMore: { await feed.loadMore() }
-                ) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        RankingHeader(scale: scale)
-                        VStack(alignment: .leading, spacing: 12 * scale) {
-                            RankingTabPicker(tabs: feed.tabs, selection: $feed.selectedID, scale: scale)
-                            FeedTabsStatus(feed: feed)
-                            RankingCategoryPager(feed: feed, selection: $feed.selectedID,
-                                                 minimumHeight: max(1, viewportHeight - 203 * scale),
-                                                 scale: scale)
+        GeometryReader { geometry in
+            // Use the parent viewport so scaled text cannot feed its measured size back into layout.
+            let scale = min(geometry.size.width / 375, 1.25)
+            ZStack {
+                if showsNetworkFailure {
+                    NetworkFailureView { await retryFailedRequest() }
+                } else {
+                    RefreshLoadScrollView(
+                        hasMore: state.hasMore,
+                        isLoadingMore: state.isLoadingMore,
+                        loadError: state.loadMoreErrorMessage,
+                        onRefresh: {
+                            await feed.reloadTabs()
+                            await feed.refreshSelected()
+                        },
+                        onLoadMore: { await feed.loadMore() }
+                    ) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            RankingHeader(scale: scale)
+                            VStack(alignment: .leading, spacing: 12 * scale) {
+                                RankingTabPicker(tabs: feed.tabs, selection: $feed.selectedID, scale: scale)
+                                FeedTabsStatus(feed: feed)
+                                RankingCategoryPager(feed: feed, selection: $feed.selectedID,
+                                                     minimumHeight: max(1, geometry.size.height - 203 * scale),
+                                                     scale: scale)
+                            }
+                            .padding(.horizontal, 12 * scale)
+                            .padding(.bottom, 24)
                         }
-                        .padding(.horizontal, 12 * scale)
-                        .padding(.bottom, 24)
                     }
+                    .background { RankingBackground().ignoresSafeArea() }
                 }
-                .background { RankingBackground().ignoresSafeArea() }
             }
         }
         .playbackDetailPrefetch(
@@ -56,8 +55,6 @@ struct RankingsView: View {
                 && !router.membershipPresented && !showsNetworkFailure,
             categoryID: selectedID
         )
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
         .toolbar(.hidden, for: .navigationBar)
         .task { await feed.loadTabsIfNeeded() }
         .task(id: selectedID) {

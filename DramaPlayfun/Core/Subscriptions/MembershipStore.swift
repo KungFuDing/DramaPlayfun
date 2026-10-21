@@ -59,18 +59,21 @@ final class MembershipStore {
         }
     }
 
-    private func refresh(account: Int) async {
+    @discardableResult
+    private func refresh(account: Int) async -> Bool {
         let generation = localizedContentGeneration
         do {
             let refreshed = try await service.entitlement()
-            guard isCurrentAccount(account), generation == localizedContentGeneration else { return }
+            guard isCurrentAccount(account), generation == localizedContentGeneration else { return false }
             entitlement = refreshed
             if service.transactionMessage != nil { messageState = .transaction }
+            return true
         }
         catch is CancellationError {}
         catch {
             if isCurrentAccount(account), generation == localizedContentGeneration { messageState = .failure(error) }
         }
+        return false
     }
 
     func loadPlans() async {
@@ -114,7 +117,7 @@ final class MembershipStore {
                 guard self.isCurrentAccount(account) else { return }
                 switch outcome {
                 case .purchased:
-                    await self.refresh(account: account)
+                    guard await self.refresh(account: account) else { return }
                     guard self.isCurrentAccount(account) else { return }
                     self.messageState = .local(plan.category == .coins ? "充值成功，金币已到账" :
                         (self.isActive ? "会员已开通" : "购买已完成，正在等待权益更新，请稍后恢复购买。"))
@@ -137,7 +140,7 @@ final class MembershipStore {
             do {
                 try await self.service.restore()
                 guard self.isCurrentAccount(account) else { return }
-                await self.refresh(account: account)
+                guard await self.refresh(account: account) else { return }
                 guard self.isCurrentAccount(account) else { return }
                 self.messageState = .local(self.isActive ? "已恢复会员权益" : "购买同步完成，未找到有效的会员订阅")
             } catch is CancellationError {

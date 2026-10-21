@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import Kingfisher
 import SafariServices
+import StoreKit
 
 private enum SettingsPanel: String, Identifiable {
     case language, contact, deactivate
@@ -136,6 +137,7 @@ private struct SettingsBottomPanel: View {
     let onClose: () -> Void
     @State private var localization = LocalizationStore.shared
     @State private var isDeactivating = false
+    @State private var managingSubscription = false
     @State private var error: String?
     @State private var copiedEmail: String?
 
@@ -181,6 +183,7 @@ private struct SettingsBottomPanel: View {
             .accessibilityElement(children: .contain).accessibilityIdentifier("settings-\(kind.rawValue)-panel")
         }
         .buttonStyle(.plain)
+        .manageSubscriptionsSheet(isPresented: $managingSubscription)
         .alert(L10n.tr("注销失败"), isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button(L10n.tr("确定"), role: .cancel) { error = nil }
         } message: { Text(error ?? "") }
@@ -190,7 +193,7 @@ private struct SettingsBottomPanel: View {
         switch kind {
         case .language: max(354, CGFloat((AppLanguage.allCases.count + 1) / 2) * 56 + 122)
         case .contact: 124 + max(bottomInset, 34)
-        case .deactivate: 320 + max(bottomInset, 34)
+        case .deactivate: 480 + max(bottomInset, 34)
         }
     }
 
@@ -241,9 +244,16 @@ private struct SettingsBottomPanel: View {
     }
 
     private var deactivation: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    Text(L10n.tr("注销帐号不会取消 Apple 订阅。未取消的订阅将继续由 Apple 自动续费并扣款。建议先管理或取消订阅，再注销帐号。"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(white: 0.23), in: RoundedRectangle(cornerRadius: 8))
+                        .accessibilityIdentifier("settings-deactivate-subscription-warning")
                     Text(LocalizedStringKey(L10n.tr("注销后，您将放弃以下权益且**无法找回**：")))
                     Text(LocalizedStringKey(L10n.tr("1. **虚拟财产清空：** 帐户内剩余的**看剧金币、充值余额及未过期的会员VIP权益**将自动失效。")))
                     Text(LocalizedStringKey(L10n.tr("2. **观看记录清除：** 您的追剧历史、收藏列表、点赞数据将被永久删除。")))
@@ -253,7 +263,18 @@ private struct SettingsBottomPanel: View {
                 }
                 .font(.system(size: 14)).foregroundStyle(Color(white: 0.7)).lineSpacing(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            }.scrollIndicators(.hidden)
+            }.scrollIndicators(.visible)
+                .accessibilityIdentifier("settings-deactivate-details")
+            Button { managingSubscription = true } label: {
+                Text(L10n.tr("管理 Apple 订阅"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 44)
+                    .overlay { Capsule().strokeBorder(Theme.accent, lineWidth: 1) }
+                    .contentShape(Capsule())
+            }.disabled(isDeactivating)
+                .accessibilityIdentifier("settings-deactivate-manage-subscriptions")
             HStack(spacing: 16) {
                 Button(L10n.tr("我再想想"), action: onClose).font(.system(size: 16, weight: .medium))
                     .foregroundStyle(Color(white: 0.7)).frame(maxWidth: .infinity).frame(height: 46)

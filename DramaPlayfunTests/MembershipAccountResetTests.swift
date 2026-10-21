@@ -164,6 +164,126 @@ final class MembershipAccountResetTests: XCTestCase {
         }
         XCTAssertTrue(creditedBalances.isEmpty)
     }
+
+    func testRestoreKeepsRefreshFailureForPreviouslyActiveAndInactiveAccounts() async {
+        for wasActive in [true, false] {
+            let service = ResetSubscriptionService()
+            service.currentEntitlement = .init(isActive: wasActive, category: wasActive ? .weekly : nil)
+            service.restoreError = nil
+            let store = MembershipStore(service: service)
+            await store.refresh()
+            let previousEntitlement = store.entitlement
+
+            service.entitlementError = StorePurchaseError.productUnavailable
+            await store.restore()
+
+            XCTAssertEqual(store.entitlement, previousEntitlement)
+            XCTAssertEqual(store.message, StorePurchaseError.productUnavailable.errorDescription,
+                           "A failed query must not claim restoration succeeded or that no subscription exists.")
+            XCTAssertFalse(store.isPurchasing)
+        }
+    }
+
+    func testRestoreReportsOnlyFreshConfirmedEntitlement() async {
+        for hasRestoredSubscription in [true, false] {
+            let service = ResetSubscriptionService()
+            service.currentEntitlement = .init(isActive: !hasRestoredSubscription,
+                                               category: hasRestoredSubscription ? nil : .weekly)
+            service.restoreError = nil
+            let store = MembershipStore(service: service)
+            await store.refresh()
+
+            service.currentEntitlement = .init(isActive: hasRestoredSubscription,
+                                               category: hasRestoredSubscription ? .yearly : nil)
+            await store.restore()
+
+            XCTAssertEqual(store.entitlement, service.currentEntitlement)
+            XCTAssertEqual(store.message, L10n.tr(hasRestoredSubscription
+                ? "已恢复会员权益" : "购买同步完成，未找到有效的会员订阅"))
+            XCTAssertFalse(store.isPurchasing)
+        }
+    }
+
+    func testRestoreCannotPublishAfterAccountResetDuringEntitlementQuery() async {
+        let service = ResetSubscriptionService()
+        service.restoreError = nil
+        service.currentEntitlement = .init(isActive: true, category: .yearly)
+        let gate = MembershipResetSuspension()
+        service.entitlementGate = gate
+        let store = MembershipStore(service: service)
+        let restore = _Concurrency.Task { await store.restore() }
+        await gate.waitUntilStarted()
+
+        store.resetForAccountChange()
+        gate.resume()
+        await restore.value
+
+        XCTAssertFalse(store.isActive)
+        XCTAssertNil(store.message)
+        XCTAssertFalse(store.isPurchasing)
+    }
+
+    func testCancelledRestoreCannotPublishEntitlementOrConclusion() async {
+        let service = ResetSubscriptionService()
+        service.restoreError = nil
+        service.currentEntitlement = .init(isActive: true, category: .yearly)
+        let gate = MembershipResetSuspension()
+        service.entitlementGate = gate
+        let store = MembershipStore(service: service)
+        let restore = _Concurrency.Task { await store.restore() }
+        await gate.waitUntilStarted()
+
+        restore.cancel()
+        gate.resume()
+        await restore.value
+
+        XCTAssertFalse(store.isActive)
+        XCTAssertNil(store.message)
+        XCTAssertFalse(store.isPurchasing)
+    }
+
+    func testRestoreCannotPublishResultInvalidatedByLanguageChange() async {
+        let service = ResetSubscriptionService()
+        service.restoreError = nil
+        service.currentEntitlement = .init(isActive: true, category: .weekly)
+        let store = MembershipStore(service: service)
+        await store.refresh()
+        let previousEntitlement = store.entitlement
+        service.currentEntitlement = .init(isActive: true, category: .yearly)
+        let gate = MembershipResetSuspension()
+        service.entitlementGate = gate
+        let restore = _Concurrency.Task { await store.restore() }
+        await gate.waitUntilStarted()
+
+        store.invalidateLocalizedContent()
+        gate.resume()
+        await restore.value
+
+        XCTAssertEqual(store.entitlement, previousEntitlement)
+        XCTAssertNil(store.message)
+        XCTAssertFalse(store.isPurchasing)
+    }
+
+    func testPurchaseKeepsEntitlementRefreshFailureInsteadOfSuccessMessage() async {
+        for category in [MembershipCategory.weekly, .coins] {
+            let service = ResetSubscriptionService()
+            service.entitlementError = StorePurchaseError.productUnavailable
+            let gate = MembershipResetSuspension()
+            service.purchaseGates = [gate]
+            service.purchaseOutcomes = [.purchased]
+            let store = MembershipStore(service: service)
+            let purchasedPlan = MembershipPlan(id: "product", title: "Product", price: "$1", period: "",
+                                               category: category)
+            let purchase = _Concurrency.Task { await store.purchase(purchasedPlan) }
+            await gate.waitUntilStarted()
+            gate.resume()
+            await purchase.value
+
+            XCTAssertEqual(store.message, StorePurchaseError.productUnavailable.errorDescription)
+            XCTAssertFalse(store.isActive)
+            XCTAssertFalse(store.isPurchasing)
+        }
+    }
 }
 
 /// Intentionally ignores cancellation, exercising guards against late external callbacks.
@@ -198,10 +318,12 @@ private final class ResetSubscriptionService: SubscriptionService {
     var resetCount = 0
     var availablePlans: [MembershipPlan] = []
     var currentEntitlement = MembershipEntitlement()
+    var entitlementError: Error?
     var entitlementRequests = 0
     var entitlementGate: MembershipResetSuspension?
     var planGate: MembershipResetSuspension?
     var restoreGate: MembershipResetSuspension?
+    var restoreError: Error? = StorePurchaseError.awaitingGrant
     var purchaseGates: [MembershipResetSuspension] = []
     var purchaseOutcomes: [PurchaseOutcome] = []
     var observationGates: [MembershipResetSuspension] = []
@@ -224,7 +346,9 @@ private final class ResetSubscriptionService: SubscriptionService {
     func entitlement() async throws -> MembershipEntitlement {
         entitlementRequests += 1
         let result = currentEntitlement
+        let error = entitlementError
         if let entitlementGate { await entitlementGate.wait() }
+        if let error { throw error }
         return result
     }
 
@@ -240,7 +364,7 @@ private final class ResetSubscriptionService: SubscriptionService {
 
     func restore() async throws {
         if let restoreGate { await restoreGate.wait() }
-        throw StorePurchaseError.awaitingGrant
+        if let restoreError { throw restoreError }
     }
 
     func observeTransactions(onChange: @escaping @MainActor () async -> Void) async {

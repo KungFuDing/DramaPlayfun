@@ -253,6 +253,7 @@
 "每月" = "Every month";
 "注销后，您将放弃以下权益且**无法找回**：" = "Deleting your account permanently removes the following benefits. **They cannot be recovered:**";
 "注销失败" = "Couldn’t delete account";
+"注销帐号不会取消 Apple 订阅。未取消的订阅将继续由 Apple 自动续费并扣款。建议先管理或取消订阅，再注销帐号。" = "Deleting your account does not cancel Apple subscriptions. Apple will continue to renew and charge for subscriptions you have not canceled. We recommend managing or canceling your subscriptions before deleting your account.";
 "注销账号" = "Delete Account";
 "流畅看剧更方便" = "Smooth, easy viewing";
 "深宫再相逢，命运由她重新书写。" = "Reunited behind palace walls, she takes her destiny into her own hands.";
@@ -298,6 +299,7 @@
 "签到" = "Check In";
 "签到失败" = "Check-in failed";
 "签到未成功，请稍后重试。" = "Check-in failed. Please try again later.";
+"管理 Apple 订阅" = "Manage Apple Subscriptions";
 "管理订阅" = "Manage Subscription";
 "精彩故事即将上线" = "New stories are coming soon";
 "精选" = "Featured";

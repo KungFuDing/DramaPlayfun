@@ -6,6 +6,7 @@ final class StoreKitSubscriptionService: SubscriptionService {
     private let loadProducts: @MainActor ([String]) async throws -> [Product]
     private var products: [Product] = []
     private var catalogGeneration = 0
+    private var accountGeneration = 0
     private var deliveries: [UInt64: Task<Void, Error>] = [:]
     private var transactionError: Error?
     var transactionMessage: String? { transactionError.map { L10n.errorMessage($0, fallback: "购买服务暂不可用，请稍后重试。") } }
@@ -16,22 +17,39 @@ final class StoreKitSubscriptionService: SubscriptionService {
         self.loadProducts = loadProducts
     }
 
+    func resetForAccountChange() {
+        accountGeneration += 1
+        catalogGeneration += 1
+        products = []
+        deliveries.values.forEach { $0.cancel() }
+        deliveries.removeAll()
+        transactionError = nil
+        backend.resetForAccountChange()
+    }
+
+    private func checkAccount(_ generation: Int) throws {
+        try Task.checkCancellation()
+        guard generation == accountGeneration else { throw CancellationError() }
+    }
+
     func plans() async throws -> [MembershipPlan] {
         try await plans(onUpdate: { _ in })
     }
 
     func plans(onUpdate: @MainActor ([MembershipPlan]) -> Void) async throws -> [MembershipPlan] {
+        let account = accountGeneration
+        try checkAccount(account)
         catalogGeneration += 1
         let generation = catalogGeneration
         let configurations = try await backend.products()
-        try Task.checkCancellation()
+        try checkAccount(account)
         guard generation == catalogGeneration else { throw CancellationError() }
         products = []
         let serverPlans = configurations.map(\.plan)
         onUpdate(serverPlans)
         guard !configurations.isEmpty else { return serverPlans }
         let loadedProducts = try await loadProducts(configurations.map(\.id))
-        try Task.checkCancellation()
+        try checkAccount(account)
         guard generation == catalogGeneration else { throw CancellationError() }
         products = loadedProducts
         return configurations.map { item in
@@ -47,18 +65,27 @@ final class StoreKitSubscriptionService: SubscriptionService {
     func hasActiveSubscription() async throws -> Bool { try await entitlement().isActive }
 
     func purchase(planID: String) async throws -> PurchaseOutcome {
+        let account = accountGeneration
+        try checkAccount(account)
         guard let product = products.first(where: { $0.id == planID }) else {
             throw StorePurchaseError.productUnavailable
         }
         let configuration = try await backend.configuration(for: planID)
+        try checkAccount(account)
         guard Self.matches(product, category: configuration.category) else {
             throw StorePurchaseError.productUnavailable
         }
         try await backend.prepare(configuration)
-        switch try await product.purchase() {
+        try checkAccount(account)
+        let outcome = try await product.purchase()
+        // A payment sheet may complete after deletion. Leave its transaction unfinished
+        // for normal recovery; never deliver it using the replacement account's session.
+        try checkAccount(account)
+        switch outcome {
         case .success(let result):
             guard case .verified(let transaction) = result else { throw StorePurchaseError.unverified }
-            try await deliver(transaction)
+            try await deliver(transaction, account: account)
+            try checkAccount(account)
             return .purchased
         case .pending: return .pending
         case .userCancelled: return .cancelled
@@ -67,64 +94,97 @@ final class StoreKitSubscriptionService: SubscriptionService {
     }
 
     func restore() async throws {
+        let account = accountGeneration
+        try checkAccount(account)
         try await AppStore.sync()
+        try checkAccount(account)
         var firstError: Error?
         // Includes unfinished consumables; currentEntitlements intentionally excludes them.
         // One failing order must not prevent unrelated orders from being recovered.
         for await result in Transaction.unfinished {
+            try checkAccount(account)
             guard case .verified(let transaction) = result else { continue }
-            do { try await deliver(transaction) }
-            catch { if firstError == nil { firstError = error } }
+            do { try await deliver(transaction, account: account) }
+            catch is CancellationError { throw CancellationError() }
+            catch {
+                try checkAccount(account)
+                if firstError == nil { firstError = error }
+            }
         }
         for await result in Transaction.currentEntitlements {
+            try checkAccount(account)
             guard case .verified(let transaction) = result,
                   transaction.productType == .autoRenewable,
                   transaction.revocationDate == nil, !transaction.isUpgraded else { continue }
             do {
                 _ = try await backend.configuration(for: transaction.productID)
+                try checkAccount(account)
                 try await backend.restore(transactionID: String(transaction.id), originalID: String(transaction.originalID))
-            } catch { if firstError == nil { firstError = error } }
+            } catch is CancellationError { throw CancellationError() }
+            catch {
+                try checkAccount(account)
+                if firstError == nil { firstError = error }
+            }
         }
+        try checkAccount(account)
         if let firstError { throw firstError }
     }
 
     func observeTransactions(onChange: @escaping @MainActor () async -> Void) async {
+        let account = accountGeneration
+        guard !Task.isCancelled else { return }
         let updates = Transaction.updates
         for await result in Transaction.unfinished {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, account == accountGeneration else { return }
             if case .verified(let transaction) = result {
-                do { try await deliver(transaction) }
-                catch { transactionError = error }
+                do { try await deliver(transaction, account: account) }
+                catch is CancellationError { return }
+                catch {
+                    guard !Task.isCancelled, account == accountGeneration else { return }
+                    transactionError = error
+                }
             }
         }
+        guard !Task.isCancelled, account == accountGeneration else { return }
         await onChange()
         for await result in updates {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, account == accountGeneration else { return }
             guard case .verified(let transaction) = result else { continue }
             do {
-                try await deliver(transaction)
+                try await deliver(transaction, account: account)
+                try checkAccount(account)
                 await onChange()
-            } catch {
+            } catch is CancellationError { return }
+            catch {
+                guard !Task.isCancelled, account == accountGeneration else { return }
                 transactionError = error
                 await onChange()
             }
         }
     }
 
-    private func deliver(_ transaction: Transaction) async throws {
+    private func deliver(_ transaction: Transaction, account: Int) async throws {
+        try checkAccount(account)
         guard transaction.revocationDate == nil, !transaction.isUpgraded else {
             await transaction.finish()
             return
         }
-        if let pending = deliveries[transaction.id] { return try await pending.value }
+        if let pending = deliveries[transaction.id] {
+            try await pending.value
+            try checkAccount(account)
+            return
+        }
         let delivery = Task { @MainActor in
+            try checkAccount(account)
             try await backend.report(productID: transaction.productID, transactionID: String(transaction.id),
                                      originalID: String(transaction.originalID), accountToken: transaction.appAccountToken)
+            try checkAccount(account)
             await transaction.finish()
         }
         deliveries[transaction.id] = delivery
-        defer { deliveries[transaction.id] = nil }
+        defer { if account == accountGeneration { deliveries[transaction.id] = nil } }
         try await delivery.value
+        try checkAccount(account)
         transactionError = nil
     }
 

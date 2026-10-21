@@ -78,11 +78,16 @@ final class APIClient {
     private let usesServerEncryptionConfiguration: Bool
     private var serverEncryptionEnabled: Bool?
     private var encryptionConfigurationTask: _Concurrency.Task<Bool, Error>?
+    private var encryptionConfigurationTaskID: UUID?
+    private var accountGeneration = UUID()
+    private var isResettingAccount = false
+    private var pendingRequests: [UUID: PendingAPIRequest] = [:]
     private var accessToken: String?
     private var accountID: String?
     private var deviceIdentifier: String?
 
     var appVersion: String { clientMetadata.appVersion }
+    var accountSessionID: UUID { accountGeneration }
 
     init(configuration: APIConfiguration? = nil,
          provider: MoyaProvider<APITarget>? = nil,
@@ -113,6 +118,31 @@ final class APIClient {
         self.accountID = token.isEmpty ? nil : accountID
     }
 
+    /// Close request admission before clearing account-owned stores and caches.
+    /// The device identity and transport configuration belong to the installation.
+    func beginAccountReset() {
+        isResettingAccount = true
+        accountGeneration = UUID()
+        accessToken = ""
+        accountID = nil
+        encryptionConfigurationTaskID = nil
+        encryptionConfigurationTask?.cancel()
+        encryptionConfigurationTask = nil
+        let requests = Array(pendingRequests.values)
+        pendingRequests.removeAll()
+        requests.forEach { $0.cancel() }
+    }
+
+    /// Reopen admission only after old account state has been removed.
+    func endAccountReset() {
+        isResettingAccount = false
+    }
+
+    private func validateAccountGeneration(_ generation: UUID) throws {
+        try _Concurrency.Task<Never, Never>.checkCancellation()
+        guard !isResettingAccount, accountGeneration == generation else { throw CancellationError() }
+    }
+
     /// A stable server account survives token renewal; older servers fall back to
     /// the credential itself. Credentials never appear in cache filenames.
     var playbackCacheScope: String {
@@ -125,28 +155,46 @@ final class APIClient {
     }
 
     func reloadTransportEncryptionConfiguration() async throws {
+        try validateAccountGeneration(accountGeneration)
         guard usesServerEncryptionConfiguration else { return }
         serverEncryptionEnabled = nil
         _ = try await loadTransportEncryptionConfigurationIfNeeded()
     }
 
     private func loadTransportEncryptionConfigurationIfNeeded() async throws -> Bool {
+        let generation = accountGeneration
+        try validateAccountGeneration(generation)
         if let serverEncryptionEnabled { return serverEncryptionEnabled }
-        if let encryptionConfigurationTask { return try await encryptionConfigurationTask.value }
+        if let encryptionConfigurationTask {
+            let enabled = try await encryptionConfigurationTask.value
+            try validateAccountGeneration(generation)
+            return enabled
+        }
+        let taskID = UUID()
         let task = _Concurrency.Task {
+            try validateAccountGeneration(generation)
             let result = try await request(AppAPI.v1ClientTransportEncryptionConfig,
                 body: .init(), unwrapEnvelope: true)
+            try validateAccountGeneration(generation)
             if result.enabled, payloadCipher == nil { throw APIError.missingEncryptionKey }
             return result.enabled
         }
         encryptionConfigurationTask = task
+        encryptionConfigurationTaskID = taskID
         do {
             let enabled = try await task.value
+            try validateAccountGeneration(generation)
             serverEncryptionEnabled = enabled
-            encryptionConfigurationTask = nil
+            if encryptionConfigurationTaskID == taskID {
+                encryptionConfigurationTask = nil
+                encryptionConfigurationTaskID = nil
+            }
             return enabled
         } catch {
-            encryptionConfigurationTask = nil
+            if encryptionConfigurationTaskID == taskID {
+                encryptionConfigurationTask = nil
+                encryptionConfigurationTaskID = nil
+            }
             throw error
         }
     }
@@ -176,12 +224,13 @@ final class APIClient {
     func request<Body, Output>(_ endpoint: APIEndpoint<Body, Output>, body: Body,
                               decoding: APIResponseDecoding = .strict,
                               unwrapEnvelope: Bool = false) async throws -> Output {
+        let generation = accountGeneration
         #if DEBUG
         let requestID = String(UUID().uuidString.prefix(8))
         let startedAt = Date()
         #endif
         do {
-            try _Concurrency.Task<Never, Never>.checkCancellation()
+            try validateAccountGeneration(generation)
             let configuration = try configuration ?? APIConfiguration.fromBundle()
             // Capture the negotiated mode so a refresh cannot change how this response is decoded.
             let requestCipher: APIPayloadCipher?
@@ -189,16 +238,16 @@ final class APIClient {
                 requestCipher = nil
             } else if usesServerEncryptionConfiguration {
                 let enabled = try await loadTransportEncryptionConfigurationIfNeeded()
-                try _Concurrency.Task<Never, Never>.checkCancellation()
+                try validateAccountGeneration(generation)
                 requestCipher = enabled ? payloadCipher : nil
             } else { requestCipher = payloadCipher }
             let networkLocation = await networkLocationProvider?.current()
-            try _Concurrency.Task<Never, Never>.checkCancellation()
+            try validateAccountGeneration(generation)
             var headers = headers(for: endpoint.path, networkLocation: networkLocation).filter {
                 !["content-type", "accept", "x-payload-encryption"].contains($0.key.lowercased())
             }
             let payload = try await APIPayloadProcessing.encode(body, cipher: requestCipher)
-            try _Concurrency.Task<Never, Never>.checkCancellation()
+            try validateAccountGeneration(generation)
             if requestCipher != nil {
                 headers["Content-Type"] = "text/plain; charset=utf-8"
                 headers["Accept"] = "text/plain"
@@ -212,6 +261,9 @@ final class APIClient {
             APIDebugLogger.request(id: requestID, target: target, plaintextBody: payload.plaintextBody)
             #endif
             let pending = PendingAPIRequest()
+            let pendingID = UUID()
+            pendingRequests[pendingID] = pending
+            defer { pendingRequests[pendingID] = nil }
             let response: Moya.Response = try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
                     guard pending.begin(continuation) else { return }
@@ -228,7 +280,7 @@ final class APIClient {
                     isEncrypted: requestCipher != nil)
             }
             #endif
-            try _Concurrency.Task<Never, Never>.checkCancellation()
+            try validateAccountGeneration(generation)
             guard (200..<300).contains(response.statusCode) else {
                 #if DEBUG
                 logResponse()
@@ -238,12 +290,14 @@ final class APIClient {
             let processed = try await APIPayloadProcessing.decode(
                 Output.self, from: response.data, cipher: requestCipher,
                 decoding: decoding, unwrapEnvelope: unwrapEnvelope)
-            try _Concurrency.Task<Never, Never>.checkCancellation()
+            try validateAccountGeneration(generation)
             #if DEBUG
             logResponse(plaintextBody: processed.plaintextBody)
             #endif
             return try processed.result.get()
         } catch {
+            // Superseded failures must not become errors in the replacement account.
+            try validateAccountGeneration(generation)
             #if DEBUG
             APIDebugLogger.failure(id: requestID, path: endpoint.path, error: error)
             #endif

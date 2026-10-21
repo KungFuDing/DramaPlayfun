@@ -74,6 +74,12 @@ final class AppRouter {
         membershipPresented = false
     }
 
+    func resetForAccountChange() {
+        selectedTab = .home
+        paths = [:]
+        membershipPresented = false
+    }
+
     func openPlayback(_ drama: Drama, episode: Episode? = nil) {
         if episode == nil, let position = drama.playbackPosition {
             openPlayback(drama, position: position)

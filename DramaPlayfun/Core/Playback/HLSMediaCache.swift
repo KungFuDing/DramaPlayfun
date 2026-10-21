@@ -126,12 +126,20 @@ nonisolated final class HLSMediaCache: @unchecked Sendable {
         return reader
     }
 
-    func writer(for request: URLRequest, response: HTTPURLResponse, scope: String) -> Writer? {
+    var currentGeneration: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation
+    }
+
+    func writer(for request: URLRequest, response: HTTPURLResponse, scope: String,
+                expectedGeneration: Int? = nil) -> Writer? {
         // A partial/range response must never poison a full-segment entry.
         guard response.statusCode == 200, request.value(forHTTPHeaderField: "Range") == nil,
               response.expectedContentLength <= min(maxBytes, 64 * 1024 * 1024), let url = request.url else { return nil }
         lock.lock()
         defer { lock.unlock() }
+        guard expectedGeneration == nil || expectedGeneration == generation else { return nil }
         let file = directory.appendingPathComponent(UUID().uuidString + ".tmp")
         guard FileManager.default.createFile(atPath: file.path, contents: nil) else { return nil }
         return try? Writer(cache: self, file: file, key: Self.cacheKey(for: url, scope: scope),

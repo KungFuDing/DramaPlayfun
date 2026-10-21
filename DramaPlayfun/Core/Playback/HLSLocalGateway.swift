@@ -88,6 +88,8 @@ final class HLSLocalGateway: @unchecked Sendable {
     private let logger = Logger(subsystem: "com.video.test.DramaPlayfun.playback", category: "manifest")
     private let mediaTransport = HLSMediaTransport()
     private var routes: [String: Route] = [:]
+    private var activeGroups: Set<UUID> = []
+    private var accountGeneration = UUID()
     private var startWaiters: [CheckedContinuation<UInt16, Error>] = []
     private var port: UInt16?
     private var started = false
@@ -121,6 +123,8 @@ final class HLSLocalGateway: @unchecked Sendable {
 
     func asset(remoteURL: URL, identity: HLSKeyIdentity, secret: Data,
                token explicitToken: String? = nil) async throws -> AVURLAsset {
+        let generation = currentAccountGeneration()
+        try Task.checkCancellation()
         guard remoteURL.scheme == "https" || remoteURL.isLoopbackHTTP else {
             throw URLError(.unsupportedURL)
         }
@@ -128,16 +132,43 @@ final class HLSLocalGateway: @unchecked Sendable {
         guard let token, !token.isEmpty else { throw HLSKeyError.invalidMediaToken }
         let key = try HLSPlaybackKey.derive(identity, secret: secret)
         let port = try await readyPort()
+        try Task.checkCancellation()
         let group = UUID()
-        mediaTransport.register(group: group)
         let authorization = HLSAuthorizationState()
         let cacheScope = identity.material.base64EncodedString() + ":" + key.base64EncodedString()
-        let path = register(Route(group: group, remoteURL: remoteURL, token: token,
-                                  key: key, kind: .manifest, authorization: authorization, cacheScope: cacheScope), suffix: "m3u8")
+        let path = try registerAsset(Route(group: group, remoteURL: remoteURL, token: token,
+            key: key, kind: .manifest, authorization: authorization, cacheScope: cacheScope), generation: generation)
         let asset = AVURLAsset(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
         objc_setAssociatedObject(asset, &Self.leaseKey, Lease(gateway: self, group: group, authorization: authorization),
                                  .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return asset
+    }
+
+    func resetForAccountChange() {
+        lock.lock()
+        accountGeneration = UUID()
+        let groups = activeGroups
+        activeGroups.removeAll()
+        routes.removeAll()
+        lock.unlock()
+        groups.forEach { mediaTransport.cancel(group: $0) }
+    }
+
+    private func currentAccountGeneration() -> UUID {
+        lock.lock()
+        defer { lock.unlock() }
+        return accountGeneration
+    }
+
+    private func registerAsset(_ route: Route, generation: UUID) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        guard generation == accountGeneration else { throw CancellationError() }
+        mediaTransport.register(group: route.group)
+        activeGroups.insert(route.group)
+        let path = "/hls/\(UUID().uuidString).m3u8"
+        routes[path] = route
+        return path
     }
 
     static func authorizationExpired(for asset: AVAsset) -> Bool {
@@ -192,7 +223,7 @@ final class HLSLocalGateway: @unchecked Sendable {
     private func register(_ route: Route, suffix: String) -> String {
         let path = "/hls/\(UUID().uuidString).\(suffix)"
         lock.lock()
-        routes[path] = route
+        if activeGroups.contains(route.group) { routes[path] = route }
         lock.unlock()
         return path
     }
@@ -211,6 +242,7 @@ final class HLSLocalGateway: @unchecked Sendable {
 
     private func release(_ group: UUID) {
         lock.lock()
+        activeGroups.remove(group)
         routes = routes.filter { $0.value.group != group }
         lock.unlock()
         mediaTransport.cancel(group: group)

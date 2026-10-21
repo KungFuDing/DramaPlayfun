@@ -26,10 +26,25 @@ final class MembershipStore {
     }
     private let service: any SubscriptionService
     private var localizedContentGeneration = 0
+    private var accountGeneration = 0
+    private var operations: [UUID: Task<Void, Never>] = [:]
 
     init(service: any SubscriptionService) { self.service = service }
 
     func clearMessage() { messageState = nil }
+
+    func resetForAccountChange() {
+        accountGeneration += 1
+        localizedContentGeneration += 1
+        operations.values.forEach { $0.cancel() }
+        operations.removeAll()
+        service.resetForAccountChange()
+        plans = []
+        entitlement = MembershipEntitlement()
+        messageState = nil
+        isLoading = false
+        isPurchasing = false
+    }
 
     func invalidateLocalizedContent() {
         localizedContentGeneration += 1
@@ -39,74 +54,127 @@ final class MembershipStore {
     }
 
     func refresh() async {
+        await performAccountOperation { account in
+            await self.refresh(account: account)
+        }
+    }
+
+    private func refresh(account: Int) async {
         let generation = localizedContentGeneration
         do {
             let refreshed = try await service.entitlement()
-            guard generation == localizedContentGeneration else { return }
+            guard isCurrentAccount(account), generation == localizedContentGeneration else { return }
             entitlement = refreshed
             if service.transactionMessage != nil { messageState = .transaction }
         }
         catch is CancellationError {}
         catch {
-            if generation == localizedContentGeneration { messageState = .failure(error) }
+            if isCurrentAccount(account), generation == localizedContentGeneration { messageState = .failure(error) }
         }
     }
 
     func loadPlans() async {
-        guard !isLoading else { return }
-        let generation = localizedContentGeneration
-        isLoading = true
-        messageState = nil
-        defer {
-            if generation == localizedContentGeneration { isLoading = false }
-        }
-        do {
-            let loadedPlans = try await service.plans {
-                guard generation == localizedContentGeneration else { return }
-                plans = $0
+        await performAccountOperation { account in
+            guard !self.isLoading else { return }
+            let generation = self.localizedContentGeneration
+            self.isLoading = true
+            self.messageState = nil
+            defer {
+                if account == self.accountGeneration, generation == self.localizedContentGeneration {
+                    self.isLoading = false
+                }
             }
-            try Task.checkCancellation()
-            guard generation == localizedContentGeneration else { return }
-            plans = loadedPlans
+            do {
+                let loadedPlans = try await self.service.plans {
+                    guard self.isCurrentAccount(account), generation == self.localizedContentGeneration else { return }
+                    self.plans = $0
+                }
+                guard self.isCurrentAccount(account), generation == self.localizedContentGeneration else { return }
+                self.plans = loadedPlans
+            }
+            catch is CancellationError { return }
+            catch {
+                if self.isCurrentAccount(account), generation == self.localizedContentGeneration {
+                    self.messageState = .failure(error)
+                }
+            }
+            guard self.isCurrentAccount(account), generation == self.localizedContentGeneration else { return }
+            await self.refresh(account: account)
         }
-        catch is CancellationError { return }
-        catch {
-            if generation == localizedContentGeneration, !Task.isCancelled { messageState = .failure(error) }
-        }
-        guard generation == localizedContentGeneration, !Task.isCancelled else { return }
-        await refresh()
     }
 
     func purchase(_ plan: MembershipPlan) async {
-        guard !isPurchasing else { return }
-        isPurchasing = true
-        messageState = nil
-        defer { isPurchasing = false }
-        do {
-            switch try await service.purchase(planID: plan.id) {
-            case .purchased:
-                await refresh()
-                messageState = .local(plan.category == .coins ? "充值成功，金币已到账" :
-                    (isActive ? "会员已开通" : "购买已完成，正在等待权益更新，请稍后恢复购买。"))
-            case .pending: messageState = .local("购买正在等待批准，批准后将自动更新权益。")
-            case .cancelled: break
+        await performAccountOperation { account in
+            guard !self.isPurchasing else { return }
+            self.isPurchasing = true
+            self.messageState = nil
+            defer { if account == self.accountGeneration { self.isPurchasing = false } }
+            do {
+                let outcome = try await self.service.purchase(planID: plan.id)
+                guard self.isCurrentAccount(account) else { return }
+                switch outcome {
+                case .purchased:
+                    await self.refresh(account: account)
+                    guard self.isCurrentAccount(account) else { return }
+                    self.messageState = .local(plan.category == .coins ? "充值成功，金币已到账" :
+                        (self.isActive ? "会员已开通" : "购买已完成，正在等待权益更新，请稍后恢复购买。"))
+                case .pending: self.messageState = .local("购买正在等待批准，批准后将自动更新权益。")
+                case .cancelled: break
+                }
+            } catch is CancellationError {
+            } catch {
+                if self.isCurrentAccount(account) { self.messageState = .failure(error) }
             }
-        } catch { messageState = .failure(error) }
+        }
     }
 
     func restore() async {
-        guard !isPurchasing else { return }
-        isPurchasing = true
-        messageState = nil
-        defer { isPurchasing = false }
-        do {
-            try await service.restore()
-            await refresh()
-            messageState = .local(isActive ? "已恢复会员权益" : "购买同步完成，未找到有效的会员订阅")
-        } catch { messageState = .failure(error) }
+        await performAccountOperation { account in
+            guard !self.isPurchasing else { return }
+            self.isPurchasing = true
+            self.messageState = nil
+            defer { if account == self.accountGeneration { self.isPurchasing = false } }
+            do {
+                try await self.service.restore()
+                guard self.isCurrentAccount(account) else { return }
+                await self.refresh(account: account)
+                guard self.isCurrentAccount(account) else { return }
+                self.messageState = .local(self.isActive ? "已恢复会员权益" : "购买同步完成，未找到有效的会员订阅")
+            } catch is CancellationError {
+            } catch {
+                if self.isCurrentAccount(account) { self.messageState = .failure(error) }
+            }
+        }
     }
 
     func observeTransactions() async {
-        await service.observeTransactions { [weak self] in await self?.refresh() }
+        await performAccountOperation { account in
+            await self.service.observeTransactions {
+                guard self.isCurrentAccount(account) else { return }
+                await self.refresh(account: account)
+            }
+        }
+    }
+
+    private func isCurrentAccount(_ generation: Int) -> Bool {
+        generation == accountGeneration && !Task.isCancelled
+    }
+
+    /// Own the tasks so a synchronous account reset can cancel work started by any view.
+    private func performAccountOperation(_ operation: @escaping @MainActor (Int) async -> Void) async {
+        guard !Task.isCancelled else { return }
+        let account = accountGeneration
+        let id = UUID()
+        let task = Task { @MainActor in
+            guard self.isCurrentAccount(account) else { return }
+            await operation(account)
+        }
+        operations[id] = task
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        operations[id] = nil
     }
 }

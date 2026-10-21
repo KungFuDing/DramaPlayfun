@@ -275,11 +275,7 @@ private struct SettingsBottomPanel: View {
         isDeactivating = true
         defer { isDeactivating = false }
         do {
-            try await app.profile.deactivate()
-            app.library.clearAccountData()
-            app.watchHistory.clearAccountData()
-            onClose()
-            await app.guestSession.startNewSession()
+            try await app.deactivateAccount()
         } catch { self.error = error.appLocalizedDescription }
     }
 }

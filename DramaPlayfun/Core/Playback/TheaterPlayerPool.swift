@@ -274,6 +274,12 @@ final class TheaterPlayerPool {
         networkRecoveryAttempts.removeAll()
     }
 
+    func retireAccount() {
+        // Revoke reporting before reset can emit a final progress callback.
+        progressReporter?.retireAccount()
+        reset()
+    }
+
     func toggle() {
         guard !isScrubbing, let currentID, canPlay(currentID),
               let player = players[currentID], states[currentID] == .ready else { return }

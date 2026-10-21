@@ -26,7 +26,7 @@ final class AppContainer {
     private(set) var watchHistory: WatchHistoryStore
     private(set) var homeFeed: HomeFeedStore
     private(set) var theaterFeed: TheaterFeedStore
-    let library: LibraryStore
+    private(set) var library: LibraryStore
     let hlsCache: HLSOfflineCache
     private(set) var theaterPlayback: TheaterPlayerPool
     private(set) var startupContent: StartupContentLoader
@@ -35,15 +35,28 @@ final class AppContainer {
     private(set) var wallet: WalletStore
     private(set) var welfare: WelfareStore
     private(set) var contentRevision = UUID()
+    private(set) var accountRevision = UUID()
     private var contentLanguage = LocalizationStore.shared.language
+    private let defaults: UserDefaults
+    private let clearMediaCaches: @MainActor () async -> Void
+    private var isDeactivatingAccount = false
+    private var isResettingAccount = false
 
     init(network: APIClient? = nil,
          repository: (any DramaRepository)? = nil,
          subscriptions: (any SubscriptionService)? = nil,
          defaults: UserDefaults = .standard,
-         deviceIdentifierProvider: (any DeviceIdentifierProviding)? = nil) {
+         deviceIdentifierProvider: (any DeviceIdentifierProviding)? = nil,
+         clearMediaCaches: (@MainActor () async -> Void)? = nil) {
+        self.defaults = defaults
+        self.clearMediaCaches = clearMediaCaches ?? {
+            await RemoteImageLoader.clearForAccountChange()
+            await _Concurrency.Task.detached(priority: .utility) { HLSMediaCache.shared.clear() }.value
+            URLCache.shared.removeAllCachedResponses()
+        }
         #if DEBUG
-        let fixture = (ProcessInfo.processInfo.arguments.contains("-ProfileUITestFixture") ||
+        let fixture = (NSClassFromString("XCTestCase") != nil ||
+                       ProcessInfo.processInfo.arguments.contains("-ProfileUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-TheaterUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-FeedUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-HistoryUITestFixture") ||
@@ -103,7 +116,8 @@ final class AppContainer {
         self.homeFeed = homeFeed
         let theaterFeed = TheaterFeedStore(network: self.network, detailCache: playbackDetails)
         self.theaterFeed = theaterFeed
-        library = LibraryStore(defaults: defaults)
+        let library = LibraryStore(defaults: defaults)
+        self.library = library
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-HistoryProgressUITestFixture") {
             library.save(WatchProgress(dramaID: "9102", episodeID: "910101", episodeNumber: 1,
@@ -125,13 +139,47 @@ final class AppContainer {
         }
         #endif
         membership = MembershipStore(service: subscriptionService)
-        purchaseBackend.didUpdateAssets = { [weak self] balance in
-            guard let self else { return }
+        purchaseBackend.didUpdateAssets = { [weak self] balance, isCurrentAccount in
+            guard let self, isCurrentAccount() else { return }
             await self.playbackDetails.clear()
+            guard isCurrentAccount() else { return }
             if let balance { self.wallet.updateBalance(balance) }
-            await self.profile.reloadProfile()
-            await self.wallet.reloadBalance()
+            let profile = self.profile
+            let wallet = self.wallet
+            await profile.reloadProfile()
+            guard isCurrentAccount() else { return }
+            await wallet.reloadBalance()
         }
+    }
+
+    /// Keep the old account intact if the server rejects deletion. Once accepted,
+    /// suspend login and requests until local state and pending work are retired.
+    func deactivateAccount() async throws {
+        guard !isDeactivatingAccount else { return }
+        isDeactivatingAccount = true
+        defer { isDeactivatingAccount = false }
+        try await profile.deactivate()
+
+        isResettingAccount = true
+        network.beginAccountReset()
+        guestSession.prepareForAccountReset()
+        accountRevision = UUID()
+        startupContent.cancel()
+        theaterPlayback.retireAccount()
+        library.retireAccount()
+        membership.resetForAccountChange()
+        imageURLs.clear()
+        appUpdate.invalidateLocalizedContent()
+        HLSLocalGateway.shared.resetForAccountChange()
+        await playbackDetails.clear()
+        await clearMediaCaches()
+
+        library = LibraryStore(defaults: defaults)
+        replaceContentStores()
+        contentRevision = UUID()
+        isResettingAccount = false
+        network.endAccountReset()
+        await guestSession.startNewSession()
     }
 
     /// Replace language-dependent caches together. In-flight reads may finish on the
@@ -139,8 +187,16 @@ final class AppContainer {
     func reloadLocalizedContent(for language: AppLanguage) {
         guard contentLanguage != language else { return }
         contentLanguage = language
+        guard !isResettingAccount else { return }
         startupContent.cancel()
         theaterPlayback.reset()
+        replaceContentStores()
+        membership.invalidateLocalizedContent()
+        appUpdate.invalidateLocalizedContent()
+        contentRevision = UUID()
+    }
+
+    private func replaceContentStores() {
         catalog = CatalogStore(repository: repository)
         homeCategories = DramaTabFeedStore(network: network, source: .homeTags)
         rankings = DramaTabFeedStore(network: network, source: .rankings)
@@ -154,9 +210,6 @@ final class AppContainer {
             progressReporter: TheaterProgressReporter(network: network),
             refreshURLs: { [theaterFeed] item in try await theaterFeed.refreshPlaybackURLs(for: item) })
         startupContent = StartupContentLoader(home: homeFeed, theater: theaterFeed, playback: theaterPlayback)
-        membership.invalidateLocalizedContent()
-        appUpdate.invalidateLocalizedContent()
-        contentRevision = UUID()
     }
 
     #if DEBUG

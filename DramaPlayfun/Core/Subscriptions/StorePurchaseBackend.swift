@@ -38,18 +38,35 @@ final class StorePurchaseBackend {
     private var catalog: [String: StoreProductConfiguration] = [:]
     private var catalogRequest = 0
     private var appliedCatalogRequest = 0
-    var didUpdateAssets: @MainActor (Int64?) async -> Void
+    private var accountGeneration = 0
+    var didUpdateAssets: @MainActor (Int64?, @MainActor () -> Bool) async -> Void
 
-    init(network: APIClient, didUpdateAssets: @escaping @MainActor (Int64?) async -> Void = { _ in }) {
+    init(network: APIClient,
+         didUpdateAssets: @escaping @MainActor (Int64?, @MainActor () -> Bool) async -> Void = { _, _ in }) {
         self.network = network
         self.didUpdateAssets = didUpdateAssets
     }
 
+    func resetForAccountChange() {
+        accountGeneration += 1
+        catalog = [:]
+        catalogRequest = 0
+        appliedCatalogRequest = 0
+    }
+
+    private func checkAccount(_ generation: Int) throws {
+        try Task.checkCancellation()
+        guard generation == accountGeneration else { throw CancellationError() }
+    }
+
     func products() async throws -> [StoreProductConfiguration] {
+        let account = accountGeneration
+        try checkAccount(account)
         catalogRequest += 1
         let request = catalogRequest
         let result = try await network.request(AppAPI.v1StoreProductList,
             body: .init(payChannel: "apple"), unwrapEnvelope: true)
+        try checkAccount(account)
         var items: [StoreProductConfiguration] = []
         for item in result.vipProducts ?? [] {
             guard item.payChannel == nil || item.payChannel == "apple",
@@ -85,44 +102,62 @@ final class StorePurchaseBackend {
     }
 
     func configuration(for id: String) async throws -> StoreProductConfiguration {
+        let account = accountGeneration
+        try checkAccount(account)
         if let item = catalog[id] { return item }
         _ = try await products()
+        try checkAccount(account)
         guard let item = catalog[id] else { throw StorePurchaseError.productUnavailable }
         return item
     }
 
     func prepare(_ item: StoreProductConfiguration) async throws {
+        let account = accountGeneration
+        try checkAccount(account)
         let result = try await network.request(AppAPI.v1PayOrderPrecreate,
             body: .init(payChannel: "apple", channelProductId: item.id,
                         channelPlanId: item.channelPlanID, orderType: item.orderType), unwrapEnvelope: true)
+        try checkAccount(account)
         guard result.orderNo?.isEmpty == false || (result.paymentOrderId ?? 0) > 0 else {
             throw StorePurchaseError.orderUnavailable
         }
     }
 
     func report(productID: String, transactionID: String, originalID: String, accountToken: UUID?) async throws {
+        let account = accountGeneration
+        try checkAccount(account)
         let item = try await configuration(for: productID)
+        try checkAccount(account)
         let result = try await network.request(AppAPI.v1PayResultReport,
             body: .init(payChannel: "apple", channelTransactionId: transactionID,
                         channelOriginalTxnId: originalID, channelProductId: productID,
                         channelPlanId: item.channelPlanID, orderType: item.orderType,
                         appAccountToken: accountToken?.uuidString), unwrapEnvelope: true)
+        try checkAccount(account)
         // A successful HTTP envelope alone does not mean that the assets have been granted.
         // Unknown/missing statuses keep the StoreKit transaction unfinished for recovery.
         // The API schema omits this enum; confirm "success" with the backend before sandbox acceptance.
         guard result.grantStatus == "success" else { throw StorePurchaseError.awaitingGrant }
-        await didUpdateAssets(result.walletBalance)
+        await updateAssets(result.walletBalance, account: account)
+        try checkAccount(account)
     }
 
     func restore(transactionID: String, originalID: String) async throws {
+        let account = accountGeneration
+        try checkAccount(account)
         let result = try await network.request(AppAPI.v1PayPurchaseRestore,
             body: .init(payChannel: "apple", channelTransactionId: transactionID,
                         channelOriginalTxnId: originalID), unwrapEnvelope: true)
-        await didUpdateAssets(result.walletBalance)
+        try checkAccount(account)
+        await updateAssets(result.walletBalance, account: account)
+        try checkAccount(account)
     }
 
     func entitlement() async throws -> MembershipEntitlement {
+        let account = accountGeneration
+        try checkAccount(account)
         let result = try await network.request(AppAPI.v1VipAsset, body: .init(), unwrapEnvelope: true)
+        try checkAccount(account)
         let category: MembershipCategory? = switch result.currentVipCycle {
         case "week": .weekly
         case "year": .yearly
@@ -130,6 +165,13 @@ final class StorePurchaseBackend {
         }
         return MembershipEntitlement(isActive: result.vipStatus == "active", category: category,
             expirationDate: result.expireAt.map { Date(timeIntervalSince1970: Double($0) / 1000) })
+    }
+
+    private func updateAssets(_ balance: Int64?, account: Int) async {
+        await didUpdateAssets(balance, { [weak self] in
+            guard let self else { return false }
+            return self.accountGeneration == account && !Task.isCancelled
+        })
     }
 }
 

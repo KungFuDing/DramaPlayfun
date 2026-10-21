@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 final class MembershipUITestService: SubscriptionService {
     private var asset = MembershipEntitlement()
+    func resetForAccountChange() { asset = MembershipEntitlement() }
     func plans() async throws -> [MembershipPlan] {
         [MembershipPlan(id: "fixture.week", title: L10n.tr("周会员"), price: "¥20", period: L10n.tr("每1周"), category: .weekly),
          MembershipPlan(id: "fixture.year", title: L10n.tr("年会员"), price: "¥200", period: L10n.tr("每1年"), category: .yearly)] +

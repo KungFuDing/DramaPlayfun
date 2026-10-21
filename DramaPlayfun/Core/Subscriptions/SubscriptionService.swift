@@ -44,6 +44,8 @@ enum PurchaseOutcome { case purchased, pending, cancelled }
 @MainActor
 protocol SubscriptionService {
     var transactionMessage: String? { get }
+    /// Invalidates account-bound work without finishing or discarding Apple transactions.
+    func resetForAccountChange()
     func plans() async throws -> [MembershipPlan]
     /// Publishes provisional server plans before returning the Apple-enriched catalog.
     func plans(onUpdate: @MainActor ([MembershipPlan]) -> Void) async throws -> [MembershipPlan]

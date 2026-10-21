@@ -12,6 +12,8 @@ final class GuestSessionStore {
     }
     private let network: APIClient
     private let deviceIdentifierProvider: any DeviceIdentifierProviding
+    private var accountGeneration = 0
+    private var isResettingAccount = false
 
     var currentVersion: String { network.appVersion }
 
@@ -22,10 +24,11 @@ final class GuestSessionStore {
     }
 
     func signInIfNeeded() async {
-        guard !isReady, !isLoading else { return }
+        guard !isReady, !isLoading, !isResettingAccount else { return }
+        let generation = accountGeneration
         isLoading = true
         signInError = nil
-        defer { isLoading = false }
+        defer { if generation == accountGeneration { isLoading = false } }
         do {
             try Task.checkCancellation()
             let identifier = try deviceIdentifierProvider.identifier()
@@ -35,6 +38,7 @@ final class GuestSessionStore {
             let result = try await network.request(AppAPI.v1AuthGuestLogin,
                 body: loginRequest, unwrapEnvelope: true)
             try Task.checkCancellation()
+            guard generation == accountGeneration, !isResettingAccount else { return }
             guard let token = Self.nonempty(result.accessToken),
                   !token.contains(where: { $0.isWhitespace || $0.isNewline }) else {
                 throw GuestSessionError.missingToken
@@ -43,13 +47,22 @@ final class GuestSessionStore {
             isReady = true
         } catch is CancellationError {
         } catch {
-            signInError = error
+            if generation == accountGeneration { signInError = error }
         }
+    }
+
+    func prepareForAccountReset() {
+        accountGeneration += 1
+        isResettingAccount = true
+        isReady = false
+        isLoading = false
+        signInError = nil
     }
 
     func startNewSession() async {
         network.setAccessToken("")
         isReady = false
+        isResettingAccount = false
         await signInIfNeeded()
     }
 

@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class TheaterProgressReporter {
     private let network: APIClient
+    private let accountSessionID: UUID
     private let interval: TimeInterval
     private var pending: [String: APIModels.V1ReportDramaProgressReq] = [:]
     private var queue: [String] = []
@@ -11,13 +12,16 @@ final class TheaterProgressReporter {
     private var lastSaved: [String: APIModels.V1ReportDramaProgressReq] = [:]
     private var inFlight: APIModels.V1ReportDramaProgressReq?
     private var worker: Task<Void, Never>?
+    private var acceptsReports = true
 
     init(network: APIClient, interval: TimeInterval = 10) {
         self.network = network
+        accountSessionID = network.accountSessionID
         self.interval = interval
     }
 
     func report(_ progress: WatchProgress, force: Bool = false, now: Date = Date()) {
+        guard isCurrentAccount else { retireAccount(); return }
         guard let episodeID = Int64(progress.episodeID), let dramaID = Int64(progress.dramaID),
               progress.seconds.isFinite, progress.duration.isFinite,
               progress.seconds >= 0, progress.duration > 0,
@@ -42,21 +46,42 @@ final class TheaterProgressReporter {
     /// Useful for lifecycle checks and deterministic tests; does not cancel outstanding reports.
     func flush() async { await worker?.value }
 
+    /// A retired player's callbacks must never send history under a replacement account.
+    func retireAccount() {
+        acceptsReports = false
+        pending.removeAll()
+        queue.removeAll()
+        lastQueued.removeAll()
+        lastSaved.removeAll()
+        inFlight = nil
+        worker?.cancel()
+    }
+
     private func drain() async {
+        defer { inFlight = nil; worker = nil }
         while !queue.isEmpty {
+            guard isCurrentAccount, !Task.isCancelled else { return }
             let key = queue.removeFirst()
             guard let body = pending.removeValue(forKey: key) else { continue }
             inFlight = body
             do {
                 let result = try await network.request(AppAPI.v1ClientDramaProgress,
                     body: body, unwrapEnvelope: true)
+                guard isCurrentAccount, !Task.isCancelled else { return }
                 guard result.saved != false else { throw TheaterInteractionError.progressRejected }
                 lastSaved[key] = body
+            } catch is CancellationError {
+                pending.removeAll()
+                queue.removeAll()
+                return
             } catch {
                 // Network logging records the error. The next periodic or final report retries the latest position.
             }
             inFlight = nil
         }
-        worker = nil
+    }
+
+    private var isCurrentAccount: Bool {
+        acceptsReports && accountSessionID == network.accountSessionID
     }
 }

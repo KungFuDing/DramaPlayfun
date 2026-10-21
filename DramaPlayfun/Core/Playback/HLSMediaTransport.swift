@@ -24,6 +24,7 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         let failureID = UUID()
         let authorization: HLSAuthorizationState
         let cacheScope: String?
+        let cacheGeneration = HLSMediaCache.shared.currentGeneration
         var cacheWriter: HLSMediaCache.Writer?
         #if DEBUG
         var pendingWriteStartedAt: Date?
@@ -326,7 +327,8 @@ nonisolated final class HLSMediaTransport: NSObject, URLSessionDataDelegate, @un
         }
         transfer.validator = http.value(forHTTPHeaderField: "ETag") ?? http.value(forHTTPHeaderField: "Last-Modified")
         if let request = dataTask.originalRequest, let scope = transfer.cacheScope {
-            transfer.cacheWriter = HLSMediaCache.shared.writer(for: request, response: http, scope: scope)
+            transfer.cacheWriter = HLSMediaCache.shared.writer(for: request, response: http, scope: scope,
+                expectedGeneration: transfer.cacheGeneration)
         }
         var header = "HTTP/1.1 \(http.statusCode) \(http.statusCode == 206 ? "Partial Content" : "OK")\r\n"
         header += "Content-Type: \(http.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream")\r\n"

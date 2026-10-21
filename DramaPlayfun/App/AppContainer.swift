@@ -63,7 +63,7 @@ final class AppContainer {
             #else
             let locationProvider = NetworkLocationStore.live()
             #endif
-            return APIClient(payloadCipher: APIPayloadCipher(password: "8Oq60JucZPKeyttJdhqX"),
+            return APIClient(payloadCipher: APIPayloadCipher(password: "F5cJ1zL6dA0nV9qW2rXe"),
                 usesServerEncryptionConfiguration: true,
                 networkLocationProvider: locationProvider, headerProvider: { _ in
             #if DEBUG

@@ -48,6 +48,12 @@ final class AppContainer {
          defaults: UserDefaults = .standard,
          deviceIdentifierProvider: (any DeviceIdentifierProviding)? = nil,
          clearMediaCaches: (@MainActor () async -> Void)? = nil) {
+        #if DEBUG
+        let localStoreKitAccount = LocalStoreKitAccount.isEnabled ? LocalStoreKitAccount() : nil
+        // Keep local test history and preferences separate from the regular account.
+        let defaults = localStoreKitAccount == nil ? defaults :
+            UserDefaults(suiteName: "com.idoltime.dramaplayfun.local-storekit-app")!
+        #endif
         self.defaults = defaults
         self.clearMediaCaches = clearMediaCaches ?? {
             await RemoteImageLoader.clearForAccountChange()
@@ -55,7 +61,7 @@ final class AppContainer {
             URLCache.shared.removeAllCachedResponses()
         }
         #if DEBUG
-        let fixture = (NSClassFromString("XCTestCase") != nil ||
+        let fixture = (localStoreKitAccount != nil || NSClassFromString("XCTestCase") != nil ||
                        ProcessInfo.processInfo.arguments.contains("-ProfileUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-TheaterUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-FeedUITestFixture") ||
@@ -66,7 +72,7 @@ final class AppContainer {
                        ProcessInfo.processInfo.arguments.contains("-PlayerUnlockUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-AppUpdateUITestFixture") ||
                        ProcessInfo.processInfo.arguments.contains("-MembershipUITestFixture"))
-            ? Self.theaterUITestClient() : nil
+            ? Self.theaterUITestClient(localStoreKitAccount: localStoreKitAccount) : nil
         #endif
         self.network = network ?? {
             #if DEBUG
@@ -130,10 +136,23 @@ final class AppContainer {
             refreshURLs: { [theaterFeed] item in try await theaterFeed.refreshPlaybackURLs(for: item) })
         self.theaterPlayback = theaterPlayback
         startupContent = StartupContentLoader(home: homeFeed, theater: theaterFeed, playback: theaterPlayback)
-        let purchaseBackend = StorePurchaseBackend(network: self.network)
+        let purchaseBackend: any StorePurchaseServing
+        #if DEBUG
+        if let localStoreKitAccount {
+            purchaseBackend = LocalStoreKitBackend(account: localStoreKitAccount)
+        } else {
+            purchaseBackend = StorePurchaseBackend(network: self.network)
+        }
+        #else
+        purchaseBackend = StorePurchaseBackend(network: self.network)
+        #endif
         var subscriptionService: any SubscriptionService = subscriptions ?? StoreKitSubscriptionService(backend: purchaseBackend)
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-MembershipUITestFixture") ||
+        // Hosted tests create their own SKTestSession; the UI host must not start
+        // a competing transaction observer before that session is configured.
+        if localStoreKitAccount == nil, subscriptions == nil,
+           NSClassFromString("XCTestCase") != nil ||
+            ProcessInfo.processInfo.arguments.contains("-MembershipUITestFixture") ||
             ProcessInfo.processInfo.arguments.contains("-PlayerUnlockUITestFixture") {
             subscriptionService = MembershipUITestService()
         }
@@ -213,7 +232,7 @@ final class AppContainer {
     }
 
     #if DEBUG
-    private static func theaterUITestClient() -> APIClient {
+    private static func theaterUITestClient(localStoreKitAccount: LocalStoreKitAccount? = nil) -> APIClient {
         let artworkURL: URL? = ProcessInfo.processInfo.arguments.contains("-TheaterArtworkUITestFixture")
             ? URL(string: "https://example.invalid/theater-portrait.jpg") : nil
         if let artworkURL {
@@ -240,6 +259,12 @@ final class AppContainer {
             ? PlayerUnlockUITestAccount() : nil
         var searchHistory = ["重生之我和白月光", "不是哥们,你开局玩这么大", "炎帝", "我是祖国人", "都市甜宠", "白月光的日常生活", "重生", "我以异能斩规则"]
         let provider = MoyaProvider<APITarget>(endpointClosure: { target in
+            if let account = localStoreKitAccount,
+               let response = localStoreKitResponse(for: target, account: account) {
+                return Endpoint(url: target.baseURL.appendingPathComponent(target.path).absoluteString,
+                                sampleResponseClosure: { .networkResponse(200, response) },
+                                method: target.method, task: target.task, httpHeaderFields: target.headers)
+            }
             let localizationLanguage = ProcessInfo.processInfo.arguments.contains("-LocalizationUITestFixture")
                 ? target.headers?["language"] : nil
             if let response = unlockAccount?.response(for: target) {
@@ -508,6 +533,34 @@ final class AppContainer {
         })
         return APIClient(configuration: try! APIConfiguration(baseURL: URL(string: "https://example.invalid")!),
                          provider: provider)
+    }
+
+    private static func localStoreKitResponse(for target: APITarget, account: LocalStoreKitAccount) -> Data? {
+        let snapshot = account.snapshot
+        let data: [String: Any]
+        switch target.path {
+        case "/mobile/v1/client/me":
+            data = ["userNo": "LOCAL-STOREKIT", "nickname": "StoreKit 本地测试",
+                    "coinAmount": snapshot.balance, "autoPlayNext": "off",
+                    "vipExpireAt": snapshot.vipExpirationDate.map { Int64($0.timeIntervalSince1970 * 1000) } ?? 0]
+        case "/mobile/v1/wallet/info":
+            data = ["balanceCoin": snapshot.balance]
+        case "/mobile/v1/welfare/sign/popup/status":
+            data = ["shouldPopup": false, "hasReceivedToday": true]
+        case "/mobile/v1/welfare/sign/receive":
+            data = ["received": false, "rewardCoin": 0, "walletBalance": snapshot.balance]
+        case "/mobile/v1/welfare/task/list":
+            data = ["continuousSignDays": 0, "list": []]
+        case "/mobile/v1/order/recharge/list", "/mobile/v1/wallet/bill/list":
+            // The local ledger models purchase delivery, not server billing history.
+            data = ["total": 0, "list": []]
+        case "/mobile/v2/client/list":
+            // No remote video playback is needed for offline purchase testing.
+            data = ["page": 1, "hasMore": false, "list": []]
+        default:
+            return nil
+        }
+        return try! JSONSerialization.data(withJSONObject: ["code": 200, "data": data])
     }
     #endif
 }

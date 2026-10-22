@@ -2,7 +2,7 @@ import StoreKit
 
 @MainActor
 final class StoreKitSubscriptionService: SubscriptionService {
-    private let backend: StorePurchaseBackend
+    private let backend: any StorePurchaseServing
     private let loadProducts: @MainActor ([String]) async throws -> [Product]
     private var products: [Product] = []
     private var catalogGeneration = 0
@@ -11,7 +11,7 @@ final class StoreKitSubscriptionService: SubscriptionService {
     private var transactionError: Error?
     var transactionMessage: String? { transactionError.map { L10n.errorMessage($0, fallback: "购买服务暂不可用，请稍后重试。") } }
 
-    init(backend: StorePurchaseBackend,
+    init(backend: any StorePurchaseServing,
          loadProducts: @escaping @MainActor ([String]) async throws -> [Product] = { try await Product.products(for: $0) }) {
         self.backend = backend
         self.loadProducts = loadProducts
@@ -133,6 +133,29 @@ final class StoreKitSubscriptionService: SubscriptionService {
     func observeTransactions(onChange: @escaping @MainActor () async -> Void) async {
         let account = accountGeneration
         guard !Task.isCancelled else { return }
+        // Expiration and billing-state changes need not produce a new transaction.
+        // Keep both streams within the caller's task so an account reset or view
+        // cancellation stops both listeners together.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                await self.observeTransactionChanges(account: account, onChange: onChange)
+            }
+            group.addTask { @MainActor in
+                for await status in Product.SubscriptionInfo.Status.updates {
+                    guard !Task.isCancelled, account == self.accountGeneration else { return }
+                    guard case .verified = status.transaction,
+                          case .verified = status.renewalInfo else { continue }
+                    // A status notification refreshes entitlement; fulfillment remains
+                    // exclusively on the transaction stream to avoid replaying assets.
+                    await onChange()
+                }
+            }
+            await group.waitForAll()
+        }
+    }
+
+    private func observeTransactionChanges(account: Int, onChange: @escaping @MainActor () async -> Void) async {
+        guard !Task.isCancelled, account == accountGeneration else { return }
         let updates = Transaction.updates
         for await result in Transaction.unfinished {
             guard !Task.isCancelled, account == accountGeneration else { return }

@@ -143,6 +143,7 @@ struct ProfileView: View {
         }
         .accessibilityIdentifier("profile-membership")
         .accessibilityLabel(hasVIP ? L10n.tr("VIP会员，已开通") : L10n.tr("VIP会员，未开通"))
+        .accessibilityValue(hasVIP ? app.profile.expiryText.map { L10n.tr("会员有效期至 %@", $0) } ?? L10n.tr("尊享会员权益") : "")
     }
 
     private var shortcuts: some View {

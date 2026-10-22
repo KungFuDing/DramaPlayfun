@@ -31,9 +31,21 @@ struct StoreProductConfiguration {
     }
 }
 
+@MainActor
+protocol StorePurchaseServing: AnyObject {
+    var didUpdateAssets: @MainActor (Int64?, @MainActor () -> Bool) async -> Void { get set }
+    func resetForAccountChange()
+    func products() async throws -> [StoreProductConfiguration]
+    func configuration(for id: String) async throws -> StoreProductConfiguration
+    func prepare(_ item: StoreProductConfiguration) async throws
+    func report(productID: String, transactionID: String, originalID: String, accountToken: UUID?) async throws
+    func restore(transactionID: String, originalID: String) async throws
+    func entitlement() async throws -> MembershipEntitlement
+}
+
 /// The server grants assets idempotently by Apple's transaction ID. Never increment balances locally.
 @MainActor
-final class StorePurchaseBackend {
+final class StorePurchaseBackend: StorePurchaseServing {
     private let network: APIClient
     private var catalog: [String: StoreProductConfiguration] = [:]
     private var catalogRequest = 0

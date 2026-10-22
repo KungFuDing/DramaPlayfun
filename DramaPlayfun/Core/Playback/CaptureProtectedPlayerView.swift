@@ -6,10 +6,12 @@ import UIKit
 @MainActor
 final class CaptureProtectedPlayerView: UIView {
     let videoLayer = AVSampleBufferDisplayLayer()
+    let subtitleLayer = CaptureProtectedSubtitleLayer()
     private(set) var player: AVPlayer?
     private var itemObservation: NSKeyValueObservation?
     private var videoOutput: CaptureProtectedVideoOutput?
     private var videoTransform = CGAffineTransform.identity
+    private var subtitleStrings: [NSAttributedString] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -26,6 +28,7 @@ final class CaptureProtectedPlayerView: UIView {
         #endif
         videoLayer.videoGravity = .resizeAspectFill
         layer.addSublayer(videoLayer)
+        layer.addSublayer(subtitleLayer)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -38,6 +41,7 @@ final class CaptureProtectedPlayerView: UIView {
         videoLayer.bounds = CGRect(origin: .zero, size: size)
         videoLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
         videoLayer.setAffineTransform(videoTransform)
+        subtitleLayer.display(subtitleStrings, in: bounds)
         CATransaction.commit()
     }
 
@@ -69,9 +73,17 @@ final class CaptureProtectedPlayerView: UIView {
     }
 
     private func detach() {
+        subtitleStrings = []
+        subtitleLayer.clear()
         videoOutput?.remove(self)
         videoOutput = nil
         videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+    }
+
+    fileprivate func displaySubtitles(_ strings: [NSAttributedString]) {
+        guard let item = videoOutput?.item, item === player?.currentItem else { return }
+        subtitleStrings = strings
+        subtitleLayer.display(strings, in: bounds)
     }
 
     fileprivate func display(_ sample: CMSampleBuffer, transform: CGAffineTransform) {
@@ -92,10 +104,12 @@ final class CaptureProtectedPlayerView: UIView {
 /// Adding/removing outputs on a playing HLS item can reset its media clock. Views
 /// therefore subscribe to frames without changing the player's output graph.
 @MainActor
-final class CaptureProtectedVideoOutput: NSObject, AVPlayerItemOutputPullDelegate {
+final class CaptureProtectedVideoOutput: NSObject, AVPlayerItemOutputPullDelegate, AVPlayerItemLegibleOutputPushDelegate {
     private static var associationKey: UInt8 = 0
     private(set) weak var item: AVPlayerItem?
     private let output: AVPlayerItemVideoOutput
+    private let subtitleOutput = AVPlayerItemLegibleOutput()
+    private var subtitleStrings: [NSAttributedString] = []
     private let surfaces = NSHashTable<CaptureProtectedPlayerView>.weakObjects()
     private var statusObservation: NSKeyValueObservation?
     private var preparation: Task<Void, Never>?
@@ -132,6 +146,9 @@ final class CaptureProtectedVideoOutput: NSObject, AVPlayerItemOutputPullDelegat
         output.suppressesPlayerRendering = true
         output.setDelegate(self, queue: .main)
         item.add(output)
+        subtitleOutput.suppressesPlayerRendering = true
+        subtitleOutput.setDelegate(self, queue: .main)
+        item.add(subtitleOutput)
         statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in self?.prepareOrientation() }
         }
@@ -155,6 +172,7 @@ final class CaptureProtectedVideoOutput: NSObject, AVPlayerItemOutputPullDelegat
 
     fileprivate func add(_ surface: CaptureProtectedPlayerView) {
         surfaces.add(surface)
+        surface.displaySubtitles(subtitleStrings)
         // Request the current image again on remount, even if already acquired.
         // This also restores a paused frame without caching an image across seeks.
         if isPreparedForDisplay, let item { renderSample(at: item.currentTime()) }
@@ -236,7 +254,23 @@ final class CaptureProtectedVideoOutput: NSObject, AVPlayerItemOutputPullDelegat
     }
 
     nonisolated func outputSequenceWasFlushed(_ output: AVPlayerItemOutput) {
-        MainActor.assumeIsolated { wakeDisplayLink() }
+        MainActor.assumeIsolated {
+            if output === subtitleOutput { updateSubtitles([]) }
+            wakeDisplayLink()
+        }
+    }
+
+    nonisolated func legibleOutput(_ output: AVPlayerItemLegibleOutput,
+                                  didOutputAttributedStrings strings: [NSAttributedString],
+                                  nativeSampleBuffers nativeSamples: [Any], forItemTime itemTime: CMTime) {
+        // With the default zero advance interval AVPlayer delivers cues on its
+        // playback clock, including empty cues, paused seeks and rate changes.
+        MainActor.assumeIsolated { updateSubtitles(strings) }
+    }
+
+    private func updateSubtitles(_ strings: [NSAttributedString]) {
+        subtitleStrings = strings
+        for surface in surfaces.allObjects { surface.displaySubtitles(strings) }
     }
 }
 

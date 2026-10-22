@@ -1,6 +1,7 @@
 import AVFoundation
 import Network
 import UIKit
+import Vision
 import XCTest
 @testable import DramaPlayfun
 
@@ -97,14 +98,14 @@ final class PlaybackCaptureTests: XCTestCase {
         player.play()
         let firstRendered = await waitUntil { isRendering(surface) }
         XCTAssertTrue(firstRendered)
-        XCTAssertEqual(original.outputs.count, 1, "SwiftUI updates must not duplicate outputs")
+        XCTAssertEqual(original.outputs.count, 2, "SwiftUI updates must not duplicate outputs")
 
         let replacement = AVPlayerItem(url: try fixtureURL())
         CaptureProtectedVideoOutput.prepare(replacement)
         let replacementOutput = try XCTUnwrap(replacement.outputs.first)
         player.replaceCurrentItem(with: replacement)
         XCTAssertTrue(original.outputs.first === originalOutput)
-        XCTAssertEqual(original.outputs.count, 1, "The output belongs to its item, not the view")
+        XCTAssertEqual(original.outputs.count, 2, "The output belongs to its item, not the view")
         XCTAssertTrue(surface.player === player)
         player.play()
         let replacementRendered = await waitUntil {
@@ -113,7 +114,7 @@ final class PlaybackCaptureTests: XCTestCase {
         }
         XCTAssertTrue(replacementRendered)
         surface.setPlayer(nil)
-        XCTAssertEqual(replacement.outputs.count, 1)
+        XCTAssertEqual(replacement.outputs.count, 2)
         XCTAssertTrue(replacement.outputs.first === replacementOutput)
         XCTAssertNil(surface.player)
     }
@@ -138,7 +139,7 @@ final class PlaybackCaptureTests: XCTestCase {
         XCTAssertTrue(initialRender)
 
         surface?.removeFromSuperview()
-        XCTAssertEqual(item.outputs.count, 1)
+        XCTAssertEqual(item.outputs.count, 2)
         XCTAssertTrue(item.outputs.first === output, "Detaching a page must not reset the item's video destination")
         let detachedTime = player.currentTime().seconds
         let keptPlaying = await waitUntil { player.currentTime().seconds > detachedTime + 0.3 }
@@ -146,7 +147,7 @@ final class PlaybackCaptureTests: XCTestCase {
 
         host.mount(try XCTUnwrap(surface))
         let remounted = await waitUntil {
-            item.outputs.count == 1 && surface.map(isRendering) == true
+            item.outputs.count == 2 && surface.map(isRendering) == true
         }
         XCTAssertTrue(remounted, "A recycled page must recover rendering on remount")
         XCTAssertTrue(item.outputs.first === output)
@@ -155,7 +156,7 @@ final class PlaybackCaptureTests: XCTestCase {
         surface = nil
         let released = await waitUntil { releasedSurface == nil }
         XCTAssertTrue(released, "CADisplayLink and video-output callbacks must not retain the view")
-        XCTAssertEqual(item.outputs.count, 1)
+        XCTAssertEqual(item.outputs.count, 2)
         XCTAssertTrue(item.outputs.first === output)
     }
 
@@ -164,11 +165,14 @@ final class PlaybackCaptureTests: XCTestCase {
         weak let releasedItem = item
         CaptureProtectedVideoOutput.prepare(try XCTUnwrap(item))
         weak let releasedOutput = item?.outputs.first
+        weak let releasedSubtitleOutput = item?.outputs.last
         CaptureProtectedVideoOutput.prepare(try XCTUnwrap(item))
-        XCTAssertEqual(item?.outputs.count, 1)
+        XCTAssertEqual(item?.outputs.count, 2)
         XCTAssertTrue(item?.outputs.first === releasedOutput)
         item = nil
-        let released = await waitUntil { releasedItem == nil && releasedOutput == nil }
+        let released = await waitUntil {
+            releasedItem == nil && releasedOutput == nil && releasedSubtitleOutput == nil
+        }
         XCTAssertTrue(released, "The persistent output must not keep its owning item alive")
     }
 
@@ -210,7 +214,7 @@ final class PlaybackCaptureTests: XCTestCase {
             surface.removeFromSuperview()
             let clearedBeforeSeek = await waitUntil { !isRendering(surface) }
             XCTAssertTrue(clearedBeforeSeek, "Detach must clear the old displayed frame")
-            XCTAssertEqual(item.outputs.count, 1)
+            XCTAssertEqual(item.outputs.count, 2)
             XCTAssertTrue(item.outputs.first === output)
             let sought = await player.seek(to: CMTime(seconds: 3, preferredTimescale: 600),
                                            toleranceBefore: .zero, toleranceAfter: .zero)
@@ -239,7 +243,7 @@ final class PlaybackCaptureTests: XCTestCase {
                 isRendering(surface) && player.currentTime().seconds > 3.4
             }
             XCTAssertTrue(resumed, "Encrypted HLS must render fresh video after seek and remount. \(renderingDiagnostics(player: player, surface: surface))")
-            XCTAssertEqual(item.outputs.count, 1)
+            XCTAssertEqual(item.outputs.count, 2)
             XCTAssertTrue(item.outputs.first === output)
             assertCaptureProtectionMatchesPlatform(surface)
         }
@@ -272,7 +276,7 @@ final class PlaybackCaptureTests: XCTestCase {
                 isRendering(surface) && player.currentTime().seconds > 0.2
             }
             XCTAssertTrue(rendered, "Late mounting must reuse the prewarmed HLS output without resetting playback. \(renderingDiagnostics(player: player, surface: surface))")
-            XCTAssertEqual(item.outputs.count, 1)
+            XCTAssertEqual(item.outputs.count, 2)
             XCTAssertTrue(item.outputs.first === output)
             assertCaptureProtectionMatchesPlatform(surface)
         }
@@ -308,7 +312,7 @@ final class PlaybackCaptureTests: XCTestCase {
                 isRendering(surface) && player.currentTime().seconds > 0.2
             }
             XCTAssertTrue(rendered, "An already-mounted player must start a prepared HLS item as soon as it is ready. \(renderingDiagnostics(player: player, surface: surface))")
-            XCTAssertEqual(item.outputs.count, 1)
+            XCTAssertEqual(item.outputs.count, 2)
             XCTAssertTrue(item.outputs.first === output)
             assertCaptureProtectionMatchesPlatform(surface)
         }
@@ -365,6 +369,147 @@ final class PlaybackCaptureTests: XCTestCase {
             }
             XCTAssertTrue(resumed, "Separate audio and video renditions must continue rendering after a seek")
             XCTAssertEqual(player.rate, 1.5)
+        }
+    }
+
+    func testHLSSubtitlesRemainVisibleAcrossPauseSeekRemountAndItemReplacement() async throws {
+        #if targetEnvironment(simulator)
+        try await withHLS(manifest: "SeparateCapture.m3u8") { server, url in
+            let host = PlayerSurfaceTestWindow()
+            let surface = CaptureProtectedPlayerView()
+            host.mount(surface)
+            let player = try makePlayer(url: url)
+            let item = try XCTUnwrap(player.currentItem)
+            let output = try XCTUnwrap(item.outputs.first as? AVPlayerItemVideoOutput)
+            defer {
+                surface.setPlayer(nil)
+                player.pause()
+                host.close()
+            }
+            surface.setPlayer(player)
+            let ready = await waitUntil(timeout: 15) { item.status == .readyToPlay }
+            XCTAssertTrue(ready)
+            guard ready else { return }
+            let loadedGroup = try await item.asset.loadMediaSelectionGroup(for: .legible)
+            let group = try XCTUnwrap(loadedGroup)
+            item.select(try XCTUnwrap(group.defaultOption ?? group.options.first), in: group)
+            player.playImmediately(atRate: 1)
+            let advanced = await waitUntil { player.currentTime().seconds > 0.5 }
+            XCTAssertTrue(advanced)
+            player.pause()
+            try await assertSubtitle("Synthetic playback fixture", in: surface, name: "Paused first subtitle")
+            try assertUpperVideoArea(captureSurface(surface), isBlack: false)
+            XCTAssertTrue(server.servedPaths.contains("SeparateCaptureSubtitles.vtt"))
+            XCTAssertTrue(output.suppressesPlayerRendering)
+
+            // The subtitle layer must contain text only, with a transparent background.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            surface.videoLayer.isHidden = true
+            CATransaction.commit()
+            try await assertSubtitle("Synthetic playback fixture", in: surface, name: "Subtitle without protected video")
+            try assertUpperVideoArea(captureSurface(surface), isBlack: true)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            surface.videoLayer.isHidden = false
+            CATransaction.commit()
+
+            let soughtGap = await player.seek(to: CMTime(seconds: 3, preferredTimescale: 600),
+                                              toleranceBefore: .zero, toleranceAfter: .zero)
+            XCTAssertTrue(soughtGap)
+            try await assertSubtitle(nil, in: surface, name: "Paused subtitle gap")
+            XCTAssertEqual(player.rate, 0)
+
+            player.playImmediately(atRate: 1)
+            let reachedSecondCue = await waitUntil { player.currentTime().seconds > 4 }
+            XCTAssertTrue(reachedSecondCue)
+            player.pause()
+            try await assertSubtitle("Second subtitle cue", in: surface, name: "Subtitle after seek and resume")
+            let pausedTime = player.currentTime().seconds
+            surface.removeFromSuperview()
+            host.mount(surface)
+            try await assertSubtitle("Second subtitle cue", in: surface, name: "Paused subtitle after remount")
+            XCTAssertEqual(player.rate, 0)
+            XCTAssertEqual(player.currentTime().seconds, pausedTime, accuracy: 0.05)
+            XCTAssertEqual(item.outputs.count, 2)
+            XCTAssertTrue(item.outputs.first === output)
+
+            let replacement = AVPlayerItem(url: try fixtureURL())
+            CaptureProtectedVideoOutput.prepare(replacement)
+            player.replaceCurrentItem(with: replacement)
+            player.playImmediately(atRate: 1)
+            let replacementRendered = await waitUntil {
+                replacement.status == .readyToPlay && player.currentTime().seconds > 0.2 && isRendering(surface)
+            }
+            XCTAssertTrue(replacementRendered)
+            player.pause()
+            try await assertSubtitle(nil, in: surface, name: "Replacement without subtitles")
+            XCTAssertEqual(replacement.outputs.count, 2)
+            assertCaptureProtectionMatchesPlatform(surface)
+        }
+        #else
+        throw XCTSkip("Protected subtitles are excluded from device captures; verify local visibility on device")
+        #endif
+    }
+
+    private func captureSurface(_ surface: UIView) throws -> CGImage {
+        let image = UIGraphicsImageRenderer(bounds: surface.bounds).image { _ in
+            surface.drawHierarchy(in: surface.bounds, afterScreenUpdates: true)
+        }
+        return try XCTUnwrap(image.cgImage)
+    }
+
+    private func assertSubtitle(_ expected: String?, in surface: UIView, name: String,
+                                file: StaticString = #filePath, line: UInt = #line) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        var actual = ""
+        repeat {
+            // Allow the render server to commit a pause, seek, or remount first.
+            try await _Concurrency.Task.sleep(for: .milliseconds(150))
+            let image = try captureSurface(surface)
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["en-US"]
+            try VNImageRequestHandler(cgImage: image).perform([request])
+            actual = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+                .joined(separator: " ").lowercased()
+            let matches = expected.map { actual.contains($0.lowercased()) }
+                ?? (!actual.contains("synthetic") && !actual.contains("subtitle"))
+            if matches || Date() >= deadline {
+                let attachment = XCTAttachment(image: UIImage(cgImage: image))
+                attachment.name = name
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                XCTAssertTrue(matches, "Expected subtitle \(expected ?? "<none>"), recognized: \(actual)",
+                              file: file, line: line)
+                return
+            }
+        } while Date() < deadline
+        XCTFail("Subtitle rendering timed out; recognized: \(actual)", file: file, line: line)
+    }
+
+    private func assertUpperVideoArea(_ image: CGImage, isBlack: Bool,
+                                     file: StaticString = #filePath, line: UInt = #line) throws {
+        let sampleRect = CGRect(x: CGFloat(image.width) * 0.4, y: CGFloat(image.height) * 0.25,
+                                width: CGFloat(image.width) * 0.2, height: CGFloat(image.height) * 0.1).integral
+        let sample = try XCTUnwrap(image.cropping(to: sampleRect), file: file, line: line)
+        let context = try XCTUnwrap(CGContext(data: nil, width: sample.width, height: sample.height,
+            bitsPerComponent: 8, bytesPerRow: sample.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
+            file: file, line: line)
+        context.draw(sample, in: CGRect(x: 0, y: 0, width: CGFloat(sample.width), height: CGFloat(sample.height)))
+        let pixels = try XCTUnwrap(context.data, file: file, line: line).assumingMemoryBound(to: UInt8.self)
+        let maximum = stride(from: 0, to: sample.width * sample.height * 4, by: 4).reduce(UInt8(0)) {
+            max($0, max(pixels[$1], max(pixels[$1 + 1], pixels[$1 + 2])))
+        }
+        if isBlack {
+            XCTAssertLessThanOrEqual(maximum, 16,
+                "The subtitle layer must not display any video pixels", file: file, line: line)
+        } else {
+            #if targetEnvironment(simulator)
+            XCTAssertGreaterThan(maximum, 80,
+                "The transparent subtitle layer must not cover the visible video", file: file, line: line)
+            #endif
         }
     }
 
@@ -435,10 +580,12 @@ final class PlaybackCaptureTests: XCTestCase {
         XCTAssertFalse(surface.videoLayer.preventsCapture,
                        "Simulator cannot present a capture-protected layer; keep local playback visible",
                        file: file, line: line)
+        XCTAssertFalse(surface.subtitleLayer.preventsCapture, file: file, line: line)
         #else
         XCTAssertTrue(surface.videoLayer.preventsCapture,
                       "Physical devices must keep video capture protection enabled",
                       file: file, line: line)
+        XCTAssertTrue(surface.subtitleLayer.preventsCapture, file: file, line: line)
         #endif
     }
 

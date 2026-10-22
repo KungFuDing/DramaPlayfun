@@ -1,8 +1,0 @@
-WEBVTT
-X-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:0
-
-00:00:00.000 --> 00:00:02.500
-Synthetic playback fixture
-
-00:00:03.500 --> 00:00:06.000
-Second subtitle cue

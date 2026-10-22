@@ -418,7 +418,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = A1B2C3D4E5F60718293A4B5C /* Config/Debug.xcconfig */;
 			buildSettings = {
-				API_BASE_URL = "https://pre.dramaplayfun.com/aigc-mobile";
+				API_BASE_URL = "https://api.dramaplayfun.com/aigc-mobile";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
@@ -446,7 +446,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zyyq.playora;
+				PRODUCT_BUNDLE_IDENTIFIER = com.video.test.DramaPlayfun;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = playora_dev;
@@ -463,7 +463,7 @@
 		89037BCC305FEF5F004927E0 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				API_BASE_URL = "https://pre.dramaplayfun.com/aigc-mobile";
+				API_BASE_URL = "https://api.dramaplayfun.com/aigc-mobile";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";

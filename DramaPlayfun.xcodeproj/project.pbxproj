@@ -30,7 +30,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		528E91F952BABA9AD4915DE7 /* 接口文档 */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "接口文档"; sourceTree = "<group>"; };
 		89037BA9305FEF5D004927E0 /* DramaPlayfun.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DramaPlayfun.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		89037BB6305FEF5F004927E0 /* DramaPlayfunTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DramaPlayfunTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		89037BC0305FEF5F004927E0 /* DramaPlayfunUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DramaPlayfunUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -87,7 +86,6 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D4E5F60718293A4B5C /* Config/Debug.xcconfig */,
-				528E91F952BABA9AD4915DE7 /* 接口文档 */,
 				89037BAB305FEF5D004927E0 /* DramaPlayfun */,
 				89037BB9305FEF5F004927E0 /* DramaPlayfunTests */,
 				89037BC3305FEF5F004927E0 /* DramaPlayfunUITests */,
@@ -418,7 +416,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = A1B2C3D4E5F60718293A4B5C /* Config/Debug.xcconfig */;
 			buildSettings = {
-				API_BASE_URL = "https://api.dramaplayfun.com/aigc-mobile";
+				API_BASE_URL = "https://pre.dramaplayfun.com/aigc-mobile";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
@@ -427,7 +425,7 @@
 				DEBUG_APP_VERSION = 1.0;
 				DEBUG_LANGUAGE = "zh-Hant";
 				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 842DL2SXVT;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = R42L333N8N;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HLS_SHARED_SECRET = a7Kp9Xm2Vq5Nt8Rb3Yw6Hj4Ds1Lc0FzE;
@@ -446,17 +444,19 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.video.test.DramaPlayfun;
+				PRODUCT_BUNDLE_IDENTIFIER = com.idoltime.dramaplayfun;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = playora_dev;
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = dramaDevelopment;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -466,11 +466,11 @@
 				API_BASE_URL = "https://api.dramaplayfun.com/aigc-mobile";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 842DL2SXVT;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = R42L333N8N;
 				ENABLE_PREVIEWS = YES;
 				EXCLUDED_SOURCE_FILE_NAMES = PlaybackProgressFixture.mp4;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -490,17 +490,19 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.video.test.DramaPlayfun;
+				PRODUCT_BUNDLE_IDENTIFIER = com.idoltime.dramaplayfun;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = playora_dev;
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = dramaDistribute;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

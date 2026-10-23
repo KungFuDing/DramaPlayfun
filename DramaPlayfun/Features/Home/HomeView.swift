@@ -358,11 +358,11 @@ private struct HomeBannerIndicator: View {
 private struct HomeBannerArtwork: View {
     var body: some View {
         ZStack {
-            LinearGradient(colors: [.indigo, .purple, .black], startPoint: .topLeading, endPoint: .bottomTrailing)
-            Circle().fill(.white.opacity(0.18)).blur(radius: 16).frame(width: 210).offset(x: -110, y: -90)
-            Circle().fill(.pink.opacity(0.26)).blur(radius: 28).frame(width: 260).offset(x: 110, y: -30)
+            LinearGradient(colors: [Theme.surface, Theme.background], startPoint: .topLeading, endPoint: .bottomTrailing)
+            Circle().fill(.white.opacity(0.08)).blur(radius: 16).frame(width: 210).offset(x: -110, y: -90)
+            Circle().fill(.white.opacity(0.06)).blur(radius: 28).frame(width: 260).offset(x: 110, y: -30)
             Image(systemName: "sparkles").font(.system(size: 150, weight: .thin))
-                .foregroundStyle(.white.opacity(0.22)).rotationEffect(.degrees(-18)).offset(x: 65, y: -48)
+                .foregroundStyle(.white.opacity(0.12)).rotationEffect(.degrees(-18)).offset(x: 65, y: -48)
         }
         .clipped()
     }

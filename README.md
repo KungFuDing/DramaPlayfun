@@ -33,14 +33,14 @@ DramaPlayfun/
 - 启动页使用提供的 2x/3x 背景、海报和品牌切图，系统启动屏与游客登录等待页共用 `LaunchScreen.storyboard`，适配 iPhone/iPad 横竖屏及窗口尺寸变化。品牌图等比例缩放并限制最大尺寸；登录完成立即进入首页，连接失败保留可滚动的错误提示及重试入口。
 - 版本更新在游客登录完成和回到前台时调用 `POST /mobile/v1/client/app/update/check`，当前版本与登录请求一致。使用提供的 2x/3x 火箭和面板切图，按服务端 `hasUpdate/forceUpdate` 展示两种底部弹窗，标题、版本、说明和跳转地址取接口。非强制更新可选择“稍后”，本次启动内不再提示同一版本；强制更新不能通过遮罩、下滑或返回操作关闭，覆盖其他弹窗和全屏播放。弹窗出现时暂停视频；跳转失败会显示错误并保留弹窗，返回 App 后重新检查。检查失败不会清除已展示的强制更新。`AppUpdateTests` 和 `AppUpdateUITests` 覆盖接口、稍后抑制、强制拦截、错误处理和弹窗层级。
 - 五 Tab、独立导航、剧集详情、选集、收藏和历史已连通。
-- 福利和我的钱包按 `设计图/福利:我的钱包` 还原，使用本地 2x/3x 金色背景、签到按钮及任务切图。已接入钱包余额、按月分组的充值/获取/消耗流水、分页、签到状态和奖励领取、福利任务列表；签到同步个人中心金币余额。自动播放下一集开关保存到服务端并控制播放器连播。任务按钮进入剧场完成任务；当前接口文档未提供通用任务领取接口。金币充值保留“暂未开放”提示，待接入购买流程。`WalletWelfareTests` 覆盖分页合并、签到余额同步、失败保留状态，`WalletWelfareUITests` 验证页面切换、开关和签到交互。
+- 福利和我的钱包按 `设计图/福利:我的钱包` 还原，使用本地 2x/3x 金色背景、签到按钮及任务切图。已接入钱包余额、按月分组的充值/获取/消耗流水、分页、签到状态和奖励领取、福利任务列表；签到同步个人中心金币余额。自动播放下一集开关保存到服务端并控制播放器连播。任务按钮进入剧场完成任务；当前接口文档未提供通用任务领取接口。金币充值通过 StoreKit 2 购买消耗型商品，并在服务端确认发货后刷新余额。`WalletWelfareTests` 覆盖分页合并、签到余额同步、失败保留状态，`WalletWelfareUITests` 验证页面切换、开关和签到交互。
 - 我的模块按 `设计图/我的` 实现资料区、两种会员卡、福利/历史/钱包入口、收藏/点赞瀑布流、设置与语言/客服/账号注销底部弹窗；使用提供的 2x/3x 切图。资料、昵称更新、收藏/点赞分页、应用配置和注销使用现有接口。清理缓存清理 Kingfisher 图片缓存；注销成功后统一停止旧账户请求、交易监听及播放/进度上报，清理本地收藏、历史、图片、视频和播放详情缓存，重建账户相关 Store 并重置导航，再重新建立游客会话；沿用同一设备 ID 和语言偏好，服务端负责删除账户数据。注销失败保留原状态，重新登录失败时保留已完成的本地清理并允许重试。语言选项固定为 English、繁體中文，使用 `en.lproj/Localizable.strings` 和 `zh-Hant.lproj/Localizable.strings`；切换即时生效并持久化，首次启动匹配系统语言，不支持的语言回退 English，旧的 `zh` 选择迁移为 `zh-Hant`。请求头 `language` 跟随应用选择，覆盖旧 Debug 值；`/mobile/v1/client/language/list` 已废弃，不再调用。服务端返回的剧名、简介、公告等内容保留原文，由服务端按请求语言提供。
 - 会员页和设置页的用户协议、隐私政策及客服邮箱统一读取 `AppConfiguration`。内置默认值在接口加载前即可使用；`/mobile/v1/client/app/config` 返回有效值时逐项覆盖，缺失、空白字段或无效协议链接回退默认值，接口无数据或失败时使用默认配置。
 - 首页参照设计图的颜色、卡片和布局结构。设计图是整页截图，未提供独立海报，因此当前使用明确的图形占位。`Drama.coverURL` 可接入实际海报。
 - 首页和搜索按当前窗口宽度适配 iPhone Duo、iPad 与普通 iPhone：内容居中限宽 1200pt，热播瀑布流显示 2–6 列，宽屏搜索结果显示两列；首页顶栏跟随安全区、轮播受窗口宽高约束，宽屏今日片刻采用横排。`HomeSearchAdaptiveUITests` 覆盖当前窗口、横竖屏切换、分类吸顶联动、搜索历史与结果及卡片边界。
 - 我的、观看历史和会员页按当前窗口宽度适配 iPhone Duo、iPad 与普通 iPhone：我的与历史内容居中限宽 1200pt；我的页面在可用宽度达到 700pt 时采用左右分栏，左侧沿用 iPhone 的个人资料、会员卡及快捷入口排布，右侧显示收藏/点赞，并按所在栏宽度计算列数；窄屏保持上下排列，历史显示 3–6 列。会员页限宽 1040pt，插画最大宽度 440pt，宽屏权益与购买说明分栏；充值显示 3–6 列。`ProfileMembershipAdaptiveUITests` 覆盖旋转后的内容边界、分类与充值档位保持、历史入口、滑动切换和模拟充值。
 - `DemoDramaRepository` 提供离线示例目录；无真实视频资源，点击免费集会显示可重试的资源未提供状态。AVPlayer 播放、加载超时、后台暂停、进度保存、断点恢复和重播流程已实现，但需真实资源进一步验证。
-- `StoreKitSubscriptionService` 已实现商品加载、已验证交易、购买取消/待批准、恢复购买和交易更新监听。`AppContainer` 的商品 ID 默认为空，因此不展示虚构价格、不发起模拟收费。
+- `StoreKitSubscriptionService` 已实现商品加载、已验证交易、购买取消/待批准、恢复购买和交易更新监听。正常运行时，`StorePurchaseBackend` 从服务端商品列表读取 `channelProductId`，完成预下单、交易上报及权益刷新；Apple 未返回匹配商品时保留服务端展示信息并禁用购买。`DramaPlayfun-StoreKit` Scheme 提供独立的本地 StoreKit 测试入口，见下文。
 - 默认数据仅用于搭建架构，已接入启动游客登录和请求鉴权；不包含推荐算法、广告、埋点或后台播放。
 
 App target 包含 `DramaPlayfun/PrivacyInfo.xcprivacy`，声明应用自身使用的 UserDefaults、文件时间戳及当前客户端可确认的数据采集。发布前须与后端实际用途、隐私政策及 App Store Connect 的隐私标签保持一致。
@@ -50,24 +50,73 @@ App target 包含 `DramaPlayfun/PrivacyInfo.xcprivacy`，声明应用自身使�
 ## 接入真实服务
 
 1. 实现 `DramaRepository`，在 `AppContainer` 注入。目录与选集使用稳定 ID；播放接口应由服务端验证用户权益并返回短时签名 URL。客户端的会员判断只用于展示付费入口，不能作为媒体访问保护。
-2. 在 App Store Connect 配置自动续订订阅，把实际商品 ID 注入 `StoreKitSubscriptionService`。使用 StoreKit Configuration / Sandbox 验证购买、恢复、退款、过期、待批准和跨设备更新。
-3. 接入服务端交易与账户关联、App Store Server Notifications，完善权益到期及宽限期策略。当前客户端仅依据已验证且未过期/撤销/升级的 currentEntitlements。
+2. 在 App Store Connect 配置自动续订订阅与消耗型金币商品，并在服务端商品列表中返回一致的 `channelProductId`、订阅周期与金币数量。使用主 `DramaPlayfun` Scheme 做 Sandbox 联调；本地 `fixture.*` 商品仅用于下述离线测试。
+3. 联调服务端交易与账户关联、App Store Server Notifications、幂等发货及宽限期策略。正式模式以服务端 VIP 资产和钱包为准，交易上报的 `grantStatus` 为 `success` 后才完成 StoreKit 交易；本地测试不能代替这部分验收。
 4. 接入视频后验证播放失败、弱网、音频中断、后台切换、断点续播与长时间播放。播放预加载、授权续期及本地缓存策略见下文。
 
 视频重播统一重新建立 HLS 网关，复用 `HLSMediaCache` 中完整的加密分片；清单与密钥地址属于当前播放会话，不写入可跨会话复用的整集包。旧版本的 `.movpkg` 包包含已失效的 localhost 地址，启动时撤销旧索引、取消遗留整集下载并安全清理已记录的本应用缓存包，避免重播或点击重试反复命中同一坏缓存。分片缓存保留按剧集、密钥及内容地址隔离、容量上限和设置页清理能力；重播仍需要联网取得清单及有效授权。
 
+## 本地 StoreKit 内购测试
+
+项目已加入独立配置 [Config/LocalPurchases.storekit](Config/LocalPurchases.storekit) 和共享 Scheme `DramaPlayfun-StoreKit`。配置不与 App Store Connect 同步，运行购买流程不需要 Apple ID、Sandbox 测试账号或业务后台网络。首次安装 Xcode 模拟器运行时、解析项目依赖仍需提前完成。
+
+1. 在 Xcode 打开 `DramaPlayfun.xcodeproj`，选择 **DramaPlayfun-StoreKit** Scheme 和 iPhone 模拟器。
+2. 在 **Product → Scheme → Edit Scheme… → Run → Options** 确认 **StoreKit Configuration** 为 `LocalPurchases.storekit`；**Arguments** 中 `-LocalStoreKitTesting` 已启用。不要同时启用 `-MembershipUITestFixture` 或 `-PlayerUnlockUITestFixture`。
+3. 按 **⌘R** 从 Xcode 启动，进入底部“会员”页，选择周会员、年会员或金币充值，点击购买。
+4. 确认系统的本地 StoreKit 购买弹窗。成功后 App 更新本地会员权益或金币余额；取消和待批准不会提前发放资产。所有交易均为测试数据，不会产生真实扣款。
+5. App 保持运行时，可在 **Debug → StoreKit → Manage Transactions** 检查交易、模拟退款或订阅变更；也可使用会员页“恢复购买”验证同步。取消自动续订不会立即撤销尚未到期的会员。
+
+| Product ID | 类型 | 本地测试价格 |
+| --- | --- | --- |
+| `fixture.week` | 自动续订，1 周 | ¥20 |
+| `fixture.year` | 自动续订，1 年 | ¥200 |
+| `fixture.coins.0` | 消耗型，500 金币档 | ¥4.99 |
+| `fixture.coins.1` | 消耗型，1000 金币档 | ¥8.99 |
+| `fixture.coins.2` | 消耗型，1500 金币档 | ¥12.99 |
+| `fixture.coins.3` | 消耗型，2000 金币档 | ¥16.99 |
+| `fixture.coins.4` | 消耗型，5000 金币档 | ¥39.99 |
+| `fixture.coins.5` | 消耗型，10000 金币档 | ¥79.99 |
+
+周会员与年会员位于同一订阅组，年会员为 level 1、周会员为 level 2，便于测试升级和降级。商店设为中国；价格和 ID 均为本地测试值，**`fixture.*` 不是生产商品 ID**。测试币价不代表正式售价。
+
+该模式使用真实 StoreKit 商品查询、购买弹窗和已验证交易，由本地资产状态替代业务后台，游客会话和页面接口也使用离线数据。它可以验证客户端购买与权益显示，**不验证业务后台收据/JWS 校验、订单关联、服务器通知或正式发货**。配置文件只作为测试资源加入单元测试和 UI 测试 bundle，不打包进 App；本地模式仅在 Debug 且启用启动参数时生效。常规开发及真实服务联调选择原有 **DramaPlayfun** Scheme；该 Scheme 未绑定本地配置。
+
+重新开始测试时，先在 Xcode **Manage Transactions** 删除该 App 的测试交易，再停止 App，在本地 Scheme 的 **Run → Arguments** 临时勾选 `-ResetLocalStoreKitState`，启动一次以清理本地资产记录。随后取消勾选该参数，避免每次运行重置。只重置本地余额而保留 StoreKit 历史会使恢复结果与预期不一致。
+
+本地 Scheme 的 **⌘U** 包含单元测试和 UI 测试，不继承 Run 的启动参数。StoreKit 测试通过 `SKTestSession(contentsOf:)` 读取测试 bundle 中的同一配置文件；手动验证购买弹窗仍使用 **⌘R**。**自动化测试会重置所在模拟器的本地 StoreKit 交易，请使用专用模拟器，保留手工测试设备的交易和余额。** 关于 Xcode 的测试环境与交易管理，参见 [Apple：Setting up StoreKit Testing in Xcode](https://developer.apple.com/documentation/xcode/setting-up-storekit-testing-in-xcode)。
+
+`LocalStoreKitUITests` 分开测试周会员和年会员，购买、重启后恢复均点击真实 App 按钮；使用 `SKTestSession` 模拟退款。到期场景将周期加速到一分钟，购买后关闭自动续订并等待自然到期。四个场景交叉保持会员页或个人中心在前台，先确认当前页面自动失效，再检查另一页及两页有效期。最后再次恢复，确认已退款或到期的权益不会复活。每个阶段的截图保存在 `.xcresult` 中。自动化关闭系统确认弹窗；支付弹窗交互仍由上述手工流程验证。
+
+本机 Xcode 27.1 / iOS 27.0 的强制 `expireSubscription` 曾只改变 `SKTestTransaction` 的到期记录，但 `Status.updates`、`Status.all`、直接 `status(for:)` 和 `currentEntitlements` 仍返回未过期的签名状态，因此回归使用加速周期的自然到期。手工测试也可在配置编辑器将 **Subscription Renewal Rate** 暂设为 **Any Renewal Every Minute**，重新购买后关闭自动续订；完成后恢复 **Real Time**。仓库配置的默认值保持 Real Time。
+
+订阅到期不一定产生新的购买交易，因此服务同时监听 `Transaction.updates` 和订阅 `Status.updates`，并按当前权益的有效期安排一次自动查询，避免停留页面时错过到期刷新。本地权益以已验证的订阅状态为准，过期和撤销不再沿用旧交易里的未来有效期。权益读取及个人资料发布按顺序执行，会员页拒绝迟到的旧读取结果，退款或到期也会清除过时的购买／恢复成功提示。状态含义参见 [Apple：RenewalState](https://developer.apple.com/documentation/storekit/product/subscriptioninfo/renewalstate)。
+
 ## 验证
+
+先在 Xcode 创建名为 `DramaPlayfun IAP Lifecycle` 的专用 iPhone 模拟器，或将下方 destination 替换为自己的专用测试设备。
 
 ```sh
 xcodebuild -project DramaPlayfun.xcodeproj -scheme DramaPlayfun \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
-xcodebuild -project DramaPlayfun.xcodeproj -scheme DramaPlayfun \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -only-testing:DramaPlayfunTests CODE_SIGNING_ALLOWED=NO test
+xcodebuild -project DramaPlayfun.xcodeproj -scheme DramaPlayfun-StoreKit \
+  -destination 'platform=iOS Simulator,name=DramaPlayfun IAP Lifecycle' \
+  -only-testing:DramaPlayfunTests/LocalStoreKitTests \
+  -only-testing:DramaPlayfunTests/DramaPlayfunTests \
+  -only-testing:DramaPlayfunUITests/LocalStoreKitUITests \
+  -parallel-testing-enabled NO -collect-test-diagnostics never test
 ```
 
-单元测试覆盖分类搜索、收藏/断点持久化、Tab 导航隔离、待批准/取消不授予会员以及购买/恢复后的权益刷新。真实支付与视频端到端测试需要对应服务配置。
+StoreKit 本地测试使用 `DramaPlayfun-StoreKit` Scheme 和 `SKTestSession` 验证测试商品与交易；真实服务的收据校验、发货及视频端到端测试需要对应服务配置。
+
+2026-10-22 已在 Xcode 27.1 / iOS 27.0 的专用 iPhone 18 Pro Max 模拟器通过 **24 项测试，零失败**：13 项会员状态／并发／到期计时测试、7 项真实 StoreKit 集成测试、4 项完整 UI 生命周期测试。Release 模拟器构建通过，发布 App 中没有 `.storekit` 资源。
+
+| 会员 | 购买并同步两页有效期 | 重启后恢复 | 退款后同步失效 | 自然到期后同步失效 |
+| --- | --- | --- | --- | --- |
+| 周会员 | 通过 | 通过 | 通过（会员页在前台） | 通过（个人中心在前台） |
+| 年会员 | 通过 | 通过 | 通过（个人中心在前台） | 通过（会员页在前台） |
+
+四个 UI 场景均验证失效后再次恢复不会重新开通，会员页购买按钮恢复可用、个人中心不再显示旧有效期。回归还覆盖商品加载、金币持久幂等、待批准后发货、拒绝购买不发货、并发资产发布、迟到读取及旧成功提示清理。当前模拟器会将部分注入的购买错误映射为 `StoreKitError.unknown`，因此失败测试验证 StoreKit 抛错、无交易且资产不变。此前已手动验证系统弹窗取消后余额不变，确认购买后到账，成功提示为 `Environment: Xcode`。
 
 ## 接口与网络
 

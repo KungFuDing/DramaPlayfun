@@ -1,0 +1,261 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "7A85BBD2",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "1000000000",
+      "localizations" : [
+        {
+          "description" : "本地测试充值 500 金币，不产生真实扣款。",
+          "displayName" : "500 金币",
+          "locale" : "zh_Hans"
+        },
+        {
+          "description" : "Local test purchase of 500 coins.",
+          "displayName" : "500 Coins",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "fixture.coins.0",
+      "referenceName" : "Local Coins 500",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "8.99",
+      "familyShareable" : false,
+      "internalID" : "1000000001",
+      "localizations" : [
+        {
+          "description" : "本地测试充值 1000 金币，不产生真实扣款。",
+          "displayName" : "1000 金币",
+          "locale" : "zh_Hans"
+        },
+        {
+          "description" : "Local test purchase of 1000 coins.",
+          "displayName" : "1000 Coins",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "fixture.coins.1",
+      "referenceName" : "Local Coins 1000",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "12.99",
+      "familyShareable" : false,
+      "internalID" : "1000000002",
+      "localizations" : [
+        {
+          "description" : "本地测试充值 1500 金币，不产生真实扣款。",
+          "displayName" : "1500 金币",
+          "locale" : "zh_Hans"
+        },
+        {
+          "description" : "Local test purchase of 1500 coins.",
+          "displayName" : "1500 Coins",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "fixture.coins.2",
+      "referenceName" : "Local Coins 1500",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "16.99",
+      "familyShareable" : false,
+      "internalID" : "1000000003",
+      "localizations" : [
+        {
+          "description" : "本地测试充值 2000 金币，不产生真实扣款。",
+          "displayName" : "2000 金币",
+          "locale" : "zh_Hans"
+        },
+        {
+          "description" : "Local test purchase of 2000 coins.",
+          "displayName" : "2000 Coins",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "fixture.coins.3",
+      "referenceName" : "Local Coins 2000",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "39.99",
+      "familyShareable" : false,
+      "internalID" : "1000000004",
+      "localizations" : [
+        {
+          "description" : "本地测试充值 5000 金币，不产生真实扣款。",
+          "displayName" : "5000 金币",
+          "locale" : "zh_Hans"
+        },
+        {
+          "description" : "Local test purchase of 5000 coins.",
+          "displayName" : "5000 Coins",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "fixture.coins.4",
+      "referenceName" : "Local Coins 5000",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "79.99",
+      "familyShareable" : false,
+      "internalID" : "1000000005",
+      "localizations" : [
+        {
+          "description" : "本地测试充值 10000 金币，不产生真实扣款。",
+          "displayName" : "10000 金币",
+          "locale" : "zh_Hans"
+        },
+        {
+          "description" : "Local test purchase of 10000 coins.",
+          "displayName" : "10000 Coins",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "fixture.coins.5",
+      "referenceName" : "Local Coins 10000",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "zh_Hans",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "CHN",
+    "_storeKitErrors" : [
+
+    ],
+    "_timeRate" : 0
+  },
+  "subscriptionBundleGroups" : [
+
+  ],
+  "subscriptionGroups" : [
+    {
+      "id" : "84D4D4B1",
+      "localizations" : [
+
+      ],
+      "name" : "Local Membership",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "billingPlans" : [
+            {
+              "billingPlanType" : "BILLED_UPFRONT",
+              "commitmentDisplayPrice" : "200",
+              "displayPrice" : "200",
+              "internalID" : "683D2590",
+              "isEnabled" : true
+            }
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "200",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "1000000010",
+          "introductoryOffers" : [
+
+          ],
+          "localizations" : [
+            {
+              "description" : "本地测试自动续订会员，不产生真实扣款。",
+              "displayName" : "年会员",
+              "locale" : "zh_Hans"
+            },
+            {
+              "description" : "Local yearly membership test.",
+              "displayName" : "Yearly Membership",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "fixture.year",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Local Yearly Membership",
+          "subscriptionGroupID" : "84D4D4B1",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "billingPlans" : [
+            {
+              "billingPlanType" : "BILLED_UPFRONT",
+              "commitmentDisplayPrice" : "20",
+              "displayPrice" : "20",
+              "internalID" : "D2786D41",
+              "isEnabled" : true
+            }
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "20",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "1000000011",
+          "introductoryOffers" : [
+
+          ],
+          "localizations" : [
+            {
+              "description" : "本地测试自动续订会员，不产生真实扣款。",
+              "displayName" : "周会员",
+              "locale" : "zh_Hans"
+            },
+            {
+              "description" : "Local weekly membership test.",
+              "displayName" : "Weekly Membership",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "fixture.week",
+          "recurringSubscriptionPeriod" : "P1W",
+          "referenceName" : "Local Weekly Membership",
+          "subscriptionGroupID" : "84D4D4B1",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "subscriptionSuiteGroups" : [
+
+  ],
+  "version" : {
+    "major" : 6,
+    "minor" : 3
+  }
+}

@@ -63,6 +63,7 @@ struct MembershipView: View {
                             offer(for: category, plans: plans, topPadding: 0)
                             status(for: category, plans: plans)
                             MembershipTerms(isRecharge: false).padding(.top, 24)
+                            footer.padding(.top, 25).padding(.bottom, 24)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }.padding(.top, 18)
                 } else {
@@ -71,7 +72,9 @@ struct MembershipView: View {
                     status(for: category, plans: plans)
                     MembershipTerms(isRecharge: false).padding(.top, 16)
                 }
-                footer.padding(.top, 25).padding(.bottom, 24)
+                if category == .coins || !layout.hasColumns {
+                    footer.padding(.top, 25).padding(.bottom, 24)
+                }
             }
             .frame(width: layout.contentWidth, alignment: .leading)
             .accessibilityElement(children: .contain)

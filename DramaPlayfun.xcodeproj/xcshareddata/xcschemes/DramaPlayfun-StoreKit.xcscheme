@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "2710"
-   version = "1.7">
+   version = "1.8">
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES"
@@ -38,9 +38,6 @@
             ReferencedContainer = "container:DramaPlayfun.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
-      <StoreKitConfigurationFileReference
-         identifier = "../../Config/LocalPurchases.storekit">
-      </StoreKitConfigurationFileReference>
       <Testables>
          <TestableReference
             skipped = "NO"
@@ -54,8 +51,7 @@
             </BuildableReference>
          </TestableReference>
          <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
+            skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "89037BBF305FEF5F004927E0"
@@ -65,6 +61,9 @@
             </BuildableReference>
          </TestableReference>
       </Testables>
+      <StoreKitConfigurationFileReference
+         identifier = "../../Config/LocalPurchases.storekit">
+      </StoreKitConfigurationFileReference>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

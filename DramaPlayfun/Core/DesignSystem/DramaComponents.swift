@@ -89,7 +89,8 @@ struct DramaGrid: View {
     let dramas: [Drama]
     var body: some View {
         if dramas.isEmpty {
-            ContentUnavailableView(L10n.tr("暂无剧集"), systemImage: "film", description: Text(L10n.tr("试试其他分类或关键词")))
+            EmptyStateView(title: L10n.tr("暂无剧集"), description: L10n.tr("试试其他分类或关键词"))
+                .padding(.vertical, 36)
         } else {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], alignment: .leading, spacing: 24) {
                 ForEach(dramas) { DramaCard(drama: $0) }

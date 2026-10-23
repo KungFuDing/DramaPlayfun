@@ -10,6 +10,10 @@ final class DramaPlaybackStore {
         _ = LocalizationStore.shared.language
         return loadError?.appLocalizedDescription
     }
+    var hasNoPlayableEpisodes: Bool {
+        if case .noPlayableEpisodes? = loadError as? DramaPlaybackError { return true }
+        return false
+    }
     private(set) var likingIDs: Set<String> = []
     private(set) var isFavoriting = false
     private let network: APIClient

@@ -104,7 +104,8 @@ struct ShortDramaDetailView: View {
             else if let error = store.recommendationError {
                 retryMessage(error) { Task { await store.loadRecommendations() } }.padding(.horizontal, 12)
             } else if store.recommendations.isEmpty {
-                Text(L10n.tr("暂无推荐")).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 12)
+                EmptyStateView(title: L10n.tr("暂无推荐"))
+                    .padding(.horizontal, 12).padding(.vertical, 24)
             } else {
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 16) {

@@ -6,7 +6,7 @@ struct DramaDetailView: View {
     @Environment(AppRouter.self) private var router
     @State private var episodes: [Episode] = []
     @State private var errorMessage: String?
-    @State private var isLoading = false
+    @State private var isLoading = true
 
     var body: some View {
         ScrollView {
@@ -37,6 +37,10 @@ struct DramaDetailView: View {
                     }.buttonStyle(.borderedProminent).foregroundStyle(.black)
                 }
                 Text(L10n.tr("选集")).font(.title3.bold())
+                if episodes.isEmpty && !isLoading && errorMessage == nil {
+                    EmptyStateView(title: L10n.tr("player.no_episodes"))
+                        .padding(.vertical, 24)
+                }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 64))], spacing: 12) {
                     ForEach(episodes) { episode in
                         Button { play(episode) } label: {

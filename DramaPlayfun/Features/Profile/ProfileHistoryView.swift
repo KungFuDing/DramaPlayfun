@@ -58,7 +58,8 @@ struct ProfileHistoryView: View {
             Text(error).font(.footnote).foregroundStyle(.secondary)
             Button(L10n.tr("重试")) { Task { await history.reload() } }.foregroundStyle(Theme.accent)
         } else if !history.isLoading, history.items.isEmpty {
-            ContentUnavailableView(L10n.tr("还没有观看记录"), systemImage: "clock")
+            EmptyStateView(title: L10n.tr("还没有观看记录"))
+                .padding(.vertical, 36)
         }
         if let error = history.loadMoreErrorMessage {
             Text(error).font(.footnote).foregroundStyle(.secondary)

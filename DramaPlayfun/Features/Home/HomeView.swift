@@ -200,7 +200,8 @@ private struct HomeCategoryContent: View {
                         HomeWaterfallGrid(dramas: app.homeFeed.hotDramas, layout: layout)
                     }
                     if app.homeFeed.hotDramas.isEmpty && !app.homeFeed.isLoadingMore && app.homeFeed.hotErrorMessage == nil {
-                        ContentUnavailableView(L10n.tr("暂无剧集"), systemImage: "film")
+                        EmptyStateView(title: L10n.tr("暂无剧集"))
+                            .padding(.vertical, 36)
                     }
                 } else if app.homeFeed.isLoading {
                     ProgressView(L10n.tr("加载首页…")).frame(maxWidth: .infinity).padding(.vertical, 36)
@@ -446,16 +447,21 @@ private struct HomeDramaShelf: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HomeSectionTitle(title: title) { router.selectedTab = .theater }
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 14) {
-                    ForEach(dramas) { drama in
-                        DramaCard(drama: drama, onSelect: { router.openPlayback(drama) }).frame(width: cardWidth)
-                            .playbackPrefetchCandidate(dramaID: drama.id)
-                            .accessibilityIdentifier("home-shelf-item-\(drama.id)")
+            if dramas.isEmpty {
+                EmptyStateView(title: L10n.tr("暂无剧集"))
+                    .padding(.vertical, 24)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(dramas) { drama in
+                            DramaCard(drama: drama, onSelect: { router.openPlayback(drama) }).frame(width: cardWidth)
+                                .playbackPrefetchCandidate(dramaID: drama.id)
+                                .accessibilityIdentifier("home-shelf-item-\(drama.id)")
+                        }
                     }
                 }
+                .playbackPrefetchClipped()
             }
-            .playbackPrefetchClipped()
         }
     }
 }
@@ -475,7 +481,7 @@ private struct HomeWaterfallGrid: View {
     var body: some View {
         let columns = self.columns
         if dramas.isEmpty {
-            ContentUnavailableView(L10n.tr("暂无剧集"), systemImage: "film", description: Text(L10n.tr("试试其他分类或关键词")))
+            EmptyStateView(title: L10n.tr("暂无剧集"), description: L10n.tr("试试其他分类或关键词"))
                 .frame(maxWidth: .infinity).padding(.vertical, 36)
         } else {
             HStack(alignment: .top, spacing: layout.columnSpacing) {

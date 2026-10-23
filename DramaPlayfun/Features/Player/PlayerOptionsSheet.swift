@@ -41,8 +41,8 @@ struct PlayerOptionsSheet: View {
                     if isLoading {
                         ProgressView(L10n.tr("正在加载字幕…")).tint(.white).padding(.top, 40)
                     } else if options.isEmpty {
-                        Text(emptyMessage ?? L10n.tr("本集暂无可切换字幕")).font(.system(size: 14))
-                            .foregroundStyle(Color(white: 0.7)).padding(.top, 40)
+                        EmptyStateView(title: emptyMessage ?? L10n.tr("本集暂无可切换字幕"))
+                            .padding(.top, 24).padding(.bottom, 12)
                     } else {
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 11), count: columns), spacing: 10) {
                             ForEach(options) { option in

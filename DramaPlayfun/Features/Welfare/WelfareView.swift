@@ -32,6 +32,9 @@ struct WelfareView: View {
                         if let error = app.welfare.error {
                             Text(error).font(.footnote).foregroundStyle(.secondary).padding(.top, 12)
                             Button(L10n.tr("重新加载")) { Task { await app.welfare.reload() } }.padding(.vertical, 12)
+                        } else if app.welfare.hasLoaded && !app.welfare.isLoading && app.welfare.tasks.isEmpty {
+                            EmptyStateView(title: L10n.tr("暂无更多内容"))
+                                .padding(.vertical, 24)
                         }
                         if let error = app.wallet.balanceError {
                             Text(error).font(.footnote).foregroundStyle(.secondary).padding(.top, 12)

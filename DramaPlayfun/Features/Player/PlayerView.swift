@@ -86,7 +86,11 @@ struct PlayerView: View {
                     VStack(spacing: 16) {
                         if store.isLoading || !isReady { ProgressView(L10n.tr("正在加载剧集…")) }
                         else {
-                            Text(store.errorMessage ?? L10n.tr("player.no_episodes"))
+                            if store.hasNoPlayableEpisodes || store.errorMessage == nil {
+                                EmptyStateView(title: store.errorMessage ?? L10n.tr("player.no_episodes"))
+                            } else {
+                                Text(store.errorMessage ?? L10n.tr("player.no_episodes"))
+                            }
                             Button(L10n.tr("重试")) { attempt += 1 }
                         }
                     }.padding(32)

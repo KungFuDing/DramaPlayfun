@@ -2,20 +2,10 @@ import SwiftUI
 
 struct SearchEmptyView: View {
     var body: some View {
-        VStack(spacing: 10) {
-            Image("SearchEmpty")
-                .resizable().scaledToFit()
-                .frame(width: 88, height: 88)
-                .accessibilityHidden(true)
-            Text(L10n.tr("暂无更多内容"))
-                .font(.system(size: 13))
-                .foregroundStyle(Color(white: 0.6))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 10)
-        .padding(.bottom, 5)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("search-empty")
+        EmptyStateView(title: L10n.tr("暂无更多内容"))
+            .padding(.top, 10)
+            .padding(.bottom, 5)
+            .accessibilityIdentifier("search-empty")
     }
 }
 

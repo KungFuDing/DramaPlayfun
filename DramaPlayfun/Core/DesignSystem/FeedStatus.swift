@@ -12,7 +12,8 @@ struct FeedTabsStatus: View {
                 Button(L10n.tr("重新加载分类")) { Task { await feed.reloadTabs() } }
             }.frame(maxWidth: .infinity)
         } else if feed.hasLoadedTabs && feed.tabs.isEmpty {
-            ContentUnavailableView(L10n.tr("暂无分类"), systemImage: "square.grid.2x2")
+            EmptyStateView(title: L10n.tr("暂无分类"))
+                .padding(.vertical, 24)
         }
     }
 }
@@ -40,7 +41,8 @@ struct FeedPageStatus: View {
                 Button(L10n.tr("重新加载")) { Task { await onRetry() } }
             }.frame(maxWidth: .infinity)
         } else if state.hasLoaded && state.dramas.isEmpty && state.errorMessage == nil {
-            ContentUnavailableView(L10n.tr("暂无剧集"), systemImage: "film")
+            EmptyStateView(title: L10n.tr("暂无剧集"))
+                .padding(.vertical, 36)
         }
     }
 }

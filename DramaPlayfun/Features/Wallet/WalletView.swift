@@ -123,8 +123,8 @@ struct WalletView: View {
                     Text(error).font(.footnote).foregroundStyle(.secondary)
                     Button(L10n.tr("重新加载")) { Task { await store.load(kind, refresh: groups.isEmpty) } }
                 } else if groups.isEmpty {
-                    Text(kind.emptyTitle).font(.system(size: 14))
-                        .foregroundStyle(Color(white: 0.58)).padding(.vertical, 40)
+                    EmptyStateView(title: kind.emptyTitle)
+                        .padding(.vertical, 40)
                 }
                 if store.hasMore[kind] == true {
                     Button { Task { await store.load(kind) } } label: {

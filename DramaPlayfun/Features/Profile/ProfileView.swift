@@ -206,7 +206,9 @@ struct ProfileView: View {
                 Button(L10n.tr("重新加载")) { Task { await store.load(collection, refresh: true) } }
             }.frame(maxWidth: .infinity).padding(.vertical, 40)
         } else if items.isEmpty {
-            ContentUnavailableView(collection == .favorites ? L10n.tr("还没有收藏") : L10n.tr("还没有点赞"), systemImage: collection == .favorites ? "star" : "hand.thumbsup", description: Text(L10n.tr("在剧场发现喜欢的故事")))
+            EmptyStateView(title: collection == .favorites ? L10n.tr("还没有收藏") : L10n.tr("还没有点赞"),
+                           description: L10n.tr("在剧场发现喜欢的故事"))
+                .padding(.vertical, 36)
                 .frame(minHeight: emptyStateMinHeight)
         } else {
             HStack(alignment: .top, spacing: layout.browse.columnSpacing) {

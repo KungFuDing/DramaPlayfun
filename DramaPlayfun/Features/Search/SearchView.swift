@@ -123,8 +123,8 @@ struct SearchView: View {
             } else if app.homeFeed.isLoading || app.homeFeed.isLoadingMore {
                 ProgressView(L10n.tr("加载剧集…")).frame(maxWidth: .infinity).padding(24)
             } else if app.homeFeed.hotErrorMessage == nil {
-                Text(L10n.tr("暂无热播剧集")).font(.subheadline).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity).padding(24)
+                EmptyStateView(title: L10n.tr("暂无热播剧集"))
+                    .padding(24)
             }
         }
     }
@@ -223,7 +223,7 @@ private struct SearchHistorySection: View {
             } else if store.isLoadingHistory {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 12)
             } else if store.historyError == nil {
-                Text(L10n.tr("暂无搜索记录")).font(.system(size: 12)).foregroundStyle(Color(white: 0.6))
+                EmptyStateView(title: L10n.tr("暂无搜索记录"))
                     .padding(.vertical, 8).accessibilityIdentifier("search-history-empty")
             }
         }

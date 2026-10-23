@@ -24,8 +24,9 @@ struct TheaterView: View {
                         if app.theaterFeed.isLoading || !app.theaterFeed.hasLoaded {
                             ProgressView(L10n.tr("正在加载剧场…"))
                         } else {
-                            ContentUnavailableView(L10n.tr("theater.no_dramas"), systemImage: "play.rectangle",
-                                description: Text(L10n.tr("精彩故事即将上线")))
+                            EmptyStateView(title: L10n.tr("theater.no_dramas"),
+                                           description: L10n.tr("精彩故事即将上线"))
+                                .padding(.horizontal, 24)
                             Button(L10n.tr("重新加载")) { Task { await app.theaterFeed.reload() } }
                         }
                     }

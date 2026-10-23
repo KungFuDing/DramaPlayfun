@@ -59,7 +59,7 @@ struct PlayerEpisodesSheet: View {
                 .mask(LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .bottom))
             VStack(alignment: .leading, spacing: 16) {
                 dramaHeader
-                rangeTabs
+                if !episodes.isEmpty { rangeTabs }
                 episodeGrid(layout: layout)
             }
             .padding(.horizontal, layout.horizontalPadding)
@@ -131,13 +131,18 @@ struct PlayerEpisodesSheet: View {
 
     private func episodeGrid(layout: EpisodeSheetLayout) -> some View {
         ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12),
-                                    count: layout.columnCount), spacing: 10) {
-                ForEach(visibleEpisodes) { episode in
-                    EpisodeSelectionCell(episode: episode, isSelected: selectedID == episode.id,
-                        accent: accent) { onSelect(episode) }
-                }
-            }.padding(.top, 1).padding(.bottom, layout.bottomPadding)
+            if episodes.isEmpty {
+                EmptyStateView(title: L10n.tr("player.no_episodes"))
+                    .padding(.top, 16).padding(.bottom, layout.bottomPadding)
+            } else {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12),
+                                        count: layout.columnCount), spacing: 10) {
+                    ForEach(visibleEpisodes) { episode in
+                        EpisodeSelectionCell(episode: episode, isSelected: selectedID == episode.id,
+                            accent: accent) { onSelect(episode) }
+                    }
+                }.padding(.top, 1).padding(.bottom, layout.bottomPadding)
+            }
         }
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
@@ -164,7 +169,8 @@ private struct EpisodeSheetLayout {
         let cellSize = max(0, (contentWidth - CGFloat(columnCount - 1) * 12) / CGFloat(columnCount))
         let rows = CGFloat((episodeCount + columnCount - 1) / columnCount)
         let gridHeight = rows * cellSize + max(0, rows - 1) * 10
-        let contentHeight = 30 + 92 + 32 + 33 + 1 + gridHeight + bottomPadding
+        let selectionHeight = episodeCount == 0 ? 130 : 33 + 16 + 1 + gridHeight
+        let contentHeight = 30 + 92 + 16 + selectionHeight + bottomPadding
         let availableHeight = max(0, panel.size.height - max(panel.safeAreaInsets.top, 12) - 12)
         height = min(availableHeight, 600, max(panel.size.height * 0.602, contentHeight))
     }

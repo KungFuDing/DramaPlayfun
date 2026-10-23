@@ -136,8 +136,10 @@ struct MembershipView: View {
         VStack(spacing: 10) {
             if store.isLoading { ProgressView(L10n.tr("正在加载商品…")) }
             else {
-                Text(category == .coins ? L10n.tr("充值商品暂未开放") : L10n.tr("订阅方案暂未开放"))
+                EmptyStateView(title: category == .coins ? L10n.tr("充值商品暂未开放") : L10n.tr("订阅方案暂未开放"))
+                    .padding(.top, 24)
                 Button(L10n.tr("重新加载")) { Task { await store.loadPlans() } }.foregroundStyle(Theme.accent)
+                    .padding(.bottom, 24)
             }
         }.font(.system(size: 14)).frame(maxWidth: .infinity).frame(minHeight: 94)
             .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
